@@ -45,14 +45,8 @@ jobs:
 
       - name: Prepare Desktop Application Icons
         run: |
-          bash scripts/make-icons.sh || true
-          mkdir -p build/icons
-          if [ -d "build-resources" ]; then
-            cp -r build-resources/* build/icons/ || true
-            cp build-resources/icon.ico build/icon.ico || true
-            cp build-resources/icon.icns build/icon.icns || true
-            cp build-resources/icon.png build/icon.png || true
-          fi
+          node scripts/generate-icons.cjs
+
 
       - name: Cache Electron Binaries
         uses: actions/cache@v4
