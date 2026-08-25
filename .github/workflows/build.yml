@@ -53,6 +53,18 @@ jobs:
             cp build-resources/icon.png build/icon.png || true
           fi
 
+      - name: Cache Electron Binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            AppData/Local/electron/Cache
+            AppData/Local/electron-builder/Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -61,20 +73,20 @@ jobs:
 
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder build --linux --x64 --publish never
+        run: npx electron-builder build --linux --x64 --publish never || (sleep 5 && npx electron-builder build --linux --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder build --win --x64 --publish never
+        run: npx electron-builder build --win --x64 --publish never || (sleep 5 && npx electron-builder build --win --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           WIN_CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle macOS Executable Binaries (DMG)
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder build --mac -c.mac.identity=null --publish never
+        run: npx electron-builder build --mac -c.mac.identity=null --publish never || (sleep 5 && npx electron-builder build --mac -c.mac.identity=null --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           MAC_CSC_IDENTITY_AUTO_DISCOVERY: false
