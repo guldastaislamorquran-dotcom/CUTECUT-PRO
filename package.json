@@ -27,11 +27,12 @@
   },
   "build": {
     "appId": "com.guldastaislamorquran.webvideoeditor",
-    "productName": "ai-quran-video-editor",
+    "productName": "AI Quran Video Editor",
     "directories": {
       "output": "dist-desktop",
-      "buildResources": "src-tauri"
+      "buildResources": "build"
     },
+    "icon": "build/icon.png",
     "files": [
       "dist/**/*",
       "package.json"
@@ -43,19 +44,21 @@
       ],
       "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
       "category": "Video",
-      "icon": "src-tauri/icons/128x128.png"
+      "icon": "build/icons"
     },
     "win": {
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.video"
+      "category": "public.app-category.video",
+      "icon": "build/icon.png"
     }
   },
   "dependencies": {

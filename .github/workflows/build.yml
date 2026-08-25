@@ -34,6 +34,12 @@ jobs:
       - name: Build Web Core Assets
         run: npm run build
 
+      - name: Prepare Desktop Application Icons
+        run: |
+          mkdir -p build/icons
+          cp -r src-tauri/icons/* build/icons/ || true
+          cp src-tauri/icons/512x512.png build/icon.png || true
+
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
         run: |

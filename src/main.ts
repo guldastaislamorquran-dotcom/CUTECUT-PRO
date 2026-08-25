@@ -4,14 +4,19 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import os from 'os';
 
-// Hardware acceleration & low-latency canvas switches for 60FPS video playback
+// Network & Web Security bypasses for Quran API media access
 app.commandLine.appendSwitch('disable-web-security');
 app.commandLine.appendSwitch('allow-running-insecure-content');
 app.commandLine.appendSwitch('ignore-certificate-errors');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-hardware-overlays');
+
+// Safe GPU acceleration (avoids Linux X11/Wayland tile corruption & buffer bleeding)
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+} else {
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+}
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -42,12 +47,17 @@ function createWindow() {
     minHeight: 700,
     title: 'AI Quran Video Editor & Audio Aligner Pro',
     backgroundColor: '#0a0a12',
+    show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
       webSecurity: false,
       allowRunningInsecureContent: true,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
 
   // Comprehensive CORS & Network Bypass Rules for quran.com and external cloud streams
