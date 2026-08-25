@@ -1,0 +1,1 @@
+The ultimate AI-powered offline desktop video editor & audio aligner for Quranic calligraphy. Features dynamic hardware acceleration, automatic voice synchronization, and cross-platform production builds (EXE, DEB, AppImage) with zero cloud dependencies.
