@@ -59,11 +59,22 @@
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build-resources/icon.ico",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": false,
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
@@ -71,6 +82,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "CUTECUT PRO SETUP"
+    },
+    "portable": {
+      "artifactName": "CUTECUT-PRO-SETUP-Portable-${version}.${ext}"
     },
     "mac": {
       "target": [
