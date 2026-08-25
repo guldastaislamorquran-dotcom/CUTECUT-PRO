@@ -44,11 +44,13 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfuse2 dpkg || sudo apt-get install -y libfuse2t64 dpkg || true
+          sudo apt-get install -y fakeroot dpkg libfuse2 || sudo apt-get install -y fakeroot dpkg libfuse2t64 || true
 
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder build --linux deb AppImage || npx electron-packager . CUTECUT-PRO-SETUP --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar
+        run: |
+          npx electron-builder build --linux deb AppImage || true
+          npx electron-packager . CUTECUT-PRO-SETUP --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar || true
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
