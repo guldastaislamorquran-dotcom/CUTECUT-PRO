@@ -76,7 +76,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CUTECUT PRO SETUP"
+      "shortcutName": "CUTECUT PRO SETUP",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico"
     },
     "portable": {
       "artifactName": "CUTECUT-PRO-SETUP-Portable-${version}.${ext}"

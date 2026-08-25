@@ -51,43 +51,48 @@ async function main() {
     return;
   }
 
-  // 1. Generate ICO with pngToIco (100% stable BMP frames compatible with resedit)
-  console.log('[ICON-GEN] Generating Windows ICO...');
+  // 1. Generate ICO with png2icons (standard 9-frame Vista/7/8/10/11 + NSIS compliant ICO)
+  console.log('[ICON-GEN] Generating standard Windows ICO...');
   let icoBuffer = null;
 
   try {
-    const pngSizes = [
-      'build-resources/256x256.png',
-      'build-resources/128x128.png',
-      'build-resources/64x64.png',
-      'build-resources/48x48.png',
-      'build-resources/32x32.png',
-      'build-resources/16x16.png'
-    ].filter(p => fs.existsSync(p));
-
-    if (pngSizes.length > 0) {
-      icoBuffer = await pngToIco(pngSizes);
-    } else {
-      icoBuffer = await pngToIco(masterPngPath);
+    icoBuffer = png2icons.createICO(masterPngBuffer, png2icons.BILINEAR, 0, false, true);
+    if (icoBuffer && icoBuffer.length > 0) {
+      console.log(`[ICON-GEN] png2icons produced standard ICO (${icoBuffer.length} bytes, 9 resolutions).`);
     }
+  } catch (e1) {
+    console.warn('[ICON-GEN] png2icons failed, falling back to png-to-ico:', e1.message);
+  }
 
-    if (icoBuffer) {
-      const parsed = resedit.Data.IconFile.from(icoBuffer);
-      console.log(`[ICON-GEN] png-to-ico parsed successfully (${parsed.icons.length} frames).`);
-    }
-  } catch (err) {
-    console.warn('[ICON-GEN] png-to-ico failed, trying png2icons:', err.message);
+  if (!icoBuffer) {
     try {
-      icoBuffer = png2icons.createICO(masterPngBuffer, png2icons.BILINEAR, 0, false, true);
+      const pngSizes = [
+        'build-resources/256x256.png',
+        'build-resources/128x128.png',
+        'build-resources/64x64.png',
+        'build-resources/48x48.png',
+        'build-resources/32x32.png',
+        'build-resources/16x16.png'
+      ].filter(p => fs.existsSync(p));
+
+      if (pngSizes.length > 0) {
+        icoBuffer = await pngToIco(pngSizes);
+      } else {
+        icoBuffer = await pngToIco(masterPngPath);
+      }
     } catch (e2) {
-      console.error('[ICON-GEN] png2icons error:', e2.message);
+      console.error('[ICON-GEN] Fallback png-to-ico also failed:', e2.message);
     }
   }
 
   if (icoBuffer) {
     const icoTargets = [
       'build-resources/icon.ico',
+      'build-resources/installerIcon.ico',
+      'build-resources/uninstallerIcon.ico',
       'build/icon.ico',
+      'build/installerIcon.ico',
+      'build/uninstallerIcon.ico',
       'build/icons/icon.ico',
       'public/icon.ico',
       'icon.ico'
