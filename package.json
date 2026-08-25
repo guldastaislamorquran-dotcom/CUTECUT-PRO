@@ -50,12 +50,7 @@
       "synopsis": "CUTECUT PRO Setup Professional Video Editor Suite",
       "description": "CUTECUT PRO Setup Professional Video Editor Suite",
       "category": "Video",
-      "icon": "build/icons",
-      "desktop": {
-        "Name": "CUTECUT PRO SETUP",
-        "Comment": "Professional Studio Video Editor",
-        "Categories": "AudioVideo;Video;AudioVideoEditing;"
-      }
+      "icon": "build/icons"
     },
     "deb": {
       "priority": "optional"
