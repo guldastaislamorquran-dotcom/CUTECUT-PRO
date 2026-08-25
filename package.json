@@ -32,6 +32,10 @@
       "output": "dist-desktop",
       "buildResources": "src-tauri"
     },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
     "linux": {
       "target": [
         "AppImage",
@@ -40,6 +44,18 @@
       "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
       "category": "Video",
       "icon": "src-tauri/icons/128x128.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video"
     }
   },
   "dependencies": {
