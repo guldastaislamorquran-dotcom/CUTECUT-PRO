@@ -4,8 +4,14 @@ on:
   push:
     branches:
       - main
+      - master
     tags:
       - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -48,24 +54,27 @@ jobs:
 
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder build --linux deb AppImage
+        run: npx electron-builder build --linux deb AppImage --publish never
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder build --win nsis portable
+        run: npx electron-builder build --win nsis portable --publish never
 
       - name: Bundle macOS Executable Binaries (DMG)
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder build --mac dmg
+        run: npx electron-builder build --mac dmg --publish never
 
       - name: Upload Build Artifacts Archive
         uses: actions/upload-artifact@v4
         with:
-          name: CUTECUT-PRO-Stable-Binaries-${{ matrix.os }}
+          name: CUTECUT-PRO-Installers-${{ matrix.os }}
           if-no-files-found: warn
           path: |
+            dist-desktop/*.exe
+            dist-desktop/*.deb
+            dist-desktop/*.AppImage
+            dist-desktop/*.dmg
             dist-desktop/
-            dist/
 
       - name: Publish Automated GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -76,9 +85,9 @@ jobs:
             dist-desktop/*.deb
             dist-desktop/*.AppImage
             dist-desktop/*.dmg
-            dist-desktop/**/*
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 

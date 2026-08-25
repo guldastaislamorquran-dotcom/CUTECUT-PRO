@@ -3806,9 +3806,9 @@ export default function App() {
               • {systemSpecs.cpuCores}C
             </span>
             {systemSpecs.isOnline ? (
-              <Wifi className="w-3 h-3 text-emerald-400 ml-0.5" title="Online" />
+              <span title="Online"><Wifi className="w-3 h-3 text-emerald-400 ml-0.5" /></span>
             ) : (
-              <WifiOff className="w-3 h-3 text-amber-400 ml-0.5" title="Offline Mode Active" />
+              <span title="Offline Mode Active"><WifiOff className="w-3 h-3 text-amber-400 ml-0.5" /></span>
             )}
           </div>
 
