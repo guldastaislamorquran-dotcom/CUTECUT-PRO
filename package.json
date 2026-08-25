@@ -1,0 +1,71 @@
+{
+  "name": "ai-quran-video-editor",
+  "private": true,
+  "version": "2.0.0",
+  "description": "AI Quran Video Editor Professional Production Suite",
+  "homepage": "https://github.com",
+  "author": {
+    "name": "Asmatullah Developer",
+    "email": "asmatullahdevolper@gmail.com"
+  },
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --external:child_process --external:fs --external:path --external:url --outfile=dist/main.js && esbuild src/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/main.cjs",
+    "start": "node dist/server.cjs",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder",
+    "electron:pack": "npm run build && electron-packager . ai-quran-video-editor --out=dist-desktop --overwrite --asar",
+    "pack:win": "npm run build && electron-packager . ai-quran-video-editor --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:linux": "npm run build && electron-packager . ai-quran-video-editor --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:mac": "npm run build && electron-packager . ai-quran-video-editor --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "build": {
+    "appId": "com.guldastaislamorquran.webvideoeditor",
+    "productName": "ai-quran-video-editor",
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "src-tauri"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
+      "category": "Video",
+      "icon": "src-tauri/icons/128x128.png"
+    }
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "firebase": "^12.17.1",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "electron": "^43.4.0",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
+  }
+}

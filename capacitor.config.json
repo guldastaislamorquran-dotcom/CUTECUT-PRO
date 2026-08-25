@@ -1,0 +1,16 @@
+{
+  "appId": "com.quraneditor.app",
+  "appName": "AI Quran Video Editor",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "quran.com",
+      "api.quran.com",
+      "download.quranicaudio.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
