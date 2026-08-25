@@ -2,6 +2,7 @@
   "name": "cutecut-pro-setup",
   "private": true,
   "version": "2.0.0",
+  "license": "MIT",
   "description": "CUTECUT PRO Setup Professional Video Editor Suite",
   "homepage": "https://github.com",
   "author": {
@@ -28,6 +29,7 @@
   "build": {
     "appId": "com.guldastaislamorquran.cutecutprosetup",
     "productName": "CUTECUT PRO SETUP",
+    "copyright": "Copyright © 2026 Asmatullah Developer",
     "directories": {
       "output": "dist-desktop",
       "buildResources": "build"
@@ -43,9 +45,20 @@
         "AppImage",
         "deb"
       ],
+      "vendor": "Asmatullah Developer",
       "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
+      "synopsis": "CUTECUT PRO Setup Professional Video Editor Suite",
+      "description": "CUTECUT PRO Setup Professional Video Editor Suite",
       "category": "Video",
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "desktop": {
+        "Name": "CUTECUT PRO SETUP",
+        "Comment": "Professional Studio Video Editor",
+        "Categories": "AudioVideo;Video;AudioVideoEditing;"
+      }
+    },
+    "deb": {
+      "priority": "optional"
     },
     "win": {
       "target": [
