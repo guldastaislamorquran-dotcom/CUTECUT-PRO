@@ -8,26 +8,20 @@ mkdir -p build-resources build build/icons public src-tauri/icons
 echo "Converting source JPG to clean 1024x1024 PNG..."
 convert "$SRC" -resize 1024x1024 PNG32:master_1024.png
 
-echo "Generating ICO with png-to-ico and ICNS with png2icons..."
+echo "Generating standard Windows ICO with ImageMagick..."
+convert master_1024.png -define icon:auto-resize=256,128,64,48,32,16 build-resources/icon.ico
+cp build-resources/icon.ico build/icon.ico
+cp build-resources/icon.ico build/icons/icon.ico
+cp build-resources/icon.ico public/icon.ico
+cp build-resources/icon.ico icon.ico
+console_log="Saved standard ImageMagick icon.ico"
+
+echo "Generating ICNS with png2icons..."
 node -e "
 const fs = require('fs');
-const pngToIco = require('png-to-ico');
 const png2icons = require('png2icons');
-const fn = typeof pngToIco === 'function' ? pngToIco : pngToIco.default;
 
 const masterPng = fs.readFileSync('master_1024.png');
-
-fn('master_1024.png').then(ico => {
-  fs.writeFileSync('build-resources/icon.ico', ico);
-  fs.writeFileSync('build/icon.ico', ico);
-  fs.writeFileSync('build/icons/icon.ico', ico);
-  fs.writeFileSync('public/icon.ico', ico);
-  fs.writeFileSync('icon.ico', ico);
-  console.log('Saved valid icon.ico');
-}).catch(err => {
-  console.error('ICO error:', err);
-});
-
 const icns = png2icons.createICNS(masterPng, png2icons.BILINEAR, 0);
 if (icns) {
   fs.writeFileSync('build-resources/icon.icns', icns);

@@ -72,7 +72,7 @@
           ]
         }
       ],
-      "icon": "icon.ico",
+      "icon": "build-resources/icon.png",
       "verifyUpdateCodeSignature": false
     },
     "nsis": {
