@@ -47,9 +47,10 @@ jobs:
         run: |
           mkdir -p build/icons
           if [ -d "src-tauri/icons" ]; then
-            cp -r src-tauri/icons/* build/icons/ || true
-            cp src-tauri/icons/512x512.png build/icon.png || true
+            cp -rn src-tauri/icons/* build/icons/ || true
           fi
+          if [ -f "build/icons/icon.ico" ]; then cp -n build/icons/icon.ico build/icon.ico || true; fi
+          if [ -f "build/icons/icon.icns" ]; then cp -n build/icons/icon.icns build/icon.icns || true; fi
 
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
