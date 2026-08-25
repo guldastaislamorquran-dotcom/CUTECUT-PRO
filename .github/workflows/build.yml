@@ -26,7 +26,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Dependencies
         run: npm install
@@ -48,15 +48,15 @@ jobs:
 
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder build --linux deb AppImage || npx electron-packager . CUTECUT-PRO --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar
+        run: npx electron-builder build --linux deb AppImage || npx electron-packager . CUTECUT-PRO-SETUP --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder build --win nsis portable || npx electron-packager . CUTECUT-PRO --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar
+        run: npx electron-builder build --win nsis portable || npx electron-packager . CUTECUT-PRO-SETUP --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar
 
       - name: Bundle macOS Executable Binaries (DMG)
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder build --mac dmg || npx electron-packager . CUTECUT-PRO --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar
+        run: npx electron-builder build --mac dmg || npx electron-packager . CUTECUT-PRO-SETUP --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar
 
       - name: Upload Build Artifacts Archive
         uses: actions/upload-artifact@v4
