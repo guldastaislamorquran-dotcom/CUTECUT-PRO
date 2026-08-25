@@ -4,6 +4,9 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import os from 'os';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Network & Web Security bypasses for Quran API media access
 app.commandLine.appendSwitch('disable-web-security');
 app.commandLine.appendSwitch('allow-running-insecure-content');
@@ -32,22 +35,25 @@ function resolveEntryHtml(): string {
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    if (candidate && fs.existsSync(candidate)) {
       return candidate;
     }
   }
-  return candidates[0];
+  return path.join(appPath, 'dist', 'index.html');
 }
 
 function createWindow() {
+  const iconPath = path.join(app.getAppPath(), 'build', 'icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'AI Quran Video Editor & Audio Aligner Pro',
+    title: 'CUTECUT PRO SETUP',
     backgroundColor: '#0a0a12',
-    show: false,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    show: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -57,7 +63,9 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
   });
 
   // Comprehensive CORS & Network Bypass Rules for quran.com and external cloud streams

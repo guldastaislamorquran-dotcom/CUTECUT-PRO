@@ -1,8 +1,8 @@
 {
-  "name": "ai-quran-video-editor",
+  "name": "cutecut-pro-setup",
   "private": true,
   "version": "2.0.0",
-  "description": "AI Quran Video Editor Professional Production Suite",
+  "description": "CUTECUT PRO Setup Professional Video Editor Suite",
   "homepage": "https://github.com",
   "author": {
     "name": "Asmatullah Developer",
@@ -18,16 +18,16 @@
     "lint": "tsc --noEmit",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
-    "electron:pack": "npm run build && electron-packager . ai-quran-video-editor --out=dist-desktop --overwrite --asar",
-    "pack:win": "npm run build && electron-packager . ai-quran-video-editor --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:linux": "npm run build && electron-packager . ai-quran-video-editor --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:mac": "npm run build && electron-packager . ai-quran-video-editor --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
+    "electron:pack": "npm run build && electron-packager . CUTECUT-PRO-SETUP --out=dist-desktop --overwrite --asar",
+    "pack:win": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:linux": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:mac": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
   "build": {
-    "appId": "com.guldastaislamorquran.webvideoeditor",
-    "productName": "AI Quran Video Editor",
+    "appId": "com.guldastaislamorquran.cutecutprosetup",
+    "productName": "CUTECUT PRO SETUP",
     "directories": {
       "output": "dist-desktop",
       "buildResources": "build"
@@ -35,6 +35,7 @@
     "icon": "build/icon.png",
     "files": [
       "dist/**/*",
+      "build/**/*",
       "package.json"
     ],
     "linux": {
