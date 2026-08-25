@@ -67,6 +67,7 @@
         }
       ],
       "icon": "build-resources/icon.ico",
+      "signAndEditExecutable": false,
       "signExecutable": false,
       "verifyUpdateCodeSignature": false
     },
