@@ -34,12 +34,12 @@
     "asar": true,
     "directories": {
       "output": "dist-desktop",
-      "buildResources": "build"
+      "buildResources": "build-resources"
     },
-    "icon": "build/icon.png",
+    "icon": "build-resources/icon.png",
     "files": [
       "dist/**/*",
-      "build/**/*",
+      "build-resources/**/*",
       "package.json"
     ],
     "linux": {
@@ -52,7 +52,7 @@
       "synopsis": "CUTECUT PRO Setup Professional Video Editor Suite",
       "description": "CUTECUT PRO Setup Professional Video Editor Suite",
       "category": "Video",
-      "icon": "build/icons"
+      "icon": "build-resources"
     },
     "deb": {
       "priority": "optional"
@@ -62,7 +62,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.ico",
+      "icon": "build-resources/icon.ico",
       "verifyUpdateCodeSignature": false
     },
     "nsis": {
@@ -77,7 +77,7 @@
         "dmg"
       ],
       "category": "public.app-category.video",
-      "icon": "build/icon.icns",
+      "icon": "build-resources/icon.icns",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false

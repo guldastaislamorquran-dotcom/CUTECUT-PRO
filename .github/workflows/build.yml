@@ -46,11 +46,12 @@ jobs:
       - name: Prepare Desktop Application Icons
         run: |
           mkdir -p build/icons
-          if [ -d "src-tauri/icons" ]; then
-            cp -rn src-tauri/icons/* build/icons/ || true
+          if [ -d "build-resources" ]; then
+            cp -r build-resources/* build/icons/ || true
+            cp -n build-resources/icon.ico build/icon.ico || true
+            cp -n build-resources/icon.icns build/icon.icns || true
+            cp -n build-resources/icon.png build/icon.png || true
           fi
-          if [ -f "build/icons/icon.ico" ]; then cp -n build/icons/icon.ico build/icon.ico || true; fi
-          if [ -f "build/icons/icon.icns" ]; then cp -n build/icons/icon.icns build/icon.icns || true; fi
 
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
