@@ -1,0 +1,46 @@
+name: CI/CD Build Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Web Core Assets
+        run: npm run build
+
+      - name: Bundle Linux Executable Binaries
+        if: matrix.os == 'ubuntu-latest'
+        run: npx electron-builder build --linux deb AppImage
+
+      - name: Bundle Windows Executable Binaries
+        if: matrix.os == 'windows-latest'
+        run: npx electron-packager . CUTECUT-PRO --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar
+
+      - name: Upload Build Artifacts Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUTECUT-PRO-Stable-Binaries-${{ matrix.os }}
+          path: |
+            dist-desktop/
+            dist/
