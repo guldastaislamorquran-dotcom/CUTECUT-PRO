@@ -20,6 +20,9 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -43,8 +46,10 @@ jobs:
       - name: Prepare Desktop Application Icons
         run: |
           mkdir -p build/icons
-          cp -r src-tauri/icons/* build/icons/ || true
-          cp src-tauri/icons/512x512.png build/icon.png || true
+          if [ -d "src-tauri/icons" ]; then
+            cp -r src-tauri/icons/* build/icons/ || true
+            cp src-tauri/icons/512x512.png build/icon.png || true
+          fi
 
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
@@ -55,14 +60,20 @@ jobs:
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: npx electron-builder build --linux deb AppImage --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
         run: npx electron-builder build --win nsis portable --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle macOS Executable Binaries (DMG)
         if: matrix.os == 'macos-latest'
         run: npx electron-builder build --mac dmg --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload Build Artifacts Archive
         uses: actions/upload-artifact@v4
@@ -89,5 +100,6 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
