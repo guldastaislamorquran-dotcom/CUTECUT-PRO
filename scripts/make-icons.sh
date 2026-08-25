@@ -8,22 +8,25 @@ mkdir -p build-resources build build/icons public src-tauri/icons
 echo "Converting source JPG to clean 1024x1024 PNG..."
 convert "$SRC" -resize 1024x1024 PNG32:master_1024.png
 
-echo "Generating ICO and ICNS with png2icons..."
+echo "Generating ICO with png-to-ico and ICNS with png2icons..."
 node -e "
 const fs = require('fs');
+const pngToIco = require('png-to-ico');
 const png2icons = require('png2icons');
+const fn = typeof pngToIco === 'function' ? pngToIco : pngToIco.default;
 
 const masterPng = fs.readFileSync('master_1024.png');
 
-const ico = png2icons.createICO(masterPng, png2icons.BILINEAR, 0);
-if (ico) {
+fn('master_1024.png').then(ico => {
   fs.writeFileSync('build-resources/icon.ico', ico);
   fs.writeFileSync('build/icon.ico', ico);
   fs.writeFileSync('build/icons/icon.ico', ico);
   fs.writeFileSync('public/icon.ico', ico);
   fs.writeFileSync('icon.ico', ico);
-  console.log('Saved icon.ico');
-}
+  console.log('Saved valid icon.ico');
+}).catch(err => {
+  console.error('ICO error:', err);
+});
 
 const icns = png2icons.createICNS(masterPng, png2icons.BILINEAR, 0);
 if (icns) {

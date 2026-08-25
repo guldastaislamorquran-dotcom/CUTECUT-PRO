@@ -122,6 +122,7 @@
     "electron-builder": "^26.15.3",
     "electron-packager": "^17.1.2",
     "esbuild": "^0.25.0",
+    "png-to-ico": "^3.0.2",
     "png2icons": "^2.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
