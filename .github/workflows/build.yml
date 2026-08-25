@@ -45,6 +45,7 @@ jobs:
 
       - name: Prepare Desktop Application Icons
         run: |
+          bash scripts/make-icons.sh || true
           mkdir -p build/icons
           if [ -d "build-resources" ]; then
             cp -r build-resources/* build/icons/ || true
@@ -58,12 +59,10 @@ jobs:
         with:
           path: |
             ~/.cache/electron
-            ~/.cache/electron-builder
             AppData/Local/electron/Cache
-            AppData/Local/electron-builder/Cache
-          key: ${{ runner.os }}-electron-${{ hashFiles('package.json') }}
+          key: v2-${{ runner.os }}-electron-${{ hashFiles('package.json') }}
           restore-keys: |
-            ${{ runner.os }}-electron-
+            v2-${{ runner.os }}-electron-
 
       - name: Install System Dependencies for Linux
         if: matrix.os == 'ubuntu-latest'
@@ -73,20 +72,26 @@ jobs:
 
       - name: Bundle Linux Executable Binaries (DEB & AppImage)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder build --linux --x64 --publish never || (sleep 5 && npx electron-builder build --linux --x64 --publish never)
+        run: |
+          rm -rf dist-desktop
+          npx electron-builder build --linux --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --linux --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder build --win --x64 --publish never || (sleep 5 && npx electron-builder build --win --x64 --publish never)
+        run: |
+          rm -rf dist-desktop
+          npx electron-builder build --win --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --win --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           WIN_CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Bundle macOS Executable Binaries (DMG)
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder build --mac -c.mac.identity=null --publish never || (sleep 5 && npx electron-builder build --mac -c.mac.identity=null --publish never)
+        run: |
+          rm -rf dist-desktop
+          npx electron-builder build --mac -c.mac.identity=null --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --mac -c.mac.identity=null --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           MAC_CSC_IDENTITY_AUTO_DISCOVERY: false
