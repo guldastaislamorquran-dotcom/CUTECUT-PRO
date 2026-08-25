@@ -8,21 +8,20 @@ mkdir -p build-resources build build/icons public src-tauri/icons
 echo "Converting source JPG to clean 1024x1024 PNG..."
 convert "$SRC" -resize 1024x1024 PNG32:master_1024.png
 
-echo "Generating standard Windows ICO with png-to-ico..."
-node -e "
-const fs = require('fs');
-const pngToIcoMod = require('png-to-ico');
-const pngToIco = pngToIcoMod.default || pngToIcoMod;
-
-pngToIco('master_1024.png').then(ico => {
-  fs.writeFileSync('build-resources/icon.ico', ico);
-  fs.writeFileSync('build/icon.ico', ico);
-  fs.writeFileSync('build/icons/icon.ico', ico);
-  fs.writeFileSync('public/icon.ico', ico);
-  fs.writeFileSync('icon.ico', ico);
-  console.log('Saved clean png-to-ico icon.ico');
-}).catch(err => console.error('ICO Error:', err));
-"
+echo "Generating 100% pure BMP Windows ICO compatible with resedit..."
+convert master_1024.png -resize 256x256 bmp3:i256.bmp
+convert master_1024.png -resize 128x128 bmp3:i128.bmp
+convert master_1024.png -resize 64x64 bmp3:i64.bmp
+convert master_1024.png -resize 48x48 bmp3:i48.bmp
+convert master_1024.png -resize 32x32 bmp3:i32.bmp
+convert master_1024.png -resize 16x16 bmp3:i16.bmp
+convert i256.bmp i128.bmp i64.bmp i48.bmp i32.bmp i16.bmp build-resources/icon.ico
+rm -f i256.bmp i128.bmp i64.bmp i48.bmp i32.bmp i16.bmp
+cp build-resources/icon.ico build/icon.ico
+cp build-resources/icon.ico build/icons/icon.ico
+cp build-resources/icon.ico public/icon.ico
+cp build-resources/icon.ico icon.ico
+console_log="Saved pure BMP icon.ico"
 
 echo "Generating ICNS with png2icons..."
 node -e "
