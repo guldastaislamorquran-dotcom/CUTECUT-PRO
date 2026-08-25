@@ -30,6 +30,8 @@
     "appId": "com.guldastaislamorquran.cutecutprosetup",
     "productName": "CUTECUT PRO SETUP",
     "copyright": "Copyright © 2026 Asmatullah Developer",
+    "npmRebuild": false,
+    "asar": true,
     "directories": {
       "output": "dist-desktop",
       "buildResources": "build"
@@ -60,14 +62,28 @@
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CUTECUT PRO SETUP"
     },
     "mac": {
       "target": [
         "dmg"
       ],
       "category": "public.app-category.video",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "sign": false
     }
   },
   "dependencies": {
