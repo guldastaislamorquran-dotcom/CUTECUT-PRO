@@ -66,7 +66,7 @@
           ]
         }
       ],
-      "icon": "build-resources/icon.ico",
+      "icon": "build-resources/icon.png",
       "signAndEditExecutable": false,
       "signExecutable": false,
       "verifyUpdateCodeSignature": false
@@ -76,9 +76,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CUTECUT PRO SETUP",
-      "installerIcon": "build-resources/icon.ico",
-      "uninstallerIcon": "build-resources/icon.ico"
+      "shortcutName": "CUTECUT PRO SETUP"
     },
     "portable": {
       "artifactName": "CUTECUT-PRO-SETUP-Portable-${version}.${ext}"
