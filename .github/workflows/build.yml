@@ -70,7 +70,7 @@ jobs:
         run: |
           rm -rf dist-desktop
           if [ -n "${{ env.SNAP_CREDS }}" ]; then
-            npx electron-builder build --linux appimage deb snap --x64 --publish always -c.snap.publish.channels=stable
+            npx electron-builder build --linux appimage deb snap --x64 --publish always
           else
             npx electron-builder build --linux appimage deb snap --x64 --publish never
           fi
