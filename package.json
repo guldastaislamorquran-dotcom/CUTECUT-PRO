@@ -49,14 +49,27 @@
         "snap"
       ],
       "category": "AudioVideo",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "executableName": "cutecut-pro-setup"
     },
     "snap": {
-      "confinement": "strict",
+      "confinement": "devmode",
       "grade": "stable",
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
       "plugs": [
-        "default"
+        "desktop",
+        "desktop-legacy",
+        "wayland",
+        "x11",
+        "audio-playback",
+        "audio-record",
+        "camera",
+        "network",
+        "network-bind",
+        "home",
+        "removable-media",
+        "opengl",
+        "browser-support"
       ]
     },
     "deb": {
