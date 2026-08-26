@@ -63,11 +63,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg libfuse2 squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 squashfs-tools || true
+          sudo apt-get install -y fakeroot dpkg libfuse2 squashfs-tools snapd || sudo apt-get install -y fakeroot dpkg libfuse2t64 squashfs-tools snapd || true
+          sudo snap install snapcraft --classic || true
+          echo "/snap/bin" >> $GITHUB_PATH
 
       - name: Bundle & Publish Linux Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
+          export PATH="/snap/bin:$PATH"
           rm -rf dist-desktop
           if [ -n "${{ env.SNAP_CREDS }}" ]; then
             npx electron-builder build --linux appimage deb snap --x64 --publish always
@@ -75,6 +78,7 @@ jobs:
             npx electron-builder build --linux appimage deb snap --x64 --publish never
           fi
         env:
+          PATH: /snap/bin:${{ env.PATH }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
           SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
