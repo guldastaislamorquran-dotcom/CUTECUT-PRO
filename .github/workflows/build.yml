@@ -63,24 +63,24 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg libfuse2 snapd || sudo apt-get install -y fakeroot dpkg libfuse2t64 snapd || true
+          sudo apt-get install -y fakeroot dpkg libfuse2 snapd squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 snapd squashfs-tools || true
 
       - name: Bundle Linux Executable Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
           rm -rf dist-desktop
-          npx electron-builder build --linux --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --linux --x64 --publish never)
+          if [ -n "${{ env.SNAP_CREDS }}" ]; then
+            echo "[CI] Snapcraft credentials detected. Building & Publishing via electron-builder..."
+            npx electron-builder build --linux appimage deb snap --x64 --publish always
+          else
+            echo "[CI] No Snapcraft credentials. Building Linux targets locally..."
+            npx electron-builder build --linux appimage deb snap --x64 --publish never
+          fi
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
-
-      - name: Publish Snap to Snap Store
-        if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
-        uses: snapcore/action-publish@v1
-        with:
-          snap: dist-desktop/*.snap
-          store_login: ${{ env.SNAP_CREDS }}
-        continue-on-error: true
+          SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
+          SNAP_TOKEN: ${{ env.SNAP_CREDS }}
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'

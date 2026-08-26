@@ -59,6 +59,9 @@
       "confinement": "strict",
       "grade": "stable",
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+      "publish": [
+        "snapStore"
+      ],
       "plugs": [
         "default",
         "audio-playback",
