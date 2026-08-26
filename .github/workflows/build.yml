@@ -63,21 +63,20 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg libfuse2 snapd squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 snapd squashfs-tools || true
-          sudo snap install snapcraft --classic || true
-          echo "/snap/bin" >> $GITHUB_PATH
+          sudo apt-get install -y fakeroot dpkg libfuse2 squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 squashfs-tools || true
 
       - name: Bundle Linux Executable Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
           rm -rf dist-desktop
-          if [ -n "${{ env.SNAP_CREDS }}" ]; then
-            echo "[CI] Snapcraft credentials detected. Building & Publishing via electron-builder..."
-            npx electron-builder build --linux appimage deb snap --x64 --publish always
-          else
-            echo "[CI] No Snapcraft credentials. Building Linux targets locally..."
-            npx electron-builder build --linux appimage deb snap --x64 --publish never
-          fi
+          npx electron-builder build --linux appimage deb snap --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Optional Publish to Snap Store
+        if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
+        run: |
+          npx electron-builder build --linux snap --x64 --publish always || true
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}

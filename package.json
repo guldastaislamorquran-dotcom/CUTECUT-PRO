@@ -48,22 +48,13 @@
         "deb",
         "snap"
       ],
-      "desktopName": "cutecut-pro-setup.desktop",
-      "syncDesktopName": true,
-      "vendor": "Asmatullah Developer",
-      "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
-      "synopsis": "CUTECUT PRO Setup Professional Video Editor Suite",
-      "description": "CUTECUT PRO Setup Professional Video Editor Suite",
-      "category": "Video",
+      "category": "AudioVideo",
       "icon": "icon.png"
     },
     "snap": {
       "confinement": "strict",
       "grade": "stable",
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
-      "publish": [
-        "snapStore"
-      ],
       "plugs": [
         "default",
         "audio-playback",
