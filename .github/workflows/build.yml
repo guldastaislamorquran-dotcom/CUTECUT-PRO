@@ -20,6 +20,8 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      SNAP_CREDS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -71,14 +73,14 @@ jobs:
           npx electron-builder build --linux --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --linux --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
 
       - name: Publish Snap to Snap Store
-        if: matrix.os == 'ubuntu-latest' && (secrets.SNAPCRAFT_STORE_CREDENTIALS != '' || secrets.SNAPCRAFT_TOKEN != '' || secrets.SNAP_TOKEN != '')
+        if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
         uses: snapcore/action-publish@v1
         with:
           snap: dist-desktop/*.snap
-          store_login: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+          store_login: ${{ env.SNAP_CREDS }}
         continue-on-error: true
 
       - name: Bundle Windows Executable Binaries (EXE)
