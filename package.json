@@ -57,13 +57,9 @@
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
       "plugs": [
         "default",
-        "audio-playback",
         "audio-record",
         "camera",
-        "removable-media",
-        "home",
-        "network",
-        "opengl"
+        "removable-media"
       ]
     },
     "deb": {
