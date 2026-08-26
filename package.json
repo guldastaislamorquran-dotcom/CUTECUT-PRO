@@ -40,6 +40,9 @@
     "files": [
       "dist/**/*",
       "build-resources/**/*",
+      "public/**/*",
+      "assets/**/*",
+      "icon.png",
       "package.json"
     ],
     "linux": {
