@@ -1,7 +1,7 @@
 {
   "name": "cutecut-pro-setup",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "license": "MIT",
   "description": "CUTECUT PRO Setup Professional Video Editor Suite",
   "homepage": "https://github.com",
@@ -46,6 +46,8 @@
       "package.json"
     ],
     "linux": {
+      "desktopName": "cutecut-pro-setup.desktop",
+      "syncDesktopName": true,
       "target": [
         "AppImage",
         "deb",
@@ -58,34 +60,34 @@
         "--no-sandbox",
         "--disable-gpu-sandbox",
         "--disable-setuid-sandbox"
-      ]
-    },
-    "snap": {
-      "confinement": "classic",
-      "grade": "stable",
-      "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
-      "executableArgs": [
-        "--no-sandbox",
-        "--disable-gpu-sandbox",
-        "--disable-setuid-sandbox"
       ],
-      "plugs": [
-        "desktop",
-        "desktop-legacy",
-        "wayland",
-        "x11",
-        "audio-playback",
-        "audio-record",
-        "camera",
-        "network",
-        "network-bind",
-        "home",
-        "removable-media",
-        "opengl",
-        "browser-support",
-        "unity7",
-        "gsettings"
-      ]
+      "snap": {
+        "confinement": "strict",
+        "grade": "stable",
+        "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+        "executableArgs": [
+          "--no-sandbox",
+          "--disable-gpu-sandbox",
+          "--disable-setuid-sandbox"
+        ],
+        "plugs": [
+          "desktop",
+          "desktop-legacy",
+          "wayland",
+          "x11",
+          "audio-playback",
+          "audio-record",
+          "camera",
+          "network",
+          "network-bind",
+          "home",
+          "removable-media",
+          "opengl",
+          "browser-support",
+          "unity7",
+          "gsettings"
+        ]
+      }
     },
     "deb": {
       "priority": "optional"
