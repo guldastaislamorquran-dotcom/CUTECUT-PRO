@@ -77,12 +77,12 @@ jobs:
 
       - name: Publish Snap to Snap Store
         if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
-        uses: snapcore/action-publish@v1
-        with:        snap: dist-desktop/*.snap
+                uses: snapcore/action-publish@v1
+        with:
           snap: dist-desktop/*.snap
           store_login: ${{ env.SNAP_CREDS }}
         continue-on-error: true
-
+        continue-on-error: true
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
         run: |
