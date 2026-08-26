@@ -1436,68 +1436,6 @@ export default function MediaPanel({
                   </button>
                 </div>
 
-                {/* BLOCK 2.8: 🌟 RECITATION OPENING & VERSE SEED (تعوذ، تسمیہ اور آغازِ تلاوت) */}
-                <div className="bg-[#111218] border border-amber-500/30 rounded-xl p-3.5 space-y-3 shadow-lg">
-                  <div className="flex items-center justify-between pb-1 border-b border-gray-800">
-                    <label className="text-xs font-extrabold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
-                      <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-                      <span>RECITATION OPENING (آغازِ تلاوت و تعوذ/تسمیہ)</span>
-                    </label>
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20">
-                      {quranIntroMode === 'taawwuz-only'
-                        ? '⭐ Ta\'awwuz ➔ Direct Ayah 1'
-                        : quranIntroMode === 'both'
-                        ? 'Ta\'awwuz + Bismillah'
-                        : quranIntroMode === 'bismillah-only'
-                        ? 'Bismillah Only'
-                        : 'Direct Ayah 1'}
-                    </span>
-                  </div>
-
-                  <p className="text-[10px] text-gray-300 leading-relaxed">
-                    Select how the audio begins. In <span className="text-amber-300 font-bold">Ta'awwuz ➔ Direct Ayah 1</span> mode, speech segment 1 is Ta'awwuz and speech segment 2 is directly Ayah 1 (e.g. <span className="text-amber-200 font-semibold font-arabic">تَبَارَكَ الَّذِي</span>) without extra Bismillah!
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      {
-                        id: 'taawwuz-only',
-                        label: '⭐ تعوذ ➔ آیت 1 (تبارک الذی)',
-                        sub: 'Ta\'awwuz ➔ Ayah 1 direct'
-                      },
-                      {
-                        id: 'both',
-                        label: '📖 تعوذ + تسمیہ + آیت 1',
-                        sub: 'Ta\'awwuz & Bismillah both'
-                      },
-                      {
-                        id: 'bismillah-only',
-                        label: '📿 تسمیہ ➔ آیت 1',
-                        sub: 'Bismillah & Ayah 1'
-                      },
-                      {
-                        id: 'none',
-                        label: '🚫 براہِ راست آیت 1',
-                        sub: 'No Intro, Ayah 1 directly'
-                      }
-                    ].map(opt => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setQuranIntroMode && setQuranIntroMode(opt.id as any)}
-                        className={`p-2 rounded-lg text-left text-[11px] transition-all cursor-pointer border ${
-                          quranIntroMode === opt.id
-                            ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-bold shadow-sm'
-                            : 'bg-black/30 border-gray-800 text-gray-400 hover:text-white hover:border-gray-700'
-                        }`}
-                      >
-                        <div className="font-medium text-[11px] leading-tight">{opt.label}</div>
-                        <div className="text-[9px] text-gray-400 leading-none mt-0.5">{opt.sub}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* BLOCK 3: ✨ 1-CLICK AUTO-GENERATE CAPTIONS BUTTON */}
                 <button
                   type="button"
