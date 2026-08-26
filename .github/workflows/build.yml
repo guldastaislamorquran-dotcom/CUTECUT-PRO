@@ -69,19 +69,13 @@ jobs:
           sudo snap install snapcraft --classic || true
           echo "/snap/bin" >> $GITHUB_PATH
 
-      - name: Bundle & Publish Linux Binaries (DEB, AppImage & Snap)
+      - name: Bundle Linux Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
           rm -rf dist-desktop
-          if [ -n "${{ env.SNAP_CREDS }}" ]; then
-            npx electron-builder build --linux appimage deb snap --x64 --publish always
-          else
-            npx electron-builder build --linux appimage deb snap --x64 --publish never
-          fi
+          npx electron-builder build --linux appimage deb snap --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
-          SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
