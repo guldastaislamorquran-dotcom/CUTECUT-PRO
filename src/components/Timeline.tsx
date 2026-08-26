@@ -757,7 +757,7 @@ export default function Timeline({
     >
       
       {/* CapCut Pro Exact Timeline Toolbar */}
-      <div className="h-10 border-b border-[#25252e] px-2 flex items-center justify-between bg-[#15151c] text-gray-300 text-xs select-none gap-2 shrink-0 overflow-x-auto custom-scrollbar">
+      <div className="h-10 border-b border-[#25252e] px-2 flex items-center justify-between bg-[#15151c] text-gray-300 text-xs select-none gap-2 shrink-0 relative z-30 overflow-visible">
         {/* Left Section: Editing Tools */}
         <div className="flex items-center gap-1 shrink-0">
           {/* Select / Blade Tool Dropdown */}
@@ -789,7 +789,7 @@ export default function Timeline({
             {showToolDropdown && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute top-full left-0 mt-1 bg-[#1a1a24] border border-[#2e2e3e] rounded-lg shadow-2xl py-1 w-44 z-50 text-gray-200 text-xs animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#262634]"
+                className="absolute top-full left-0 mt-1 bg-[#1a1a24] border border-[#2e2e3e] rounded-lg shadow-2xl py-1 w-44 z-[60] text-gray-200 text-xs animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#262634]"
               >
                 <div className="py-0.5">
                   <button
@@ -1087,74 +1087,7 @@ export default function Timeline({
             </span>
           </button>
 
-          {/* Auto-Segment & Acoustic Tools Dropdown */}
-          <div className="relative ml-1">
-            <button
-              id="btn-auto-segment-menu"
-              onClick={() => setShowAutoSegmentMenu(!showAutoSegmentMenu)}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold bg-gradient-to-r from-emerald-600/30 to-cyan-600/30 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 transition shadow-sm cursor-pointer"
-              title="Smart Audio & Video Auto-Segmenter"
-            >
-              <Zap className="w-3 h-3 text-emerald-400 fill-emerald-400/20 animate-pulse" />
-              <span className="hidden sm:inline">Auto-Cut</span>
-              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
-            </button>
 
-            {showAutoSegmentMenu && (
-              <div className="absolute top-full mt-1 left-0 bg-[#16161c] border border-emerald-500/30 rounded-xl shadow-2xl p-1.5 z-50 flex flex-col w-64 divide-y divide-gray-800 text-xs backdrop-blur-md">
-                <div className="py-1">
-                  <button
-                    id="btn-action-autosegment-audio"
-                    onClick={() => {
-                      if (onAutoSegmentAudio) onAutoSegmentAudio(selectedClip?.id);
-                      setShowAutoSegmentMenu(false);
-                    }}
-                    className="w-full px-2.5 py-1.5 text-left rounded-lg hover:bg-emerald-950/60 hover:text-emerald-300 text-gray-200 transition flex items-center gap-2 group"
-                  >
-                    <Radio className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <div>
-                      <div className="font-bold text-[11px] text-white">🎙️ Auto-Segment Audio by Pauses</div>
-                      <div className="text-[9px] text-gray-400">Slice audio into discrete phrases at pauses</div>
-                    </div>
-                  </button>
-                </div>
-
-                <div className="py-1">
-                  <button
-                    id="btn-action-autosync-video"
-                    onClick={() => {
-                      if (onAutoSyncVideoToAyahs) onAutoSyncVideoToAyahs();
-                      setShowAutoSegmentMenu(false);
-                    }}
-                    className="w-full px-2.5 py-1.5 text-left rounded-lg hover:bg-cyan-950/60 hover:text-cyan-300 text-gray-200 transition flex items-center gap-2 group"
-                  >
-                    <Film className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <div>
-                      <div className="font-bold text-[11px] text-white">🎬 Auto-Segment Video to Ayahs</div>
-                      <div className="text-[9px] text-gray-400">Cut background video at each Ayah change</div>
-                    </div>
-                  </button>
-                </div>
-
-                <div className="py-1">
-                  <button
-                    id="btn-action-remove-silence"
-                    onClick={() => {
-                      if (onAutoRemoveSilence) onAutoRemoveSilence(selectedClip?.id);
-                      setShowAutoSegmentMenu(false);
-                    }}
-                    className="w-full px-2.5 py-1.5 text-left rounded-lg hover:bg-amber-950/60 hover:text-amber-300 text-gray-200 transition flex items-center gap-2 group"
-                  >
-                    <Scissors className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <div>
-                      <div className="font-bold text-[11px] text-white">✂️ Smart Silence Remover</div>
-                      <div className="text-[9px] text-gray-400">Auto-trim dead air & ripple delete gaps</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Right Section: Voice, Magnet, Ripple, Link & Zoom Controls */}
@@ -1386,17 +1319,7 @@ export default function Timeline({
               className="h-8 bg-[#18181d] border-b border-[#2a2a30] relative cursor-ew-resize select-none overflow-hidden"
             >
               {renderRulerTicks()}
-              {/* Loop Region Span */}
-              {isLooping && (
-                <div
-                  style={{ left: 0, width: `${Math.max(20, duration * zoom)}px` }}
-                  className="absolute top-0 h-1.5 bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-500 rounded-b shadow-[0_0_8px_rgba(52,211,153,0.6)] z-20 flex items-center justify-between px-1"
-                  title={`Loop Region Active: 00:00 - ${formatTimeCode(duration)}`}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-300 animate-ping" />
-                </div>
-              )}
+              {/* Clean Ruler without top overlays */}
             </div>
 
             {/* Visual Grid rows */}
