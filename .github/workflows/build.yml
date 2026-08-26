@@ -65,26 +65,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fakeroot dpkg libfuse2 squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 squashfs-tools || true
 
-      - name: Bundle Linux Executable Binaries (DEB, AppImage & Snap)
+            - name: Bundle & Publish Linux Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
           rm -rf dist-desktop
-          npx electron-builder build --linux appimage deb snap --x64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Optional Publish to Snap Store
-        if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
-        run: |
-          npx electron-builder build --linux snap --x64 --publish always || true
+          npx electron-builder build --linux appimage deb snap --x64 --publish always -c.snap.publish.channels=stable
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
           SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
-          SNAP_TOKEN: ${{ env.SNAP_CREDS }}
 
-      - name: Bundle Windows Executable Binaries (EXE)
-        if: matrix.os == 'windows-latest'
         run: |
           rm -rf dist-desktop
           npx electron-builder build --win --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --win --x64 --publish never)
