@@ -5,7 +5,7 @@
 
 #define MyAppName "CuteCut Video Editor"
 #define MyAppShortName "CuteCutVideoEditor"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "Asmatullah Developer"
 #define MyAppURL "https://github.com"
 #define MyAppExeName "CuteCutVideoEditor.exe"
