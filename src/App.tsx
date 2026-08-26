@@ -215,8 +215,9 @@ export default function App() {
     }
   };
 
-  // Timeline Loop Playback state
+  // Timeline Loop Playback & Grid Snapping state
   const [isLooping, setIsLooping] = useState(true);
+  const [snapToGrid, setSnapToGrid] = useState(true);
 
   // Export overlay state
   const [showExportModal, setShowExportModal] = useState(false);
@@ -4172,6 +4173,8 @@ export default function App() {
         isPlaying={isPlaying}
         isLooping={isLooping}
         onToggleLoop={() => setIsLooping(prev => !prev)}
+        snapToGrid={snapToGrid}
+        onToggleSnapToGrid={() => setSnapToGrid(prev => !prev)}
         onAutoSegmentAudio={handleAutoSegmentAudio}
         onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
         onAutoRemoveSilence={handleAutoRemoveSilence}

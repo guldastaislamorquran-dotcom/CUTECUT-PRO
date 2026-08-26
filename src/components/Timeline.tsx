@@ -4,7 +4,7 @@ import {
   Copy, Snowflake, Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Plus, Minus,
   Magnet, Gauge, RotateCcw, RotateCw, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
-  Zap, Split, Radio, ChevronDown, Flag, FlipHorizontal, Crop, UserCheck, Mic, Link, Link2, Crosshair, Repeat,
+  Zap, Split, Radio, ChevronDown, Flag, FlipHorizontal, Crop, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
   Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X
 } from 'lucide-react';
 import { Track, Clip, ClipType } from '../types';
@@ -63,6 +63,8 @@ interface TimelineProps {
   isPlaying?: boolean;
   isLooping?: boolean;
   onToggleLoop?: () => void;
+  snapToGrid?: boolean;
+  onToggleSnapToGrid?: () => void;
 
   // CapCut Pro Timeline Handlers
   onDuplicateClip?: () => void;
@@ -127,6 +129,8 @@ export default function Timeline({
   onAutoSyncVideoToAyahs,
   onAutoRemoveSilence,
   onAutoSegmentRhythm,
+  snapToGrid: propSnapToGrid = true,
+  onToggleSnapToGrid,
 }: TimelineProps) {
   const rulerRef = useRef<HTMLDivElement>(null);
   const tracksContainerRef = useRef<HTMLDivElement>(null);
@@ -145,6 +149,16 @@ export default function Timeline({
   };
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [isSnapping, setIsSnapping] = useState(true);
+  const [snapToGrid, setSnapToGrid] = useState(propSnapToGrid);
+
+  useEffect(() => {
+    if (propSnapToGrid !== undefined) {
+      setSnapToGrid(propSnapToGrid);
+    }
+  }, [propSnapToGrid]);
+
+  const snapToGridRef = useRef(snapToGrid);
+  snapToGridRef.current = snapToGrid;
   const [timelineTool, setTimelineTool] = useState<'pointer' | 'marquee' | 'split'>('pointer');
   const [showToolDropdown, setShowToolDropdown] = useState(false);
   const [showSelectMenu, setShowSelectMenu] = useState(false);
@@ -437,15 +451,16 @@ export default function Timeline({
         const deltaTime = deltaX / currentZoom;
 
         if (activeDragging.handle === 'left') {
-          // Resize left boundary of ALL selected clips concurrently
+          // Resize left boundary of ALL selected clips concurrently (restricted to 1/30s frame grid if active)
           const updates = activeDragging.clips.map(item => {
             const rawStart = item.initialStart + deltaTime;
             const boundedStart = Math.max(0, Math.min(item.initialStart + item.initialDuration - 0.2, rawStart));
-            const newDuration = (item.initialStart + item.initialDuration) - boundedStart;
+            const finalStart = snapToGridRef.current ? Math.round(boundedStart * 30) / 30 : boundedStart;
+            const newDuration = (item.initialStart + item.initialDuration) - finalStart;
             return {
               id: item.id,
-              start: boundedStart,
-              duration: Math.max(0.2, newDuration),
+              start: finalStart,
+              duration: Math.max(0.033, snapToGridRef.current ? Math.round(newDuration * 30) / 30 : newDuration),
             };
           });
 
@@ -459,11 +474,12 @@ export default function Timeline({
           const updates = activeDragging.clips.map(item => {
             const rawEnd = item.initialStart + item.initialDuration + deltaTime;
             const rawDuration = rawEnd - item.initialStart;
-            const boundedDuration = Math.max(0.2, Math.min(durationRef.current - item.initialStart, rawDuration));
+            const boundedDuration = Math.max(0.033, Math.min(durationRef.current - item.initialStart, rawDuration));
+            const finalDuration = snapToGridRef.current ? Math.round(boundedDuration * 30) / 30 : boundedDuration;
             return {
               id: item.id,
               start: item.initialStart,
-              duration: boundedDuration,
+              duration: finalDuration,
             };
           });
 
@@ -473,16 +489,22 @@ export default function Timeline({
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
         } else {
-          // Move all selected clip nodes concurrently
+          // Move all selected clip nodes concurrently (snap to 1/30s frame boundaries)
           const minInitialStart = Math.min(...activeDragging.clips.map(c => c.initialStart));
           const maxDeltaLeft = -minInitialStart;
           const effectiveDelta = Math.max(maxDeltaLeft, deltaTime);
 
-          const updates = activeDragging.clips.map(item => ({
-            id: item.id,
-            start: Math.max(0, item.initialStart + effectiveDelta),
-            duration: item.initialDuration,
-          }));
+          const updates = activeDragging.clips.map(item => {
+            let targetStart = Math.max(0, item.initialStart + effectiveDelta);
+            if (snapToGridRef.current) {
+              targetStart = Math.round(targetStart * 30) / 30; // 1/30s frame boundary precision
+            }
+            return {
+              id: item.id,
+              start: targetStart,
+              duration: item.initialDuration,
+            };
+          });
 
           if (onBatchUpdateClipTimesRef.current) {
             onBatchUpdateClipTimesRef.current(updates);
@@ -1119,6 +1141,27 @@ export default function Timeline({
             title={`Auto Snapping Magnet: ${isSnapping ? 'ON' : 'OFF'}`}
           >
             <Magnet className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Snap-to-Grid (1/30s Frame Boundaries) Toggle */}
+          <button
+            id="btn-snap-grid-toggle"
+            onClick={() => {
+              if (onToggleSnapToGrid) {
+                onToggleSnapToGrid();
+              } else {
+                setSnapToGrid(prev => !prev);
+              }
+            }}
+            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1 ${
+              snapToGrid
+                ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-xs ring-1 ring-cyan-500/30'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532]'
+            }`}
+            title={`Snap to Frame Grid (1/30s): ${snapToGrid ? 'ENABLED (Restricts clip placement to 30 FPS frame boundaries to prevent AV desync)' : 'DISABLED'}`}
+          >
+            <Grid className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-[10px]">Grid (1/30s)</span>
           </button>
 
           {/* Auto Ripple / Link Tracks Toggle */}
