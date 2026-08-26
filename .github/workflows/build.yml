@@ -62,15 +62,24 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg libfuse2 || sudo apt-get install -y fakeroot dpkg libfuse2t64 || true
+          sudo apt-get install -y fakeroot dpkg libfuse2 snapd || sudo apt-get install -y fakeroot dpkg libfuse2t64 snapd || true
 
-      - name: Bundle Linux Executable Binaries (DEB & AppImage)
+      - name: Bundle Linux Executable Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
           rm -rf dist-desktop
           npx electron-builder build --linux --x64 --publish never || (sleep 5 && rm -rf dist-desktop && npx electron-builder build --linux --x64 --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+
+      - name: Publish Snap to Snap Store
+        if: matrix.os == 'ubuntu-latest' && (secrets.SNAPCRAFT_STORE_CREDENTIALS != '' || secrets.SNAPCRAFT_TOKEN != '' || secrets.SNAP_TOKEN != '')
+        uses: snapcore/action-publish@v1
+        with:
+          snap: dist-desktop/*.snap
+          store_login: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+        continue-on-error: true
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
@@ -99,6 +108,7 @@ jobs:
             dist-desktop/*.exe
             dist-desktop/*.deb
             dist-desktop/*.AppImage
+            dist-desktop/*.snap
             dist-desktop/*.dmg
             dist-desktop/
 
@@ -110,6 +120,7 @@ jobs:
             dist-desktop/*.exe
             dist-desktop/*.deb
             dist-desktop/*.AppImage
+            dist-desktop/*.snap
             dist-desktop/*.dmg
           draft: false
           prerelease: false

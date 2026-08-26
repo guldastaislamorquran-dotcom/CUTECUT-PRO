@@ -45,7 +45,8 @@
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "snap"
       ],
       "vendor": "Asmatullah Developer",
       "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
@@ -53,6 +54,21 @@
       "description": "CUTECUT PRO Setup Professional Video Editor Suite",
       "category": "Video",
       "icon": "icon.png"
+    },
+    "snap": {
+      "confinement": "strict",
+      "grade": "stable",
+      "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+      "plugs": [
+        "default",
+        "audio-playback",
+        "audio-record",
+        "camera",
+        "removable-media",
+        "home",
+        "network",
+        "opengl"
+      ]
     },
     "deb": {
       "priority": "optional"
