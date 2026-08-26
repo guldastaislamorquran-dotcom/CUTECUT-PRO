@@ -16,8 +16,11 @@ app.commandLine.appendSwitch('ignore-certificate-errors');
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-setuid-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
-  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,UseOzonePlatform');
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 } else {
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('ignore-gpu-blocklist');

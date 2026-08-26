@@ -55,15 +55,19 @@
       "icon": "icon.png",
       "executableName": "cutecut-pro-setup",
       "executableArgs": [
-        "--no-sandbox"
+        "--no-sandbox",
+        "--disable-gpu-sandbox",
+        "--disable-setuid-sandbox"
       ]
     },
     "snap": {
-      "confinement": "strict",
+      "confinement": "classic",
       "grade": "stable",
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
       "executableArgs": [
-        "--no-sandbox"
+        "--no-sandbox",
+        "--disable-gpu-sandbox",
+        "--disable-setuid-sandbox"
       ],
       "plugs": [
         "desktop",
@@ -78,7 +82,9 @@
         "home",
         "removable-media",
         "opengl",
-        "browser-support"
+        "browser-support",
+        "unity7",
+        "gsettings"
       ]
     },
     "deb": {
