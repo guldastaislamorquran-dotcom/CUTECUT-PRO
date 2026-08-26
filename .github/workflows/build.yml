@@ -70,7 +70,6 @@ jobs:
       - name: Bundle & Publish Linux Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          export PATH="/snap/bin:$PATH"
           rm -rf dist-desktop
           if [ -n "${{ env.SNAP_CREDS }}" ]; then
             npx electron-builder build --linux appimage deb snap --x64 --publish always
@@ -78,7 +77,6 @@ jobs:
             npx electron-builder build --linux appimage deb snap --x64 --publish never
           fi
         env:
-          PATH: /snap/bin:${{ env.PATH }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
           SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
