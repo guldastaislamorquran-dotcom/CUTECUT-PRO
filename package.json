@@ -48,6 +48,8 @@
         "deb",
         "snap"
       ],
+      "desktopName": "cutecut-pro-setup.desktop",
+      "syncDesktopName": true,
       "vendor": "Asmatullah Developer",
       "maintainer": "Asmatullah Developer <asmatullahdevolper@gmail.com>",
       "synopsis": "CUTECUT PRO Setup Professional Video Editor Suite",

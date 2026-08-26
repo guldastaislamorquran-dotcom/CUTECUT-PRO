@@ -64,6 +64,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot dpkg libfuse2 snapd squashfs-tools || sudo apt-get install -y fakeroot dpkg libfuse2t64 snapd squashfs-tools || true
+          sudo snap install snapcraft --classic || true
+          echo "/snap/bin" >> $GITHUB_PATH
 
       - name: Bundle Linux Executable Binaries (DEB, AppImage & Snap)
         if: matrix.os == 'ubuntu-latest'
