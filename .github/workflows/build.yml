@@ -22,6 +22,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       SNAP_CREDS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -80,6 +82,8 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
           SNAPCRAFT_TOKEN: ${{ env.SNAP_CREDS }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
