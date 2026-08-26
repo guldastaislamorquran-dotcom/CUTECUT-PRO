@@ -53,12 +53,18 @@
       ],
       "category": "AudioVideo",
       "icon": "icon.png",
-      "executableName": "cutecut-pro-setup"
+      "executableName": "cutecut-pro-setup",
+      "executableArgs": [
+        "--no-sandbox"
+      ]
     },
     "snap": {
-      "confinement": "devmode",
+      "confinement": "strict",
       "grade": "stable",
       "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+      "executableArgs": [
+        "--no-sandbox"
+      ],
       "plugs": [
         "desktop",
         "desktop-legacy",

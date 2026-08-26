@@ -12,8 +12,10 @@ app.commandLine.appendSwitch('disable-web-security');
 app.commandLine.appendSwitch('allow-running-insecure-content');
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
-// Safe GPU acceleration (avoids Linux X11/Wayland tile corruption & buffer bleeding)
+// Safe GPU acceleration & Linux sandboxing (avoids Linux X11/Wayland/Snap launch crashes)
 if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-setuid-sandbox');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
 } else {
