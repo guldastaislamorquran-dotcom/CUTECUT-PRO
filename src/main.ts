@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, ipcMain, dialog, nativeImage } from 'electron';
+import { app, BrowserWindow, session, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -23,43 +23,6 @@ if (process.platform === 'linux') {
 
 let mainWindow: BrowserWindow | null = null;
 
-function resolveAppIcon(): Electron.NativeImage | undefined {
-  try {
-    const appPath = app.getAppPath();
-    const candidatePaths = [
-      path.join(__dirname, 'icon.png'),
-      path.join(__dirname, 'assets', 'icon.png'),
-      path.join(__dirname, '..', 'icon.png'),
-      path.join(__dirname, '..', 'public', 'icon.png'),
-      path.join(__dirname, '..', 'build-resources', 'icon.png'),
-      path.join(__dirname, '..', 'assets', 'icon.png'),
-      path.join(appPath, 'icon.png'),
-      path.join(appPath, 'assets', 'icon.png'),
-      path.join(appPath, 'public', 'icon.png'),
-      path.join(appPath, 'build-resources', 'icon.png'),
-      path.join(process.resourcesPath || '', 'icon.png'),
-      path.join(process.resourcesPath || '', 'build-resources', 'icon.png'),
-      path.join(process.resourcesPath || '', 'assets', 'icon.png'),
-      path.join(process.cwd(), 'icon.png'),
-      path.join(process.cwd(), 'assets', 'icon.png'),
-      path.join(process.cwd(), 'public', 'icon.png'),
-      path.join(process.cwd(), 'build-resources', 'icon.png')
-    ];
-
-    for (const candidate of candidatePaths) {
-      if (candidate && fs.existsSync(candidate)) {
-        const img = nativeImage.createFromPath(candidate);
-        if (img && !img.isEmpty()) {
-          return img;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Electron] Non-fatal warning resolving app icon:', err);
-  }
-  return undefined;
-}
-
 function resolveEntryHtml(): string {
   const appPath = app.getAppPath();
   const candidates = [
@@ -80,9 +43,7 @@ function resolveEntryHtml(): string {
 }
 
 function createWindow() {
-  const appIcon = resolveAppIcon();
-
-  const windowOptions: Electron.BrowserWindowConstructorOptions = {
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
@@ -96,21 +57,7 @@ function createWindow() {
       webSecurity: false,
       allowRunningInsecureContent: true,
     },
-  };
-
-  if (appIcon) {
-    windowOptions.icon = appIcon;
-  }
-
-  mainWindow = new BrowserWindow(windowOptions);
-
-  if (appIcon && mainWindow) {
-    try {
-      mainWindow.setIcon(appIcon);
-    } catch (e) {
-      // safe fallback on platforms that do not support dynamic setIcon
-    }
-  }
+  });
 
   mainWindow.once('ready-to-show', () => {
     if (mainWindow && !mainWindow.isVisible()) {
