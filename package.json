@@ -53,7 +53,20 @@
       ],
       "category": "AudioVideo",
       "icon": "icon.png",
-      "executableName": "cutecut-pro-setup"
+      "executableName": "cutecut-pro-setup",
+      "snap": {
+        "confinement": "strict",
+        "grade": "stable",
+        "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+        "plugs": [
+          "desktop",
+          "desktop-legacy",
+          "wayland",
+          "x11",
+          "opengl",
+          "audio-playback"
+        ]
+      }
     },
     "snap": {
       "confinement": "strict",
@@ -64,17 +77,8 @@
         "desktop-legacy",
         "wayland",
         "x11",
-        "audio-playback",
-        "audio-record",
-        "camera",
-        "network",
-        "network-bind",
-        "home",
-        "removable-media",
         "opengl",
-        "browser-support",
-        "unity7",
-        "gsettings"
+        "audio-playback"
       ]
     },
     "deb": {
