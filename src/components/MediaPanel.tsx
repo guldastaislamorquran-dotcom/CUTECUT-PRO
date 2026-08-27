@@ -1241,17 +1241,49 @@ export default function MediaPanel({
                 {/* BLOCK 2: ALIGNMENT SCOPE */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-gray-300 uppercase tracking-wide flex items-center justify-between">
-                    <span>ALIGNMENT SCOPE</span>
+                    <span>ALIGNMENT SCOPE (سورتیں / آیات)</span>
                     <span className="text-[10px] text-amber-400 font-medium">
-                      {quranSelectionType === 'all' ? '✨ Mukammal Surah (All Ayahs)' : `Ayah #${quranStartAyah}`}
+                      {quranSelectionType === 'all'
+                        ? '✨ Single Whole Surah'
+                        : quranSelectionType === 'list'
+                        ? `🕌 Multi-Surahs (${quranSurahList})`
+                        : quranSelectionType === 'range'
+                        ? `📖 Range (Surah ${quranSurahPreset} to ${quranSurahEnd})`
+                        : `Ayah #${quranStartAyah}`}
                     </span>
                   </label>
-                  <div className="grid grid-cols-2 gap-2 p-1 bg-[#0a0a0d] border border-gray-800 rounded-lg">
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#0a0a0d] border border-gray-800 rounded-lg">
+                    <button
+                      type="button"
+                      id="scope-all"
+                      onClick={() => setQuranSelectionType('all')}
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                        quranSelectionType === 'all'
+                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                      }`}
+                    >
+                      <span>Whole Surah</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="scope-list"
+                      onClick={() => setQuranSelectionType('list')}
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                        quranSelectionType === 'list'
+                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                      }`}
+                      title="Multi-Surahs in one audio with automatic opening rules"
+                    >
+                      <Sparkles className="w-3 h-3 text-black/70 inline" />
+                      <span>Multi-Surah</span>
+                    </button>
                     <button
                       type="button"
                       id="scope-single"
                       onClick={() => setQuranSelectionType('single')}
-                      className={`py-2 px-3 text-xs font-bold rounded-md transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
                         quranSelectionType === 'single'
                           ? 'bg-amber-500 text-black shadow-md font-extrabold'
                           : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
@@ -1259,19 +1291,42 @@ export default function MediaPanel({
                     >
                       <span>Single Ayah</span>
                     </button>
-                    <button
-                      type="button"
-                      id="scope-all"
-                      onClick={() => setQuranSelectionType('all')}
-                      className={`py-2 px-3 text-xs font-bold rounded-md transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                        quranSelectionType === 'all'
-                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-                      }`}
-                    >
-                      <span>Whole Surah / All Chapter</span>
-                    </button>
                   </div>
+
+                  {quranSelectionType === 'list' && (
+                    <div className="space-y-1.5 pt-1.5 p-2.5 bg-amber-500/5 border border-amber-500/30 rounded-lg">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="text-[11px] font-bold text-amber-300">Surah Numbers (comma-separated):</label>
+                        <span className="text-[9px] text-amber-400/80 font-mono">e.g. 112, 113, 114</span>
+                      </div>
+                      <input
+                        type="text"
+                        id="input-multi-surah-list"
+                        value={quranSurahList}
+                        onChange={(e) => setQuranSurahList(e.target.value)}
+                        placeholder="112, 113, 114 (Ikhlas, Falaq, Nas)"
+                        className="w-full bg-[#0a0a0d] border border-amber-500/40 focus:border-amber-400 rounded-md px-2.5 py-1.5 text-xs text-amber-200 font-mono focus:outline-none"
+                      />
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        <span className="text-[10px] text-gray-400">Quick sets:</span>
+                        {[
+                          { label: '4 Quls (109-114)', val: '109, 112, 113, 114' },
+                          { label: '3 Quls (112-114)', val: '112, 113, 114' },
+                          { label: 'Falaq & Nas', val: '113, 114' },
+                          { label: 'Juz 30 (Last 5)', val: '110, 111, 112, 113, 114' },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setQuranSurahList(preset.val)}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-300 font-mono transition cursor-pointer"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {quranSelectionType === 'single' && (
                     <div className="flex items-center gap-2 pt-1">
@@ -1483,18 +1538,28 @@ export default function MediaPanel({
                   onClick={() => {
                     const selectedSurahNum = quranSurahPreset === 'custom' ? quranSurahCustom : parseInt(quranSurahPreset, 10) || 1;
                     onAlignQuran({
-                      surah: selectedSurahNum,
+                      surah: quranSelectionType === 'list' ? quranSurahList : selectedSurahNum,
                       startAyah: quranSelectionType === 'single' ? quranStartAyah : 1,
                       mode: quranSelectionType === 'single' ? 'individual' : 'batch',
                       style: 'Imperial Gold',
-                      selectionType: quranSelectionType === 'single' ? 'single' : 'all',
+                      selectionType: quranSelectionType,
+                      surahList: quranSurahList,
+                      surahEnd: quranSurahEnd,
                       introMode: quranIntroMode,
                     });
                   }}
                   className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-extrabold rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer border border-amber-300/30"
                 >
                   <Sparkles className="w-4 h-4 text-black animate-spin" />
-                  <span>✨ 1-Click Auto-Generate Captions ({quranSelectionType === 'all' ? 'Mukammal Surah' : `Ayah ${quranStartAyah}`} • Arabic + {currentTranslation.language.split(' ')[0]})</span>
+                  <span>
+                    ✨ 1-Click Auto-Generate Captions (
+                    {quranSelectionType === 'list'
+                      ? `Multi-Surah: ${quranSurahList}`
+                      : quranSelectionType === 'all'
+                      ? 'Mukammal Surah'
+                      : `Ayah ${quranStartAyah}`}
+                    {' '}• Arabic + {currentTranslation.language.split(' ')[0]})
+                  </span>
                 </button>
 
 

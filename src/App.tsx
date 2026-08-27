@@ -2828,39 +2828,57 @@ export default function App() {
       }
 
       const allRawVerses: any[] = [];
-      const isStartFromFirstAyah = (selectionType === 'single' ? startAyah === 1 : true);
-      const isNotTawbah = surahsToProcess[0] !== 9;
-
       const transOpt = getTranslationOptionById(quranTranslation);
       const transApiId = transOpt.apiId || 20;
-
-      const currentIntroMode = introMode || quranIntroMode || 'none';
-      const shouldIncludeTaawwuz = isStartFromFirstAyah && isNotTawbah && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
-      const shouldIncludeBismillah = isStartFromFirstAyah && isNotTawbah && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
-
-      if (shouldIncludeTaawwuz) {
-        allRawVerses.push({
-          verse_key: '0:0',
-          verse_number: 0,
-          text_arabic: 'أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ',
-          text_english: getTaawwuzTranslation(transOpt.languageCode),
-          isTaawwuz: true
-        });
-      }
-
-      if (shouldIncludeBismillah) {
-        allRawVerses.push({
-          verse_key: '1:0',
-          verse_number: 0,
-          text_arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
-          text_english: getTasmiyahTranslation(transOpt.languageCode),
-          isTasmiyah: true
-        });
-      }
 
       // Infinite Whole-Surah Dynamic Progression Array Iterator Loop
       for (let sIdx = 0; sIdx < surahsToProcess.length; sIdx++) {
         const currentSurah = surahsToProcess[sIdx];
+        const isFirstSurah = (sIdx === 0);
+        const isNotTawbahThis = currentSurah !== 9;
+        const currentIntroMode = introMode || quranIntroMode || 'none';
+
+        // 1. Opening Verse Rules for Multi-Surah & Single Surah:
+        // - First Surah: Follows selected Intro Mode (e.g. Ta'awwuz + Bismillah, or Bismillah only)
+        // - Subsequent Surahs in the audio: Automatically insert Bismillah (unless Surah At-Tawbah #9)
+        if (isFirstSurah) {
+          const isStartFromFirstAyah = (selectionType === 'single' ? startAyah === 1 : true);
+          const shouldIncludeTaawwuz = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
+          const shouldIncludeBismillah = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
+
+          if (shouldIncludeTaawwuz) {
+            allRawVerses.push({
+              verse_key: `${currentSurah}:0:taawwuz`,
+              verse_number: 0,
+              text_arabic: 'أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ',
+              text_english: getTaawwuzTranslation(transOpt.languageCode),
+              isTaawwuz: true
+            });
+          }
+
+          if (shouldIncludeBismillah) {
+            allRawVerses.push({
+              verse_key: `${currentSurah}:0:bismillah`,
+              verse_number: 0,
+              text_arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+              text_english: getTasmiyahTranslation(transOpt.languageCode),
+              isTasmiyah: true
+            });
+          }
+        } else {
+          // For all subsequent Surahs occurring in the multi-surah audio:
+          // Automatically include Bismillah as the opening header of each following Surah (unless Surah 9 At-Tawbah)
+          if (isNotTawbahThis && currentIntroMode !== 'none') {
+            allRawVerses.push({
+              verse_key: `${currentSurah}:0:bismillah`,
+              verse_number: 0,
+              text_arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+              text_english: getTasmiyahTranslation(transOpt.languageCode),
+              isTasmiyah: true
+            });
+          }
+        }
+
         addLog(`[Quran AI] Fetching scripture & ${transOpt.language} translation for Surah #${currentSurah}...`, 68 + Math.floor((sIdx / surahsToProcess.length) * 10));
 
         let surahVerses: any[] = [];

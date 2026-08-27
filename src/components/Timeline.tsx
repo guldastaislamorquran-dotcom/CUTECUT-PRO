@@ -5,7 +5,8 @@ import {
   Magnet, Gauge, RotateCcw, RotateCw, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
   Zap, Split, Radio, ChevronDown, Flag, FlipHorizontal, Crop, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
-  Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge
+  Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge,
+  GripHorizontal, Move
 } from 'lucide-react';
 import { Track, Clip, ClipType } from '../types';
 import { formatTimeCode } from '../utils/editorUtils';
@@ -276,6 +277,29 @@ export default function Timeline({
   draggingClipsRef.current = draggingClips;
   const marqueeRef = useRef(marquee);
   marqueeRef.current = marquee;
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+
+  // Auto-scroll timeline smoothly when video is playing so playhead slider stays in view
+  useEffect(() => {
+    if (!isPlaying) return;
+    const container = tracksContainerRef.current;
+    if (!container) return;
+
+    const playheadX = currentTime * zoom;
+    const scrollLeft = container.scrollLeft;
+    const clientWidth = container.clientWidth;
+    const rightThreshold = scrollLeft + clientWidth - 90;
+    const leftThreshold = scrollLeft + 30;
+
+    // If playhead travels past view window on playback, smoothly scroll forward
+    if (playheadX > rightThreshold || playheadX < leftThreshold) {
+      container.scrollTo({
+        left: Math.max(0, playheadX - clientWidth / 3),
+        behavior: 'smooth'
+      });
+    }
+  }, [currentTime, isPlaying, zoom]);
 
   const selectedClip = selectedClipId ? tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId) : null;
 
@@ -294,6 +318,54 @@ export default function Timeline({
       total: selectedClipsList.length,
     };
   }, [selectedClipsList]);
+
+  // Calculate multi-selection bounding box encompassing all selected clips
+  const multiSelectionBounds = useMemo(() => {
+    if (selectedClipsList.length <= 1) return null;
+
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+    const trackIndices: number[] = [];
+
+    sortedTracks.forEach((track, trkIdx) => {
+      let trackHasSelected = false;
+      track.clips.forEach(clip => {
+        if (activeSelectedIds.includes(clip.id)) {
+          minTime = Math.min(minTime, clip.start);
+          maxTime = Math.max(maxTime, clip.start + clip.duration);
+          trackHasSelected = true;
+        }
+      });
+      if (trackHasSelected) {
+        trackIndices.push(trkIdx);
+      }
+    });
+
+    if (minTime === Infinity || maxTime === -Infinity || trackIndices.length === 0) {
+      return null;
+    }
+
+    const minTrackIdx = Math.min(...trackIndices);
+    const maxTrackIdx = Math.max(...trackIndices);
+
+    const left = minTime * zoom;
+    const width = Math.max(24, (maxTime - minTime) * zoom);
+    // Track row height = 56px, gap = 8px, padding top = 6px
+    const top = 6 + minTrackIdx * 64;
+    const height = (maxTrackIdx - minTrackIdx) * 64 + 56;
+
+    return {
+      minTime,
+      maxTime,
+      duration: maxTime - minTime,
+      left,
+      width,
+      top,
+      height,
+      clipCount: selectedClipsList.length,
+      trackCount: trackIndices.length,
+    };
+  }, [selectedClipsList, sortedTracks, activeSelectedIds, zoom]);
 
   // Quick Select Helper Handlers
   const handleSelectAllClips = useCallback(() => {
@@ -478,7 +550,57 @@ export default function Timeline({
     const hasActiveDrag = isScrubbing || draggingClips !== null || marquee !== null;
     if (!hasActiveDrag) return;
 
+    let autoScrollRaf: number | null = null;
+    let latestClientX = 0;
+    let latestClientY = 0;
+
+    // Edge Auto-Scroll function when dragging near viewport boundaries
+    const checkEdgeAutoScroll = () => {
+      const container = tracksContainerRef.current;
+      if (!container || (!draggingClipsRef.current && (!marqueeRef.current || !marqueeRef.current.isSelecting))) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const edgeMargin = 60;
+      let scrollSpeed = 0;
+
+      if (latestClientX > rect.right - edgeMargin && latestClientX <= rect.right + 200) {
+        const factor = Math.min(1, Math.max(0.2, (latestClientX - (rect.right - edgeMargin)) / edgeMargin));
+        scrollSpeed = 16 * factor;
+      } else if (latestClientX < rect.left + edgeMargin && latestClientX >= rect.left - 200) {
+        const factor = Math.min(1, Math.max(0.2, ((rect.left + edgeMargin) - latestClientX) / edgeMargin));
+        scrollSpeed = -16 * factor;
+      }
+
+      if (scrollSpeed !== 0) {
+        container.scrollLeft += scrollSpeed;
+
+        // If in marquee mode, update coordinates as container scrolls
+        if (marqueeRef.current && marqueeRef.current.isSelecting && gridWrapperRef.current) {
+          const gridRect = gridWrapperRef.current.getBoundingClientRect();
+          const currentX = latestClientX - gridRect.left + container.scrollLeft;
+          const currentY = latestClientY - gridRect.top;
+
+          const boxLeft = Math.min(marqueeRef.current.startX, currentX);
+          const boxRight = Math.max(marqueeRef.current.startX, currentX);
+          const boxTop = Math.min(marqueeRef.current.startY, currentY);
+          const boxBottom = Math.max(marqueeRef.current.startY, currentY);
+
+          const intersectedIds = getIntersectedClipIds(boxLeft, boxRight, boxTop, boxBottom);
+          setMarquee(prev => prev ? { ...prev, currentX, currentY, activeCount: intersectedIds.length } : null);
+        }
+      }
+
+      autoScrollRaf = requestAnimationFrame(checkEdgeAutoScroll);
+    };
+
+    autoScrollRaf = requestAnimationFrame(checkEdgeAutoScroll);
+
     const handleMove = (clientX: number, clientY: number) => {
+      latestClientX = clientX;
+      latestClientY = clientY;
+
       if (isScrubbingRef.current) {
         handleScrub(clientX);
       } else if (draggingClipsRef.current) {
@@ -716,6 +838,9 @@ export default function Timeline({
     window.addEventListener('touchcancel', handleEnd);
 
     return () => {
+      if (autoScrollRaf) {
+        cancelAnimationFrame(autoScrollRaf);
+      }
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleEnd);
       window.removeEventListener('touchmove', handleTouchMove);
@@ -892,6 +1017,52 @@ export default function Timeline({
       dragStartPos: clientX,
       handle,
       clips: clipsToMove.length > 0 ? clipsToMove : [{ id: clip.id, initialStart: clip.start, initialDuration: clip.duration, trackId: clip.trackId }],
+    });
+  };
+
+  // Start group dragging of all selected clips from the multi-selection drag-handle
+  const startGroupDrag = (e: React.MouseEvent | React.TouchEvent) => {
+    // Only respond to primary mouse button if mouse event
+    if ('button' in e && (e as React.MouseEvent).button !== 0) return;
+
+    e.stopPropagation();
+    e.preventDefault();
+
+    // Jump playhead slider immediately to clicked position
+    if (tracksContainerRef.current) {
+      const rect = tracksContainerRef.current.getBoundingClientRect();
+      const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+      const x = clientX - rect.left + tracksContainerRef.current.scrollLeft;
+      const clickTime = Math.max(0, Math.min(duration, x / zoom));
+      onSeek(clickTime);
+    }
+
+    const clipsToMove: DraggingClipItem[] = [];
+    tracksRef.current.forEach(track => {
+      if (track.locked) return;
+      track.clips.forEach(c => {
+        if (activeSelectedIdsRef.current.includes(c.id)) {
+          clipsToMove.push({
+            id: c.id,
+            initialStart: c.start,
+            initialDuration: c.duration,
+            trackId: track.id,
+          });
+        }
+      });
+    });
+
+    if (clipsToMove.length === 0) return;
+
+    const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+
+    // Sort to make the leftmost clip the primary reference
+    clipsToMove.sort((a, b) => a.initialStart - b.initialStart);
+
+    setDraggingClips({
+      primaryId: clipsToMove[0].id,
+      dragStartPos: clientX,
+      clips: clipsToMove,
     });
   };
 
@@ -1667,6 +1838,44 @@ export default function Timeline({
                   })}
                 </div>
               ))}
+
+              {/* Multi-Selection Bounding Box & Interactive Group Move Drag-Handle */}
+              {multiSelectionBounds && (
+                <div
+                  id="timeline-multi-selection-bounding-box"
+                  className="absolute border-2 border-amber-400/90 rounded-xl bg-amber-500/5 shadow-[0_0_25px_rgba(251,191,36,0.2)] ring-2 ring-amber-400/30 transition-all pointer-events-none z-35"
+                  style={{
+                    left: `${multiSelectionBounds.left}px`,
+                    top: `${multiSelectionBounds.top}px`,
+                    width: `${multiSelectionBounds.width}px`,
+                    height: `${multiSelectionBounds.height}px`,
+                  }}
+                >
+                  {/* Corner Accent Markers */}
+                  <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
+                  <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
+                  <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
+                  <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
+
+                  {/* Interactive Group Drag-Handle Bar */}
+                  <div
+                    id="multi-selection-group-drag-handle"
+                    onMouseDown={startGroupDrag}
+                    onTouchStart={startGroupDrag}
+                    className="absolute -top-7 left-1/2 -translate-x-1/2 pointer-events-auto cursor-grab active:cursor-grabbing bg-[#151206]/95 hover:bg-amber-400 text-amber-300 hover:text-black border border-amber-400/90 px-2.5 py-0.5 rounded-md shadow-2xl flex items-center gap-1.5 backdrop-blur-md transition-all group/handle z-40 select-none"
+                    title="Click and drag to move all selected clips together across the timeline"
+                  >
+                    <GripHorizontal className="w-3.5 h-3.5 text-amber-400 group-hover/handle:text-black" />
+                    <Move className="w-3 h-3 text-amber-400/80 group-hover/handle:text-black" />
+                    <span className="text-[10px] font-mono font-bold whitespace-nowrap">
+                      {multiSelectionBounds.clipCount} Clips ({multiSelectionBounds.duration.toFixed(2)}s)
+                    </span>
+                    <span className="text-[9px] font-mono opacity-80 whitespace-nowrap border-l border-amber-400/40 pl-1.5 ml-0.5">
+                      Drag Group
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Marquee Rubberband Selection Box */}
