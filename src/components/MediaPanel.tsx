@@ -316,7 +316,7 @@ export default function MediaPanel({
   setQuranEnglishAlign,
   quranTranslation = 'ur-jalandhry',
   setQuranTranslation,
-  quranIntroMode = 'taawwuz-only',
+  quranIntroMode = 'both',
   setQuranIntroMode,
   onReplaceBismillahWithTabarakallazi,
   onApplyTranslationToTimeline,
@@ -1434,6 +1434,46 @@ export default function MediaPanel({
                       </>
                     )}
                   </button>
+                </div>
+
+                {/* BLOCK 2.8: OPENING / INTRO RECITION SELECTOR (BISMILLAH & TAAWWUZ) */}
+                <div className="bg-[#101016] border border-amber-500/30 rounded-xl p-3 space-y-2 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>OPENING VERSES (تسمیہ و تعوذ)</span>
+                    </label>
+                    <span className="text-[10px] text-amber-300 font-mono font-bold">
+                      {quranIntroMode === 'both' ? '⭐ A’udhu + Bismillah' : quranIntroMode === 'bismillah-only' ? 'Bismillah Only' : quranIntroMode === 'taawwuz-only' ? 'A’udhu Only' : 'Direct Ayah 1'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: 'both', label: '⭐ A’udhu + Bismillah', desc: 'دونوں شامل کریں' },
+                      { id: 'bismillah-only', label: 'Bismillah Only', desc: 'صرف بسم اللہ' },
+                      { id: 'taawwuz-only', label: 'A’udhu Only', desc: 'صرف اعوذ باللہ' },
+                      { id: 'none', label: 'Direct Ayah 1', desc: 'براہِ راست آیت' },
+                    ].map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        id={`btn-intro-mode-${mode.id}`}
+                        onClick={() => {
+                          if (setQuranIntroMode) {
+                            setQuranIntroMode(mode.id as any);
+                          }
+                        }}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex flex-col items-center justify-center border cursor-pointer ${
+                          quranIntroMode === mode.id
+                            ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                            : 'bg-[#15151e] border-gray-800 text-gray-300 hover:text-white hover:bg-gray-800/80'
+                        }`}
+                      >
+                        <span className="text-[11px] leading-tight">{mode.label}</span>
+                        <span className={`text-[9px] ${quranIntroMode === mode.id ? 'text-black/80 font-semibold' : 'text-gray-400'}`}>{mode.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* BLOCK 3: ✨ 1-CLICK AUTO-GENERATE CAPTIONS BUTTON */}

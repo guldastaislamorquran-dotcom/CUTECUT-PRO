@@ -748,8 +748,8 @@ export default function App() {
     });
   };
 
-  // Quran Intro Mode: 'taawwuz-only' (⭐ Ta'awwuz -> Direct Ayah 1 / Tabarakallazi) | 'both' (Ta'awwuz + Bismillah) | 'bismillah-only' | 'none'
-  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('taawwuz-only');
+  // Quran Intro Mode: 'both' (⭐ Ta'awwuz + Bismillah) | 'taawwuz-only' | 'bismillah-only' | 'none'
+  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('both');
 
   // ⚡ Dedicated Instant Action: Replace Bismillah with Surah 67:1 (Tabarakallazi) across the timeline
   const handleReplaceBismillahWithTabarakallazi = async () => {

@@ -217,6 +217,10 @@ export default function Timeline({
   zoomRef.current = zoom;
   const durationRef = useRef(duration);
   durationRef.current = duration;
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+  const isSnappingRef = useRef(isSnapping);
+  isSnappingRef.current = isSnapping;
   const activeSelectedIdsRef = useRef(activeSelectedIds);
   activeSelectedIdsRef.current = activeSelectedIds;
   const onSelectClipsRef = useRef(onSelectClips);
@@ -1454,10 +1458,10 @@ export default function Timeline({
                         <div
                           onMouseDown={(e) => startClipDrag(e, clip, 'left')}
                           onTouchStart={(e) => startClipDrag(e, clip, 'left')}
-                          className={`absolute left-0 top-0 bottom-0 w-3.5 bg-black/50 hover:bg-cyan-500 rounded-l-md cursor-ew-resize flex items-center justify-center transition-all z-20 ${isSelected ? 'opacity-90' : 'opacity-0 group-hover:opacity-100'}`}
-                          title="Drag to adjust start time (ew-resize)"
+                          className={`absolute left-0 top-0 bottom-0 w-3.5 bg-black/60 hover:bg-cyan-500 rounded-l-md cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
+                          title="Drag to trim start time (ew-resize)"
                         >
-                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full" />
+                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full group-hover/handle:bg-white" />
                         </div>
 
                         {/* Title text & Metadata Badge Overlay */}
@@ -1517,18 +1521,11 @@ export default function Timeline({
                         <div
                           onMouseDown={(e) => startClipDrag(e, clip, 'right')}
                           onTouchStart={(e) => startClipDrag(e, clip, 'right')}
-                          className={`absolute right-0 top-0 bottom-0 w-3.5 bg-black/50 hover:bg-cyan-500 rounded-r-md cursor-ew-resize flex items-center justify-center transition-all z-20 ${isSelected ? 'opacity-90' : 'opacity-0 group-hover:opacity-100'}`}
-                          title="Drag to adjust end time (ew-resize)"
+                          className={`absolute right-0 top-0 bottom-0 w-3.5 bg-black/60 hover:bg-cyan-500 rounded-r-md cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
+                          title="Drag to trim end time (ew-resize)"
                         >
-                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full" />
+                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full group-hover/handle:bg-white" />
                         </div>
-
-                        {/* Real-time microsecond alignment tooltip badge when dragging */}
-                        {draggingClips && draggingClips.clips.some(c => c.id === clip.id) && (
-                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-amber-950 text-amber-300 border border-amber-500/60 px-2 py-0.5 rounded text-[9px] font-mono font-bold shadow-xl z-50 whitespace-nowrap pointer-events-none">
-                            Start: {clip.start.toFixed(2)}s | Len: {clip.duration.toFixed(2)}s | End: {(clip.start + clip.duration).toFixed(2)}s
-                          </div>
-                        )}
                       </div>
                     );
                   })}
