@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sliders, Volume2, Sparkles, Wand2, Type, Gauge, Palette, Play, Plus, RefreshCw, RotateCcw, FileText, Move, CircleDot, Trash2, Clock, Target, ChevronLeft, ChevronRight, Blend, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Layers, Zap, Check } from 'lucide-react';
+import { Sliders, Volume2, Sparkles, Wand2, Type, Gauge, Palette, Play, Plus, RefreshCw, RotateCcw, FileText, Move, CircleDot, Trash2, Clock, Target, ChevronLeft, ChevronRight, Blend, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Layers, Zap, Check, Merge } from 'lucide-react';
 import { Clip, ClipType, VideoFilters, Keyframe, Track, TransitionType, ClipTransition } from '../types';
 import { PRESET_LUTS, ColorGradingPreset } from '../data/presetAssets';
 
@@ -14,6 +14,7 @@ interface InspectorProps {
   width?: number;
   currentTime?: number;
   onSeek?: (time: number) => void;
+  onMergeClips?: () => void;
 }
 
 export default function Inspector({
@@ -27,6 +28,7 @@ export default function Inspector({
   width,
   currentTime,
   onSeek,
+  onMergeClips,
 }: InspectorProps) {
   const [activeSubTab, setActiveSubTab] = useState<'transform' | 'adjust' | 'speed' | 'chroma' | 'effects' | 'transitions' | 'ai' | 'keyframes'>('transform');
   const [filterCategory, setFilterCategory] = useState<'All' | 'Cinematic' | 'Retro' | 'B&W' | 'Stylized'>('All');
@@ -65,7 +67,7 @@ export default function Inspector({
       setKfRotation(selectedClip.transform?.rotation ?? 0);
       setKfVolume(Math.round((selectedClip.volume ?? 1) * 100));
     }
-  }, [selectedClip?.id, currentClipOffset]);
+  }, [selectedClip?.id]);
 
   if (!selectedClip) {
     return (
@@ -1685,11 +1687,23 @@ export default function Inspector({
               <div className="p-2.5 bg-gradient-to-r from-amber-950/90 via-yellow-950/90 to-amber-950/90 border border-amber-500/50 rounded-lg text-amber-200 text-xs font-bold flex items-center justify-between shadow-lg">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                  <span className="tracking-wide">MULTI-SELECTION MATRIX: {selectedClipIds.length} CLIPS SELECTED</span>
+                  <span className="tracking-wide">MULTI-SELECTION: {selectedClipIds.length} CLIPS SELECTED</span>
                 </div>
-                <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded font-mono border border-amber-400/40">
-                  BATCH MODE
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {onMergeClips && (
+                    <button
+                      onClick={onMergeClips}
+                      className="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow transition"
+                      title="Merge selected adjacent text clips into one (Ctrl + M)"
+                    >
+                      <Merge className="w-3 h-3" />
+                      <span>MERGE</span>
+                    </button>
+                  )}
+                  <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded font-mono border border-amber-400/40">
+                    BATCH MODE
+                  </span>
+                </div>
               </div>
             )}
 
@@ -1997,10 +2011,18 @@ export default function Inspector({
           <div className="space-y-4">
             {/* Text Editor content */}
             <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
-              <h4 className="text-[10px] font-bold text-gray-400 tracking-wider flex items-center gap-1">
-                <Type className="w-3.5 h-3.5 text-purple-400" />
-                <span>EDIT SUBTITLE CONTENT</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-bold text-gray-400 tracking-wider flex items-center gap-1">
+                  <Type className="w-3.5 h-3.5 text-purple-400" />
+                  <span>EDIT SUBTITLE CONTENT</span>
+                </h4>
+                {selectedClip.confidenceScore !== undefined && (
+                  <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="Tasmeea Transcript Verification Score">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    TASMEEA {selectedClip.confidenceScore}% MATCH
+                  </span>
+                )}
+              </div>
               <textarea
                 id="text-content-textarea"
                 rows={3}
@@ -2272,6 +2294,216 @@ export default function Inspector({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-400"
                 />
               </div>
+            </div>
+
+            {/* ------------------ CapCut Text Animation Studio ------------------ */}
+            <div className="bg-[#202026] p-3 rounded-lg border border-purple-500/30 space-y-3.5 shadow-lg">
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-extrabold text-purple-300 tracking-wider flex items-center gap-1.5 uppercase">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                  <span>CapCut Text Animations</span>
+                </h4>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-500/40 font-bold">
+                  PRO FX
+                </span>
+              </div>
+
+              {/* One-Click Presets */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Quick CapCut Presets</span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { name: '⚡ Pop & Bounce', inAnim: 'pop', loopAnim: 'bounce-loop', outAnim: 'fade' },
+                    { name: '🎤 Karaoke Typewriter', inAnim: 'typewriter', loopAnim: 'shimmer', outAnim: 'fade' },
+                    { name: '🚀 Viral Slide Up', inAnim: 'slide-up', loopAnim: 'pulse', outAnim: 'slide-down' },
+                    { name: '🔮 Fade & Float', inAnim: 'fade', loopAnim: 'float', outAnim: 'fade' }
+                  ].map((preset) => (
+                    <button
+                      key={preset.name}
+                      onClick={() => onUpdateClip(selectedClip.id, {
+                        textAnimation: {
+                          inAnimation: preset.inAnim as any,
+                          inDuration: 0.4,
+                          loopAnimation: preset.loopAnim as any,
+                          outAnimation: preset.outAnim as any,
+                          outDuration: 0.4
+                        }
+                      })}
+                      className="px-2 py-1.5 rounded text-[10px] font-bold bg-[#16161c] text-purple-300 border border-purple-900/50 hover:border-purple-500 hover:bg-purple-950/40 transition text-left flex items-center justify-between"
+                    >
+                      <span>{preset.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* IN Animations */}
+              <div className="space-y-2 pt-2 border-t border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wide">In Animation (ورودی)</span>
+                  <span className="text-[9px] font-mono text-gray-400 uppercase">{selectedClip.textAnimation?.inAnimation || 'none'}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { label: 'None', val: 'none' },
+                    { label: 'Fade In', val: 'fade' },
+                    { label: 'Pop In', val: 'pop' },
+                    { label: 'Slide Up', val: 'slide-up' },
+                    { label: 'Slide Down', val: 'slide-down' },
+                    { label: 'Slide Left', val: 'slide-left' },
+                    { label: 'Slide Right', val: 'slide-right' },
+                    { label: 'Typewriter', val: 'typewriter' },
+                    { label: 'Bounce', val: 'bounce' },
+                    { label: 'Glitch', val: 'glitch' }
+                  ].map((item) => {
+                    const active = (selectedClip.textAnimation?.inAnimation || 'none') === item.val;
+                    return (
+                      <button
+                        key={item.val}
+                        onClick={() => {
+                          const curr = selectedClip.textAnimation || {};
+                          onUpdateClip(selectedClip.id, { textAnimation: { ...curr, inAnimation: item.val as any } });
+                        }}
+                        className={`py-1 rounded text-[9px] font-bold transition border ${active ? 'bg-emerald-500 text-black border-emerald-300 shadow' : 'bg-[#16161c] text-gray-300 border-gray-800 hover:text-white hover:border-gray-600'}`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* In Duration */}
+                {(selectedClip.textAnimation?.inAnimation && selectedClip.textAnimation.inAnimation !== 'none') && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                      <span>In Speed Duration</span>
+                      <span>{(selectedClip.textAnimation?.inDuration ?? 0.4).toFixed(1)}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="2.0"
+                      step="0.1"
+                      value={selectedClip.textAnimation?.inDuration ?? 0.4}
+                      onChange={(e) => {
+                        const curr = selectedClip.textAnimation || {};
+                        onUpdateClip(selectedClip.id, { textAnimation: { ...curr, inDuration: parseFloat(e.target.value) } });
+                      }}
+                      className="w-full h-1 bg-gray-700 rounded appearance-none cursor-pointer accent-emerald-400"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* OUT Animations */}
+              <div className="space-y-2 pt-2 border-t border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wide">Out Animation (خروجی)</span>
+                  <span className="text-[9px] font-mono text-gray-400 uppercase">{selectedClip.textAnimation?.outAnimation || 'none'}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { label: 'None', val: 'none' },
+                    { label: 'Fade Out', val: 'fade' },
+                    { label: 'Zoom Out', val: 'zoom-out' },
+                    { label: 'Slide Down', val: 'slide-down' },
+                    { label: 'Slide Up', val: 'slide-up' },
+                    { label: 'Slide Left', val: 'slide-left' },
+                    { label: 'Slide Right', val: 'slide-right' }
+                  ].map((item) => {
+                    const active = (selectedClip.textAnimation?.outAnimation || 'none') === item.val;
+                    return (
+                      <button
+                        key={item.val}
+                        onClick={() => {
+                          const curr = selectedClip.textAnimation || {};
+                          onUpdateClip(selectedClip.id, { textAnimation: { ...curr, outAnimation: item.val as any } });
+                        }}
+                        className={`py-1 rounded text-[9px] font-bold transition border ${active ? 'bg-rose-500 text-white border-rose-300 shadow' : 'bg-[#16161c] text-gray-300 border-gray-800 hover:text-white hover:border-gray-600'}`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Out Duration */}
+                {(selectedClip.textAnimation?.outAnimation && selectedClip.textAnimation.outAnimation !== 'none') && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                      <span>Out Speed Duration</span>
+                      <span>{(selectedClip.textAnimation?.outDuration ?? 0.4).toFixed(1)}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="2.0"
+                      step="0.1"
+                      value={selectedClip.textAnimation?.outDuration ?? 0.4}
+                      onChange={(e) => {
+                        const curr = selectedClip.textAnimation || {};
+                        onUpdateClip(selectedClip.id, { textAnimation: { ...curr, outDuration: parseFloat(e.target.value) } });
+                      }}
+                      className="w-full h-1 bg-gray-700 rounded appearance-none cursor-pointer accent-rose-400"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Loop Animations */}
+              <div className="space-y-2 pt-2 border-t border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wide">Loop / Motion (مداوم)</span>
+                  <span className="text-[9px] font-mono text-gray-400 uppercase">{selectedClip.textAnimation?.loopAnimation || 'none'}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { label: 'None', val: 'none' },
+                    { label: 'Pulse', val: 'pulse' },
+                    { label: 'Float', val: 'float' },
+                    { label: 'Shimmer', val: 'shimmer' },
+                    { label: 'Bounce Loop', val: 'bounce-loop' }
+                  ].map((item) => {
+                    const active = (selectedClip.textAnimation?.loopAnimation || 'none') === item.val;
+                    return (
+                      <button
+                        key={item.val}
+                        onClick={() => {
+                          const curr = selectedClip.textAnimation || {};
+                          onUpdateClip(selectedClip.id, { textAnimation: { ...curr, loopAnimation: item.val as any } });
+                        }}
+                        className={`py-1 rounded text-[9px] font-bold transition border ${active ? 'bg-cyan-500 text-black border-cyan-300 shadow' : 'bg-[#16161c] text-gray-300 border-gray-800 hover:text-white hover:border-gray-600'}`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Apply to ALL subtitles button */}
+              {onBatchUpdateClips && tracks.length > 0 && (
+                <div className="pt-2 border-t border-gray-800">
+                  <button
+                    onClick={() => {
+                      const anim = selectedClip.textAnimation;
+                      if (!anim) return;
+                      const textTrack = tracks.find(t => t.id === selectedClip.trackId) || tracks.find(t => t.type === ClipType.TEXT);
+                      if (textTrack) {
+                        const batchUpdates = textTrack.clips.map(c => ({
+                          id: c.id,
+                          updates: { textAnimation: anim }
+                        }));
+                        onBatchUpdateClips(batchUpdates);
+                      }
+                    }}
+                    className="w-full py-1.5 rounded text-[10px] font-extrabold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Apply Animation to ALL Text Clips</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

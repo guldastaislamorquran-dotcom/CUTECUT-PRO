@@ -68,6 +68,8 @@ export interface Clip {
   textGlowColor?: string;
   textStrokeWidth?: number; // 0 to 20 px
   textStrokeColor?: string;
+  confidenceScore?: number; // Tasmeea alignment confidence match ratio (0-100%)
+  textAnimation?: TextAnimationConfig;
 
   // Video adjustments and filters
   transform?: {
@@ -230,6 +232,43 @@ export interface VisualStylePreset {
     ayahSymbolStyle?: AyahSymbolStyle;
     watermark?: WatermarkSettings;
   };
+}
+
+export type TextAnimationIn =
+  | 'none'
+  | 'fade'
+  | 'pop'
+  | 'slide-up'
+  | 'slide-down'
+  | 'slide-left'
+  | 'slide-right'
+  | 'typewriter'
+  | 'bounce'
+  | 'zoom-in'
+  | 'glitch';
+
+export type TextAnimationOut =
+  | 'none'
+  | 'fade'
+  | 'zoom-out'
+  | 'slide-down'
+  | 'slide-up'
+  | 'slide-left'
+  | 'slide-right';
+
+export type TextAnimationLoop =
+  | 'none'
+  | 'pulse'
+  | 'float'
+  | 'shimmer'
+  | 'bounce-loop';
+
+export interface TextAnimationConfig {
+  inAnimation?: TextAnimationIn;
+  inDuration?: number; // In animation duration in seconds (0.1 - 2.0s)
+  outAnimation?: TextAnimationOut;
+  outDuration?: number; // Out animation duration in seconds (0.1 - 2.0s)
+  loopAnimation?: TextAnimationLoop;
 }
 
 

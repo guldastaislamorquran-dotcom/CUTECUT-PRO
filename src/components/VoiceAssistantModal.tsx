@@ -86,7 +86,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       handleSendMessage(transcript.trim());
       setTranscript('');
     }
-  }, [isListening]);
+  }, [isListening, transcript]);
 
   const toggleMic = () => {
     if (isListening) {

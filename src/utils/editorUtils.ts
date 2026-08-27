@@ -559,45 +559,27 @@ export function runVoiceAlignmentPipeline(
     return subtitles;
   }
 
-  // If acoustic segments are available from RMS voice analysis, align directly
+  // If acoustic segments are available from RMS voice analysis, map them (including internal Waqf breathing pauses)
   if (options?.acousticSegments && options.acousticSegments.length > 0) {
-    const acoustic = options.acousticSegments;
-    if (acoustic.length === totalVerses) {
-      // Direct 1-to-1 alignment between verses and detected speech segments
-      processedItems.forEach((item, idx) => {
-        subtitles.push({
-          start: Number(acoustic[idx].start.toFixed(2)),
-          end: Number(acoustic[idx].end.toFixed(2)),
-          verse_key: item.verse_key,
-          text_arabic: item.text_arabic,
-          text_english: item.text_english
-        });
+    const verseSegments = assignAcousticSegmentsToVerses(
+      options.acousticSegments,
+      totalVerses,
+      processedItems.map(i => i.weight)
+    );
+
+    processedItems.forEach((item, idx) => {
+      const segs = verseSegments[idx] || [{ start: startOffset, end: audioEndTarget }];
+      const vStart = Number(segs[0].start.toFixed(2));
+      const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+      subtitles.push({
+        start: vStart,
+        end: Math.max(vStart + 0.8, vEnd),
+        verse_key: item.verse_key,
+        text_arabic: item.text_arabic,
+        text_english: item.text_english
       });
-      return subtitles;
-    } else {
-      // Proportional mapping onto detected speech segments
-      let cumWeight = 0;
-      processedItems.forEach((item) => {
-        const startRatio = cumWeight / totalWeight;
-        cumWeight += item.weight;
-        const endRatio = cumWeight / totalWeight;
-
-        const startSegIdx = Math.min(acoustic.length - 1, Math.floor(startRatio * acoustic.length));
-        let endSegIdx = Math.min(acoustic.length - 1, Math.max(startSegIdx, Math.floor(endRatio * acoustic.length) - 1));
-
-        const segStart = acoustic[startSegIdx].start;
-        const segEnd = acoustic[endSegIdx].end;
-
-        subtitles.push({
-          start: Number(segStart.toFixed(2)),
-          end: Number(Math.max(segStart + 0.8, segEnd).toFixed(2)),
-          verse_key: item.verse_key,
-          text_arabic: item.text_arabic,
-          text_english: item.text_english
-        });
-      });
-      return subtitles;
-    }
+    });
+    return subtitles;
   }
 
   // Multi-verse pacing with natural breathing silence gaps
@@ -1006,6 +988,478 @@ export function analyzeVoiceActivityRMS(
     start: Math.max(0, Number((s.start - paddingSec).toFixed(3))),
     end: Math.min(totalDuration, Number((s.end + paddingSec).toFixed(3)))
   }));
+}
+
+/**
+ * Tasmeea Algorithm Normalization Engine:
+ * Strips diacritics (Harakat/Tashkeel), Madd marks, Quranic Waqf symbols,
+ * and normalizes letter forms (Alif/Ta Marbouta) for canonical text verification.
+ */
+export function normalizeQuranicText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0610-\u061A\u0653-\u0655]/g, '') // Strip Tashkeel & Waqf
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627') // Normalize Alif (آ أ إ ٱ -> ا)
+    .replace(/\u0629/g, '\u0647') // Normalize Ta Marbouta (ة -> ه)
+    .replace(/\u0649/g, '\u0627') // Normalize Alif Maqsura (ى -> ا)
+    .replace(/[^\u0621-\u064A]/g, '') // Keep standard Arabic characters only
+    .trim();
+}
+
+/**
+ * Tasmeea Algorithm Metric: Computes Levenshtein edit distance between candidate & reference text.
+ */
+export function computeLevenshteinDistance(a: string, b: string): number {
+  const normA = normalizeQuranicText(a);
+  const normB = normalizeQuranicText(b);
+  if (normA === normB) return 0;
+  if (!normA.length) return normB.length;
+  if (!normB.length) return normA.length;
+
+  const matrix: number[][] = [];
+  for (let i = 0; i <= normB.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= normA.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= normB.length; i++) {
+    for (let j = 1; j <= normA.length; j++) {
+      if (normB.charAt(i - 1) === normA.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+
+  return matrix[normB.length][normA.length];
+}
+
+/**
+ * Tasmeea Algorithm Verification Score:
+ * Quantifies candidate alignment match percentage (0.0 to 100.0%).
+ * Formula: matching_ratio = max(0, 1 - (edit_distance / max_length)) * 100
+ */
+export function calculateTasmeeaMatchRatio(candidateText: string, referenceText: string): number {
+  const normCand = normalizeQuranicText(candidateText);
+  const normRef = normalizeQuranicText(referenceText);
+  if (!normCand && !normRef) return 100;
+  if (!normCand || !normRef) return 0;
+
+  const dist = computeLevenshteinDistance(candidateText, referenceText);
+  const maxLen = Math.max(normCand.length, normRef.length);
+  const ratio = Math.max(0, 1 - dist / maxLen);
+  return Number((ratio * 100).toFixed(1));
+}
+
+/**
+ * Tasmeea Algorithm Sliding Window Alignment:
+ * Evaluates candidate audio transcript window against canonical Quran reference text.
+ */
+export function findBestTasmeeaWindowMatch(candidateText: string, fullQuranReference: string): {
+  matchRatio: number;
+  bestSubstring: string;
+} {
+  const normCand = normalizeQuranicText(candidateText);
+  const normRef = normalizeQuranicText(fullQuranReference);
+  if (!normCand || !normRef) return { matchRatio: 0, bestSubstring: '' };
+
+  const candLen = normCand.length;
+  let bestRatio = 0;
+
+  const minWin = Math.max(1, Math.floor(candLen * 0.75));
+  const maxWin = Math.min(normRef.length, Math.ceil(candLen * 1.25));
+
+  for (let winLen = minWin; winLen <= maxWin; winLen++) {
+    for (let i = 0; i <= normRef.length - winLen; i++) {
+      const windowStr = normRef.substring(i, i + winLen);
+      const dist = computeLevenshteinDistance(normCand, windowStr);
+      const ratio = Math.max(0, 1 - dist / Math.max(candLen, winLen));
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+      }
+    }
+  }
+
+  return {
+    matchRatio: Number((bestRatio * 100).toFixed(1)),
+    bestSubstring: fullQuranReference
+  };
+}
+
+/**
+ * Splits a full sentence / text into phrase chunks based on duration weights of speech segments.
+ * Preserves clean word boundaries and respects Quranic Waqf punctuation marks and Tajweed Madd duration.
+ */
+export function splitTextIntoPhrases(fullText: string, inputDurations: number[]): string[] {
+  if (!fullText || !fullText.trim()) return inputDurations.map(() => '');
+  const words = fullText.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return inputDurations.map(() => '');
+  if (words.length === 1 || inputDurations.length <= 1) return [fullText];
+
+  let durations = [...inputDurations];
+  while (durations.length > words.length && durations.length > 1) {
+    let minGapIdx = 0;
+    let minSum = Infinity;
+    for (let d = 0; d < durations.length - 1; d++) {
+      if (durations[d] + durations[d + 1] < minSum) {
+        minSum = durations[d] + durations[d + 1];
+        minGapIdx = d;
+      }
+    }
+    durations.splice(minGapIdx, 2, minSum);
+  }
+
+  const result: string[] = [];
+  let currentWordIndex = 0;
+
+  const getSpeechCharLen = (w: string) => {
+    const clean = w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
+    let len = Math.max(1, clean.length);
+    // Add acoustic weight for Madd marks (\u0653) & long vowels
+    if (/[\u0653\u0670]/.test(w)) len += 2.5;
+    if (/[\u0622]/.test(w)) len += 2.0;
+
+    // Detect long Arabic words (6+ or 8+ characters) & attached pronouns (e.g., كموه, ناه, هم)
+    if (clean.length >= 8) {
+      len += 4.0; // Heavy multi-syllables (e.g., فَأَسْقَيْنَاكُمُوهُ, أَنُلْزِمُكُمُوهَا)
+    } else if (clean.length >= 6) {
+      len += 2.0; // Multi-syllable compound words (e.g., الْمُسْتَغْفِرِينَ)
+    }
+    return len;
+  };
+
+  // Helper to check if a word is a short Arabic grammatical particle/preposition
+  const isShortParticle = (w: string) => {
+    const clean = w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
+    return /^(و|ف|ب|ل|من|عن|في|على|إلى|ان|أن|إن|قد|هل|ما|لا|يا)$/.test(clean);
+  };
+
+  for (let i = 0; i < durations.length; i++) {
+    if (i === durations.length - 1) {
+      result.push(words.slice(currentWordIndex).join(' '));
+    } else {
+      const remainingSegments = durations.length - i;
+      const remainingDur = durations.slice(i).reduce((a, b) => a + b, 0) || 1;
+      const remainingWords = words.slice(currentWordIndex);
+      const remainingWordLengths = remainingWords.map(getSpeechCharLen);
+      const totalRemainingChars = remainingWordLengths.reduce((a, b) => a + b, 0) || 1;
+
+      const targetCharShare = totalRemainingChars * (durations[i] / remainingDur);
+
+      let bestCount = 1;
+      let minDiff = Infinity;
+
+      const maxCountAllowed = Math.max(1, remainingWords.length - (remainingSegments - 1));
+      for (let c = 1; c <= maxCountAllowed; c++) {
+        const testChars = remainingWordLengths.slice(0, c).reduce((a, b) => a + b, 0);
+        let diff = Math.abs(testChars - targetCharShare);
+
+        const lastWord = remainingWords[c - 1] || '';
+        const nextWord = remainingWords[c] || '';
+
+        // Waqf punctuation bonus
+        const hasWaqfSymbol = /[\u06D6-\u06DC\u06E9-\u06ED,;\.\؟\?!]|[جۘۚطصصلےقلیف]/.test(lastWord);
+        if (hasWaqfSymbol) {
+          diff -= 15.0;
+        }
+
+        // Arabic grammatical integrity rule:
+        // Prevent ending a phrase on an isolated short particle (e.g., "في" or "من") when followed by a long word
+        if (isShortParticle(lastWord) && nextWord) {
+          diff += 8.0; // Penalty for dangling prepositions
+        }
+
+        // Bonus for ending a phrase on a long cohesive word or complete clause
+        const lastCleanLen = lastWord.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').length;
+        if (lastCleanLen >= 6) {
+          diff -= 3.0; // Cohesive word boundary preference
+        }
+
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestCount = c;
+        }
+      }
+
+      const endIdx = Math.min(words.length, currentWordIndex + bestCount);
+      result.push(words.slice(currentWordIndex, endIdx).join(' '));
+      currentWordIndex = endIdx;
+    }
+  }
+
+  while (result.length < inputDurations.length) {
+    result.push('');
+  }
+
+  return result;
+}
+
+/**
+ * Assigns acoustic speech segments (including internal breathing pauses / Waqf breaks)
+ * to verses based on verse weights, strictly respecting acoustic speech boundaries
+ * so text clips drop during recitation and clear during silence/pauses.
+ */
+export function assignAcousticSegmentsToVerses(
+  segments: Array<{ start: number; end: number }>,
+  versesCount: number,
+  weights: number[]
+): Array<Array<{ start: number; end: number }>> {
+  if (!segments || segments.length === 0 || versesCount <= 0) return [];
+
+  const S = segments.length;
+  const V = versesCount;
+  const result: Array<Array<{ start: number; end: number }>> = Array.from({ length: V }, () => []);
+
+  const segDurations = segments.map(s => Math.max(0.05, s.end - s.start));
+  const totalSpeechDur = segDurations.reduce((a, b) => a + b, 0) || 1;
+  const totalWeight = weights.reduce((a, b) => a + (b || 1), 0) || 1;
+
+  if (S === V) {
+    // Exact 1-to-1 match between acoustic speech segments and verses!
+    // Segment 0 -> Verse 0, Segment 1 -> Verse 1, Segment 2 -> Verse 2...
+    // Guarantees zero 1-Ayah offset!
+    for (let i = 0; i < V; i++) {
+      result[i] = [{
+        start: Number(segments[i].start.toFixed(2)),
+        end: Number(segments[i].end.toFixed(2))
+      }];
+    }
+    return result;
+  }
+
+  if (S > V) {
+    // More acoustic speech segments than verses (some long verses have internal breath pauses).
+    // Target cumulative speech duration for each verse end:
+    const targetCumDur: number[] = [];
+    let cumW = 0;
+    for (let v = 0; v < V; v++) {
+      cumW += weights[v] || 1;
+      targetCumDur.push((cumW / totalWeight) * totalSpeechDur);
+    }
+
+    let currentSegIdx = 0;
+    let cumSpeechSoFar = 0;
+
+    for (let v = 0; v < V; v++) {
+      if (v === V - 1) {
+        // Last verse takes all remaining speech segments
+        for (let s = currentSegIdx; s < S; s++) {
+          result[v].push({
+            start: Number(segments[s].start.toFixed(2)),
+            end: Number(segments[s].end.toFixed(2))
+          });
+        }
+      } else {
+        const maxAllowedEnd = S - (V - v);
+        let bestEndIdx = currentSegIdx;
+        let minDiff = Infinity;
+
+        let accumInThisVerse = 0;
+        for (let s = currentSegIdx; s <= maxAllowedEnd; s++) {
+          accumInThisVerse += segDurations[s];
+          const testCumSpeech = cumSpeechSoFar + accumInThisVerse;
+          const diff = Math.abs(testCumSpeech - targetCumDur[v]);
+
+          if (diff <= minDiff) {
+            minDiff = diff;
+            bestEndIdx = s;
+          }
+        }
+
+        for (let s = currentSegIdx; s <= bestEndIdx; s++) {
+          cumSpeechSoFar += segDurations[s];
+          result[v].push({
+            start: Number(segments[s].start.toFixed(2)),
+            end: Number(segments[s].end.toFixed(2))
+          });
+        }
+        currentSegIdx = bestEndIdx + 1;
+      }
+    }
+  } else {
+    // S < V: Fewer acoustic segments than verses (multiple short verses in 1 breath)
+    const targetCumDur: number[] = [];
+    let cumW = 0;
+    for (let v = 0; v < V; v++) {
+      cumW += weights[v] || 1;
+      targetCumDur.push((cumW / totalWeight) * totalSpeechDur);
+    }
+
+    const verseToSegIdx: number[] = [];
+    let cumSegSpeech = 0;
+    let sIdx = 0;
+
+    for (let v = 0; v < V; v++) {
+      const target = targetCumDur[v];
+      while (
+        sIdx < S - 1 &&
+        Math.abs((cumSegSpeech + segDurations[sIdx]) - target) > Math.abs(cumSegSpeech - target)
+      ) {
+        cumSegSpeech += segDurations[sIdx];
+        sIdx++;
+      }
+      verseToSegIdx.push(sIdx);
+    }
+
+    for (let v = 1; v < V; v++) {
+      if (verseToSegIdx[v] < verseToSegIdx[v - 1]) {
+        verseToSegIdx[v] = verseToSegIdx[v - 1];
+      }
+    }
+
+    for (let s = 0; s < S; s++) {
+      const versesInSeg: number[] = [];
+      for (let v = 0; v < V; v++) {
+        if (verseToSegIdx[v] === s) versesInSeg.push(v);
+      }
+
+      if (versesInSeg.length === 0) continue;
+
+      const seg = segments[s];
+      const segTotalW = versesInSeg.reduce((sum, v) => sum + (weights[v] || 1), 0) || 1;
+      let cursor = seg.start;
+
+      versesInSeg.forEach((v, idx) => {
+        const w = weights[v] || 1;
+        const vDur = idx === versesInSeg.length - 1
+          ? (seg.end - cursor)
+          : ((seg.end - seg.start) * (w / segTotalW));
+
+        const vStart = Number(cursor.toFixed(2));
+        const vEnd = Number(Math.min(seg.end, cursor + vDur).toFixed(2));
+
+        if (vEnd > vStart) {
+          result[v].push({ start: vStart, end: vEnd });
+        }
+        cursor = vEnd;
+      });
+    }
+
+    for (let v = 0; v < V; v++) {
+      if (result[v].length === 0) {
+        const seg = segments[Math.min(v, S - 1)];
+        result[v].push({ start: seg.start, end: seg.end });
+      }
+    }
+  }
+
+  // Post-processing: For each verse, merge internal acoustic sub-segments if internal silence gap is < 0.65s (micro-breath during continuous recitation of full Ayah)
+  // This guarantees that an Ayah recited continuously in ONE breath is NEVER split into fraction clips (jo full ayah parhe gai hu use taqsim na kare).
+  // Only genuine Waqf pause gaps (>= 0.65s) cause an Ayah to split into distinct phrase clips.
+  for (let v = 0; v < V; v++) {
+    const vSegs = result[v];
+    if (!vSegs || vSegs.length <= 1) continue;
+
+    const mergedVSegs: Array<{ start: number; end: number }> = [];
+    let current = { ...vSegs[0] };
+
+    for (let i = 1; i < vSegs.length; i++) {
+      const nextSeg = vSegs[i];
+      const gap = nextSeg.start - current.end;
+      if (gap < 0.65) {
+        current.end = Math.max(current.end, nextSeg.end);
+      } else {
+        mergedVSegs.push({
+          start: Number(current.start.toFixed(2)),
+          end: Number(current.end.toFixed(2))
+        });
+        current = { ...nextSeg };
+      }
+    }
+    mergedVSegs.push({
+      start: Number(current.start.toFixed(2)),
+      end: Number(current.end.toFixed(2))
+    });
+
+    result[v] = mergedVSegs;
+  }
+
+  return result;
+}
+
+/**
+ * Fits raw acoustic voice activity segments 1-to-1 to total verses,
+ * merging tiny gaps or splitting long segments so EVERY verse gets its own segment.
+ */
+export function fitAcousticSegmentsToVerses(
+  rawSegments: Array<{ start: number; end: number }>,
+  totalVerses: number,
+  weights?: number[]
+): Array<{ start: number; end: number }> {
+  if (!rawSegments || rawSegments.length === 0 || totalVerses <= 0) return [];
+  if (totalVerses === 1) {
+    const minStart = rawSegments[0].start;
+    const maxEnd = rawSegments[rawSegments.length - 1].end;
+    return [{ start: Number(minStart.toFixed(2)), end: Number(maxEnd.toFixed(2)) }];
+  }
+
+  let segments = rawSegments.map(s => ({ start: s.start, end: s.end }));
+
+  // CASE 1: More acoustic segments than verses -> Merge adjacent segments separated by smallest gap
+  while (segments.length > totalVerses) {
+    let minGap = Infinity;
+    let mergeIdx = 0;
+
+    for (let i = 0; i < segments.length - 1; i++) {
+      const gap = segments[i + 1].start - segments[i].end;
+      if (gap < minGap) {
+        minGap = gap;
+        mergeIdx = i;
+      }
+    }
+
+    const merged = {
+      start: segments[mergeIdx].start,
+      end: segments[mergeIdx + 1].end,
+    };
+    segments.splice(mergeIdx, 2, merged);
+  }
+
+  // CASE 2: Fewer acoustic segments than verses -> Split longest segment
+  while (segments.length < totalVerses) {
+    let maxDur = -1;
+    let splitIdx = 0;
+
+    for (let i = 0; i < segments.length; i++) {
+      const dur = segments[i].end - segments[i].start;
+      if (dur > maxDur) {
+        maxDur = dur;
+        splitIdx = i;
+      }
+    }
+
+    const segToSplit = segments[splitIdx];
+    const totalDur = segToSplit.end - segToSplit.start;
+    const midPoint = segToSplit.start + totalDur / 2;
+    const gapPad = Math.min(0.12, totalDur * 0.05);
+
+    const leftSeg = { start: segToSplit.start, end: Math.max(segToSplit.start + 0.3, midPoint - gapPad) };
+    const rightSeg = { start: Math.min(segToSplit.end - 0.3, midPoint + gapPad), end: segToSplit.end };
+
+    segments.splice(splitIdx, 1, leftSeg, rightSeg);
+  }
+
+  // Enforce strict sequential ordering and min duration
+  for (let i = 0; i < segments.length; i++) {
+    segments[i].start = Number(segments[i].start.toFixed(2));
+    segments[i].end = Number(Math.max(segments[i].start + 0.8, segments[i].end).toFixed(2));
+
+    if (i > 0 && segments[i].start < segments[i - 1].end) {
+      segments[i].start = Number((segments[i - 1].end + 0.05).toFixed(2));
+      if (segments[i].end <= segments[i].start) {
+        segments[i].end = Number((segments[i].start + 0.8).toFixed(2));
+      }
+    }
+  }
+
+  return segments;
 }
 
 /**

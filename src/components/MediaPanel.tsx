@@ -316,7 +316,7 @@ export default function MediaPanel({
   setQuranEnglishAlign,
   quranTranslation = 'ur-jalandhry',
   setQuranTranslation,
-  quranIntroMode = 'both',
+  quranIntroMode = 'none',
   setQuranIntroMode,
   onReplaceBismillahWithTabarakallazi,
   onApplyTranslationToTimeline,

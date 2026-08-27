@@ -17,6 +17,7 @@ import {
   Command,
   Save,
   HelpCircle,
+  Merge,
 } from 'lucide-react';
 
 interface ShortcutItem {
@@ -63,6 +64,13 @@ const SHORTCUT_LIST: ShortcutItem[] = [
     description: 'Split selected clip at current playhead',
     category: 'editing',
     icon: <Scissors className="w-3.5 h-3.5 text-amber-400" />,
+  },
+  {
+    id: 'merge-clips',
+    keys: ['Ctrl', 'M'],
+    description: 'Merge selected adjacent text clips into one',
+    category: 'editing',
+    icon: <Merge className="w-3.5 h-3.5 text-purple-400" />,
   },
   {
     id: 'duplicate-clip',

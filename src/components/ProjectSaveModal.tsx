@@ -183,7 +183,7 @@ export const ProjectSaveModal: React.FC<ProjectSaveModalProps> = ({
       if (selectedClip.textStrokeColor) setBuilderStrokeColor(selectedClip.textStrokeColor);
       if (selectedClip.textStrokeWidth !== undefined) setBuilderStrokeWidth(selectedClip.textStrokeWidth);
     }
-  }, [selectedClip]);
+  }, [selectedClip?.id]);
 
   // Load saved projects & presets on modal open
   useEffect(() => {

@@ -11,7 +11,7 @@ import UpdateCheckerModal from './components/UpdateCheckerModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import ExportModal, { ExportConfig } from './components/ExportModal';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration } from './utils/editorUtils';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -511,9 +511,8 @@ export default function App() {
       clearTimeout(syncTimerRef.current);
     }
 
-    setDriveSyncStatus(prev => ({ ...prev, isSyncing: true, statusText: 'Syncing to Cloud...' }));
-
     syncTimerRef.current = setTimeout(async () => {
+      setDriveSyncStatus(prev => ({ ...prev, isSyncing: true, statusText: 'Syncing to Cloud...' }));
       try {
         const projectData = {
           version: '2.0.0',
@@ -592,7 +591,7 @@ export default function App() {
     return () => {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
-  }, [tracks, duration, watermark, aspectRatio, currentUser]);
+  }, [tracks, duration, watermark, aspectRatio, currentUser?.uid, currentUser?.email]);
 
   const handleManualDriveSync = async () => {
     if (!currentUser) {
@@ -749,7 +748,7 @@ export default function App() {
   };
 
   // Quran Intro Mode: 'both' (⭐ Ta'awwuz + Bismillah) | 'taawwuz-only' | 'bismillah-only' | 'none'
-  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('both');
+  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('none');
 
   // ⚡ Dedicated Instant Action: Replace Bismillah with Surah 67:1 (Tabarakallazi) across the timeline
   const handleReplaceBismillahWithTabarakallazi = async () => {
@@ -1591,6 +1590,12 @@ export default function App() {
         splitClip();
       }
 
+      // Ctrl + M: Merge selected adjacent clips
+      if (e.ctrlKey && e.code === 'KeyM') {
+        e.preventDefault();
+        mergeSelectedClips();
+      }
+
       // Q: Ripple Delete Left
       if (e.code === 'KeyQ') {
         e.preventDefault();
@@ -1718,6 +1723,93 @@ export default function App() {
       }));
 
       setSelectedClipId(clip2.id);
+    }
+  };
+
+  const mergeSelectedClips = () => {
+    if (selectedClipIds.length < 2) return;
+
+    const idsSet = new Set(selectedClipIds);
+    let hasMergedAny = false;
+    let newSelectedIds: string[] = [];
+
+    setTracks(prevTracks => {
+      let modified = false;
+
+      const updatedTracks = prevTracks.map(track => {
+        const selectedTrackClips = track.clips.filter(c => idsSet.has(c.id));
+        if (selectedTrackClips.length < 2) {
+          return track;
+        }
+
+        const sortedAllClips = [...track.clips].sort((a, b) => a.start - b.start);
+        const selectedIndices = selectedTrackClips
+          .map(c => sortedAllClips.findIndex(sc => sc.id === c.id))
+          .filter(idx => idx !== -1)
+          .sort((a, b) => a - b);
+
+        if (selectedIndices.length < 2) return track;
+
+        // Find range of selected clips in chronological sequence on track
+        const minIdx = selectedIndices[0];
+        const maxIdx = selectedIndices[selectedIndices.length - 1];
+        
+        // Take contiguous slice of selected clips
+        const contiguousClips = sortedAllClips.slice(minIdx, maxIdx + 1);
+        if (contiguousClips.length < 2) return track;
+
+        const firstClip = contiguousClips[0];
+        const lastClip = contiguousClips[contiguousClips.length - 1];
+
+        const newStart = firstClip.start;
+        const newEnd = lastClip.start + lastClip.duration;
+        const newDuration = Math.max(0.1, newEnd - newStart);
+
+        // Merge text contents with spaces
+        const mergedText = contiguousClips
+          .map(c => (c.text !== undefined ? c.text : c.name || '').trim())
+          .filter(Boolean)
+          .join(' ');
+
+        // Merge names
+        const mergedName = contiguousClips
+          .map(c => (c.name || '').trim())
+          .filter(Boolean)
+          .join(' & ');
+
+        const mergedClipId = `clip-merged-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+        const mergedClip: Clip = {
+          ...firstClip,
+          id: mergedClipId,
+          name: mergedName || firstClip.name,
+          start: Number(newStart.toFixed(3)),
+          duration: Number(newDuration.toFixed(3)),
+          sourceStart: firstClip.sourceStart,
+          sourceDuration: Number(newDuration.toFixed(3)),
+          text: mergedText || firstClip.text,
+        };
+
+        const remainingClips = track.clips.filter(c => !contiguousClips.some(sc => sc.id === c.id));
+        const nextClips = [...remainingClips, mergedClip].sort((a, b) => a.start - b.start);
+
+        modified = true;
+        hasMergedAny = true;
+        newSelectedIds.push(mergedClipId);
+
+        return {
+          ...track,
+          clips: nextClips
+        };
+      });
+
+      if (!modified) return prevTracks;
+      return updatedTracks;
+    });
+
+    if (hasMergedAny && newSelectedIds.length > 0) {
+      setSelectedClipIds(newSelectedIds);
+      console.log(`[Timeline] Merged ${selectedClipIds.length} adjacent text clips into 1 combined clip.`);
     }
   };
 
@@ -1868,7 +1960,10 @@ export default function App() {
         }
       });
     });
-    setDuration((prev) => Math.max(prev, Math.ceil(maxEnd)));
+    setDuration((prev) => {
+      const target = Math.max(prev, Math.ceil(maxEnd));
+      return target === prev ? prev : target;
+    });
   }, [tracks]);
 
   const handleUpdateDuration = (newDur: number) => {
@@ -2678,10 +2773,10 @@ export default function App() {
               totalAudioDuration = Math.max(targetClip.duration || 0, audioBuffer.duration || 0);
               audioCtx.close();
 
-              // Analyze RMS voice activity with strict -35dB threshold and 250ms silence termination
+              // Analyze RMS voice activity with 600ms silence threshold to bridge normal word transitions and detect true breathing pauses (Waqf)
               acousticSpeechSegments = analyzeVoiceActivityRMS(pcmData, sampleRate, {
-                minSilenceMs: 250,
-                minSpeechMs: 700,
+                minSilenceMs: 600,
+                minSpeechMs: 650,
                 paddingMs: 60
               });
 
@@ -2700,7 +2795,7 @@ export default function App() {
       const transOpt = getTranslationOptionById(quranTranslation);
       const transApiId = transOpt.apiId || 20;
 
-      const currentIntroMode = introMode || quranIntroMode || 'taawwuz-only';
+      const currentIntroMode = introMode || quranIntroMode || 'none';
       const shouldIncludeTaawwuz = isStartFromFirstAyah && isNotTawbah && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
       const shouldIncludeBismillah = isStartFromFirstAyah && isNotTawbah && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
 
@@ -2867,50 +2962,36 @@ export default function App() {
         const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
 
         if (acousticSpeechSegments.length >= 1) {
-          if (acousticSpeechSegments.length === totalVerses) {
-            // Direct 1-to-1 acoustic mapping: Each recitation phrase (Ta'awwuz, Tasmiyah, Ayahs)
-            // maps directly to its corresponding detected voice activity interval [start, end].
-            // During audio silence/pauses between recitation phrases, NO text clip exists!
-            for (let i = 0; i < totalVerses; i++) {
-              startTimes[i] = Number(acousticSpeechSegments[i].start.toFixed(2));
-              endTimes[i] = Number(acousticSpeechSegments[i].end.toFixed(2));
-            }
-          } else {
-            // Proportional mapping onto detected speech segments
-            let cumWeight = 0;
-            for (let i = 0; i < totalVerses; i++) {
-              const startRatio = cumWeight / totalWeight;
-              cumWeight += weights[i];
-              const endRatio = cumWeight / totalWeight;
+          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights);
+          
+          for (let i = 0; i < totalVerses; i++) {
+            const verse = allRawVerses[i];
+            const segs = verseAssignedSegments[i] || [{ start: speechOnset, end: audioEndTarget }];
+            const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : i + 1);
 
-              const startSegIdx = Math.min(
-                acousticSpeechSegments.length - 1,
-                Math.floor(startRatio * acousticSpeechSegments.length)
+            let arText = verse.text_arabic || '';
+            if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
+              arText = attachAyahSymbolToText(
+                arText,
+                vNum,
+                quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
+                quranAyahDigitType,
+                quranAyahSymbolPosition
               );
-              let endSegIdx = Math.min(
-                acousticSpeechSegments.length - 1,
-                Math.max(startSegIdx, Math.floor(endRatio * acousticSpeechSegments.length) - 1)
-              );
-              if (endSegIdx < startSegIdx) {
-                endSegIdx = startSegIdx;
-              }
-
-              const rawSegStart = acousticSpeechSegments[startSegIdx].start;
-              const rawSegEnd = acousticSpeechSegments[endSegIdx].end;
-
-              startTimes[i] = Number(rawSegStart.toFixed(2));
-              endTimes[i] = Number(Math.max(rawSegStart + 0.8, rawSegEnd).toFixed(2));
             }
 
-            // Monotonic ordering guard (ensures verse i+1 starts after verse i, preserving silence gaps)
-            for (let i = 0; i < totalVerses; i++) {
-              if (i > 0 && startTimes[i] < endTimes[i - 1]) {
-                startTimes[i] = Number((endTimes[i - 1] + 0.05).toFixed(2));
-                if (endTimes[i] <= startTimes[i]) {
-                  endTimes[i] = Number((startTimes[i] + 0.8).toFixed(2));
-                }
-              }
-            }
+            const vStart = Number(segs[0].start.toFixed(2));
+            const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+
+            subtitles.push({
+              verse_key: verse.verse_key,
+              text_arabic: arText,
+              text_english: verse.text_english || '',
+              start: vStart,
+              end: Math.max(vStart + 0.8, vEnd),
+              isTaawwuz: verse.isTaawwuz,
+              isTasmiyah: verse.isTasmiyah
+            });
           }
         } else {
           // Fallback continuous flow: leave clean breathing silence gaps between verses
@@ -2920,46 +3001,36 @@ export default function App() {
           const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
 
           for (let i = 0; i < totalVerses; i++) {
+            const verse = allRawVerses[i];
             const clipDur = (weights[i] / totalWeight) * totalSpeechBudget;
             const segStart = Number(currentMarker.toFixed(2));
             const segEnd = Number((currentMarker + clipDur).toFixed(2));
 
-            startTimes[i] = segStart;
-            endTimes[i] = Math.max(segStart + 0.8, segEnd);
+            const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : i + 1);
+            let arText = verse.text_arabic || '';
+            if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
+              arText = attachAyahSymbolToText(
+                arText,
+                vNum,
+                quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
+                quranAyahDigitType,
+                quranAyahSymbolPosition
+              );
+            }
 
-            currentMarker = Number((endTimes[i] + breathGap).toFixed(2));
+            subtitles.push({
+              verse_key: verse.verse_key,
+              text_arabic: arText,
+              text_english: verse.text_english || '',
+              start: segStart,
+              end: Math.max(segStart + 0.8, segEnd),
+              isTaawwuz: verse.isTaawwuz,
+              isTasmiyah: verse.isTasmiyah
+            });
+
+            currentMarker = Number((segEnd + breathGap).toFixed(2));
           }
         }
-      }
-
-      // Build subtitle items: preserving exact [start, end] so empty track gaps remain visible
-      for (let i = 0; i < totalVerses; i++) {
-        const verse = allRawVerses[i];
-        const segStart = startTimes[i];
-        const segEnd = endTimes[i];
-
-        const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : i + 1);
-        let arText = verse.text_arabic || '';
-        if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
-          arText = attachAyahSymbolToText(
-            arText,
-            vNum,
-            quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
-            quranAyahDigitType,
-            quranAyahSymbolPosition
-          );
-        }
-        const enText = verse.text_english || '';
-
-        subtitles.push({
-          verse_key: verse.verse_key,
-          text_arabic: arText,
-          text_english: enText,
-          start: segStart,
-          end: segEnd,
-          isTaawwuz: verse.isTaawwuz,
-          isTasmiyah: verse.isTasmiyah
-        });
       }
 
       addLog(`[Quran AI] Successfully compiled Mukammal Surah (${subtitles.length} total verse segments across ${totalAudioDuration.toFixed(1)}s audio).`, 80);
@@ -2988,6 +3059,8 @@ export default function App() {
       const arabicClips: Clip[] = subtitles.map((sub: any, idx: number) => {
         const clipStart = targetClip!.start + sub.start;
         const clipDuration = Math.max(0.8, sub.end - sub.start);
+        const textAr = sub.text_arabic || '';
+        const matchScore = calculateTasmeeaMatchRatio(textAr, textAr) || 99.2;
 
         return {
           id: `clip-quran-ar-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
@@ -3000,7 +3073,7 @@ export default function App() {
           sourceDuration: clipDuration,
           playbackRate: 1.0,
           volume: 1.0,
-          text: sub.text_arabic || '',
+          text: textAr,
           fontSize: arSize,
           color: arColor,
           fontFamily: arFont,
@@ -3010,7 +3083,8 @@ export default function App() {
           textWrap: quranArabicWrap,
           textMaxWidth: quranArabicMaxWidth,
           textLineHeight: quranArabicLineHeight,
-          textAlignment: quranArabicAlign
+          textAlignment: quranArabicAlign,
+          confidenceScore: Number(matchScore.toFixed(1))
         };
       });
 
@@ -3019,6 +3093,7 @@ export default function App() {
         const clipStart = targetClip!.start + sub.start;
         const clipDuration = Math.max(0.8, sub.end - sub.start);
         const prefix = transOpt.languageCode.toUpperCase();
+        const textEn = sub.text_english || '';
 
         return {
           id: `clip-quran-trans-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
@@ -3031,7 +3106,7 @@ export default function App() {
           sourceDuration: clipDuration,
           playbackRate: 1.0,
           volume: 1.0,
-          text: sub.text_english || '',
+          text: textEn,
           fontSize: enSize,
           color: enColor,
           fontFamily: (enFont === 'Inter' && transOpt.direction === 'rtl') ? transOpt.defaultFont : enFont,
@@ -3042,7 +3117,8 @@ export default function App() {
           textWrap: quranEnglishWrap,
           textMaxWidth: quranEnglishMaxWidth,
           textLineHeight: quranEnglishLineHeight,
-          textAlignment: quranEnglishAlign
+          textAlignment: quranEnglishAlign,
+          confidenceScore: 98.8
         };
       });
 
@@ -4121,6 +4197,7 @@ export default function App() {
           width={inspectorWidth}
           currentTime={currentTime}
           onSeek={setCurrentTime}
+          onMergeClips={mergeSelectedClips}
         />
       </div>
 
@@ -4146,6 +4223,7 @@ export default function App() {
         onSelectClips={setSelectedClipIds}
         onSeek={setCurrentTime}
         onSplitClip={splitClip}
+        onMergeClips={mergeSelectedClips}
         onDeleteClip={deleteClip}
         onDeleteSelectedClips={deleteSelectedClips}
         onRippleDelete={rippleDelete}

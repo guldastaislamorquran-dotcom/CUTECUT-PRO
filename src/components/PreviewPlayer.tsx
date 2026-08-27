@@ -680,6 +680,119 @@ export default function PreviewPlayer({
             clip,
           };
 
+          // ------------------ CapCut Text Animation Calculations ------------------
+          const clipTime = Math.max(0, currentTime - clip.start);
+          const animConfig = clip.textAnimation || {};
+          const inAnim = animConfig.inAnimation || 'none';
+          const inDur = animConfig.inDuration ?? 0.4;
+          const outAnim = animConfig.outAnimation || 'none';
+          const outDur = animConfig.outDuration ?? 0.4;
+          const loopAnim = animConfig.loopAnimation || 'none';
+
+          const inProgress = inDur > 0 ? Math.min(1, Math.max(0, clipTime / inDur)) : 1;
+          const remainingTime = clip.duration - clipTime;
+          const outProgress = outDur > 0 ? Math.min(1, Math.max(0, remainingTime / outDur)) : 1;
+
+          const cubicEaseOut = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+          const cubicEaseIn = (t: number) => Math.pow(Math.min(1, Math.max(0, t)), 3);
+          const elasticOut = (t: number) => {
+            const clamped = Math.min(1, Math.max(0, t));
+            if (clamped === 0 || clamped === 1) return clamped;
+            const p = 0.3;
+            return Math.pow(2, -10 * clamped) * Math.sin((clamped - p / 4) * (2 * Math.PI) / p) + 1;
+          };
+
+          let animAlpha = 1.0;
+          let animScale = 1.0;
+          let animOffsetX = 0;
+          let animOffsetY = 0;
+          let animGlowBoost = 0;
+
+          // In Animation
+          if (inAnim === 'fade') {
+            animAlpha *= cubicEaseOut(inProgress);
+          } else if (inAnim === 'pop' || inAnim === 'zoom-in') {
+            animScale *= 0.15 + 0.85 * cubicEaseOut(inProgress);
+            animAlpha *= Math.min(1, inProgress * 2.5);
+          } else if (inAnim === 'slide-up') {
+            animOffsetY += (1 - cubicEaseOut(inProgress)) * (fontSize * 1.5);
+            animAlpha *= Math.min(1, inProgress * 2.5);
+          } else if (inAnim === 'slide-down') {
+            animOffsetY -= (1 - cubicEaseOut(inProgress)) * (fontSize * 1.5);
+            animAlpha *= Math.min(1, inProgress * 2.5);
+          } else if (inAnim === 'slide-left') {
+            animOffsetX += (1 - cubicEaseOut(inProgress)) * (fontSize * 2.5);
+            animAlpha *= Math.min(1, inProgress * 2.5);
+          } else if (inAnim === 'slide-right') {
+            animOffsetX -= (1 - cubicEaseOut(inProgress)) * (fontSize * 2.5);
+            animAlpha *= Math.min(1, inProgress * 2.5);
+          } else if (inAnim === 'bounce') {
+            animScale *= elasticOut(inProgress);
+            animAlpha *= Math.min(1, inProgress * 3);
+          } else if (inAnim === 'glitch') {
+            if (inProgress < 1.0) {
+              animAlpha *= Math.random() > 0.3 ? cubicEaseOut(inProgress) : 0.2;
+              animOffsetX += (Math.random() - 0.5) * 18 * (1 - inProgress);
+              animOffsetY += (Math.random() - 0.5) * 10 * (1 - inProgress);
+            }
+          }
+
+          // Out Animation
+          if (outAnim === 'fade') {
+            animAlpha *= cubicEaseIn(outProgress);
+          } else if (outAnim === 'zoom-out') {
+            animScale *= 0.15 + 0.85 * cubicEaseIn(outProgress);
+            animAlpha *= cubicEaseIn(outProgress);
+          } else if (outAnim === 'slide-down') {
+            animOffsetY += (1 - cubicEaseIn(outProgress)) * (fontSize * 1.5);
+            animAlpha *= cubicEaseIn(outProgress);
+          } else if (outAnim === 'slide-up') {
+            animOffsetY -= (1 - cubicEaseIn(outProgress)) * (fontSize * 1.5);
+            animAlpha *= cubicEaseIn(outProgress);
+          } else if (outAnim === 'slide-left') {
+            animOffsetX -= (1 - cubicEaseIn(outProgress)) * (fontSize * 2.5);
+            animAlpha *= cubicEaseIn(outProgress);
+          } else if (outAnim === 'slide-right') {
+            animOffsetX += (1 - cubicEaseIn(outProgress)) * (fontSize * 2.5);
+            animAlpha *= cubicEaseIn(outProgress);
+          }
+
+          // Loop Animation
+          if (loopAnim === 'pulse') {
+            animScale *= 1 + 0.04 * Math.sin(clipTime * 4.5);
+          } else if (loopAnim === 'float') {
+            animOffsetY += Math.sin(clipTime * 2.5) * 7;
+          } else if (loopAnim === 'bounce-loop') {
+            animOffsetY += -Math.abs(Math.sin(clipTime * 5.5)) * 12;
+          } else if (loopAnim === 'shimmer') {
+            animGlowBoost = (Math.sin(clipTime * 6) + 1) * 10;
+          }
+
+          // Save Canvas Context for Animation Transforms
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, ctx.globalAlpha * animAlpha));
+          ctx.translate(xPos + animOffsetX, yPos + animOffsetY);
+          ctx.scale(animScale, animScale);
+          ctx.translate(-xPos, -yPos);
+
+          // Typewriter Karaoke reveal line text processing
+          let renderLines = lines;
+          if (inAnim === 'typewriter') {
+            const totalChars = lines.join('').length;
+            const revealCount = Math.floor(totalChars * cubicEaseOut(inProgress));
+            let charAcc = 0;
+            renderLines = lines.map((l) => {
+              if (charAcc >= revealCount) return '';
+              if (charAcc + l.length <= revealCount) {
+                charAcc += l.length;
+                return l;
+              }
+              const take = revealCount - charAcc;
+              charAcc += l.length;
+              return l.slice(0, take);
+            });
+          }
+
           // Render 'Viral Reels Style' or custom background box overlay if specified
           if (clip.textStyle === ('viral-reels' as any) || (clip as any).backgroundColor) {
             ctx.save();
@@ -690,7 +803,8 @@ export default function PreviewPlayer({
             ctx.restore();
           }
 
-          lines.forEach((lineText, idx) => {
+          renderLines.forEach((lineText, idx) => {
+            if (!lineText) return;
             const currentY = startY + idx * lineGap;
 
             // 3D Text Extrusion Depth Layering
@@ -720,17 +834,19 @@ export default function PreviewPlayer({
               ctx.strokeText(lineText, xPos, currentY);
             }
 
-            if (clip.textGlowIntensity && clip.textGlowIntensity > 0) {
+            const effectiveGlow = (clip.textGlowIntensity ?? (clip.textStyle === 'neon' ? 15 : 0)) + animGlowBoost;
+
+            if (effectiveGlow > 0) {
               ctx.shadowColor = clip.textGlowColor || color;
-              ctx.shadowBlur = clip.textGlowIntensity;
+              ctx.shadowBlur = effectiveGlow;
             } else if (clip.textStyle === ('gold-glow' as any)) {
               ctx.shadowColor = '#f59e0b';
-              ctx.shadowBlur = 24;
+              ctx.shadowBlur = 24 + animGlowBoost;
               ctx.shadowOffsetX = 0;
               ctx.shadowOffsetY = 0;
             } else if (clip.textStyle === 'neon') {
               ctx.shadowColor = clip.textGlowColor || color;
-              ctx.shadowBlur = 18;
+              ctx.shadowBlur = 18 + animGlowBoost;
             } else if (clip.textStyle === 'shadow') {
               ctx.shadowColor = 'rgba(0,0,0,0.85)';
               ctx.shadowBlur = 6;
@@ -741,6 +857,8 @@ export default function PreviewPlayer({
             ctx.fillStyle = clip.textStyle === 'neon' ? '#FFFFFF' : (clip.textStyle === ('gold-glow' as any) ? '#fbbf24' : (clip.textStyle === ('viral-reels' as any) ? '#facc15' : color));
             ctx.fillText(lineText, xPos, currentY);
           });
+
+          ctx.restore(); // Restore Canvas Context after Animation Transforms
 
           // Draw CapCut Pro Selection Handles & Bounding Box if Selected
           if (selectedClip?.id === clip.id && !isExporting) {
@@ -1411,49 +1529,115 @@ export default function PreviewPlayer({
       const rawX = initialTextPos.x + (deltaX / dimensions.width) * 100;
       const rawY = initialTextPos.y + (deltaY / dimensions.height) * 100;
 
-      let snappedX = Math.max(2, Math.min(98, rawX));
-      let snappedY = Math.max(2, Math.min(98, rawY));
+      const rawPixelX = (rawX / 100) * dimensions.width;
+      const rawPixelY = (rawY / 100) * dimensions.height;
+
+      // Active text bounding box dimensions
+      const bound = textBoundsRef.current[selectedClip.id];
+      const textW = bound ? bound.width : 100;
+      const textH = bound ? bound.height : 40;
+
+      const rawLeft = rawPixelX - textW / 2;
+      const rawRight = rawPixelX + textW / 2;
+      const rawTop = rawPixelY - textH / 2;
+      const rawBottom = rawPixelY + textH / 2;
+
+      const SNAP_THRESHOLD_PX = 7; // 7px threshold check
+      let snappedPixelX = rawPixelX;
+      let snappedPixelY = rawPixelY;
       let snapX: number | null = null;
       let snapY: number | null = null;
       const snapLabels: string[] = [];
 
-      // Smart Alignment Snapping: Horizontal Center (50%)
-      if (Math.abs(rawX - 50) < 2.0) {
-        snappedX = 50;
+      // Canvas viewport center axes (50% X & Y)
+      const canvasCenterX = dimensions.width / 2;
+      const canvasCenterY = dimensions.height / 2;
+
+      // 1. Horizontal Snapping (X-axis) - Bounding rect (centerX, left, right)
+      if (Math.abs(rawPixelX - canvasCenterX) <= SNAP_THRESHOLD_PX) {
+        snappedPixelX = canvasCenterX;
         snapX = 50;
         snapLabels.push('X: CENTER (50%)');
-      } else if (Math.abs(rawX - 25) < 1.5) {
-        snappedX = 25;
-        snapX = 25;
-        snapLabels.push('X: 25%');
-      } else if (Math.abs(rawX - 75) < 1.5) {
-        snappedX = 75;
-        snapX = 75;
-        snapLabels.push('X: 75%');
+      } else if (Math.abs(rawLeft - 20) <= SNAP_THRESHOLD_PX) {
+        snappedPixelX = 20 + textW / 2;
+        snapX = (snappedPixelX / dimensions.width) * 100;
+        snapLabels.push('X: LEFT MARGIN');
+      } else if (Math.abs(rawRight - (dimensions.width - 20)) <= SNAP_THRESHOLD_PX) {
+        snappedPixelX = dimensions.width - 20 - textW / 2;
+        snapX = (snappedPixelX / dimensions.width) * 100;
+        snapLabels.push('X: RIGHT MARGIN');
       }
 
-      // Smart Alignment Snapping: Vertical Center (50%)
-      if (Math.abs(rawY - 50) < 2.0) {
-        snappedY = 50;
+      // Check static video/text layer objects on canvas at currentTime
+      if (snapX === null) {
+        for (const trk of tracks) {
+          for (const clp of trk.clips) {
+            if (clp.id === selectedClip.id) continue;
+            if (clp.start <= currentTime && clp.start + clp.duration >= currentTime) {
+              const otherBound = textBoundsRef.current[clp.id];
+              const otherCenterX = clp.type === ClipType.TEXT 
+                ? ((clp.textX ?? 50) / 100) * dimensions.width 
+                : dimensions.width / 2 + (clp.transform?.posX ?? 0);
+
+              if (Math.abs(rawPixelX - otherCenterX) <= SNAP_THRESHOLD_PX) {
+                snappedPixelX = otherCenterX;
+                snapX = (otherCenterX / dimensions.width) * 100;
+                snapLabels.push(`X: ALIGNED TO ${clp.name || 'LAYER'}`);
+                break;
+              }
+            }
+          }
+          if (snapX !== null) break;
+        }
+      }
+
+      // 2. Vertical Snapping (Y-axis) - Bounding rect (centerY, top, bottom)
+      if (Math.abs(rawPixelY - canvasCenterY) <= SNAP_THRESHOLD_PX) {
+        snappedPixelY = canvasCenterY;
         snapY = 50;
         snapLabels.push('Y: CENTER (50%)');
-      } else if (Math.abs(rawY - 25) < 1.5) {
-        snappedY = 25;
-        snapY = 25;
-        snapLabels.push('Y: 25%');
-      } else if (Math.abs(rawY - 75) < 1.5) {
-        snappedY = 75;
-        snapY = 75;
-        snapLabels.push('Y: 75%');
+      } else if (Math.abs(rawTop - 20) <= SNAP_THRESHOLD_PX) {
+        snappedPixelY = 20 + textH / 2;
+        snapY = (snappedPixelY / dimensions.height) * 100;
+        snapLabels.push('Y: TOP MARGIN');
+      } else if (Math.abs(rawBottom - (dimensions.height - 20)) <= SNAP_THRESHOLD_PX) {
+        snappedPixelY = dimensions.height - 20 - textH / 2;
+        snapY = (snappedPixelY / dimensions.height) * 100;
+        snapLabels.push('Y: BOTTOM MARGIN');
       }
+
+      // Check static video/text layer objects vertically
+      if (snapY === null) {
+        for (const trk of tracks) {
+          for (const clp of trk.clips) {
+            if (clp.id === selectedClip.id) continue;
+            if (clp.start <= currentTime && clp.start + clp.duration >= currentTime) {
+              const otherCenterY = clp.type === ClipType.TEXT 
+                ? ((clp.textY ?? 50) / 100) * dimensions.height 
+                : dimensions.height / 2 + (clp.transform?.posY ?? 0);
+
+              if (Math.abs(rawPixelY - otherCenterY) <= SNAP_THRESHOLD_PX) {
+                snappedPixelY = otherCenterY;
+                snapY = (otherCenterY / dimensions.height) * 100;
+                snapLabels.push(`Y: ALIGNED TO ${clp.name || 'LAYER'}`);
+                break;
+              }
+            }
+          }
+          if (snapY !== null) break;
+        }
+      }
+
+      const finalPctX = Math.max(2, Math.min(98, (snappedPixelX / dimensions.width) * 100));
+      const finalPctY = Math.max(2, Math.min(98, (snappedPixelY / dimensions.height) * 100));
 
       activeSnapRef.current = {
         x: snapX,
         y: snapY,
-        label: snapLabels.length > 0 ? snapLabels.join(' • ') : `X: ${Math.round(snappedX)}% | Y: ${Math.round(snappedY)}%`
+        label: snapLabels.length > 0 ? snapLabels.join(' • ') : `X: ${Math.round(finalPctX)}% | Y: ${Math.round(finalPctY)}%`
       };
 
-      onUpdateClip?.(selectedClip.id, { textX: snappedX, textY: snappedY });
+      onUpdateClip?.(selectedClip.id, { textX: finalPctX, textY: finalPctY });
       return;
     }
 

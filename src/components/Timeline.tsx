@@ -5,7 +5,7 @@ import {
   Magnet, Gauge, RotateCcw, RotateCw, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
   Zap, Split, Radio, ChevronDown, Flag, FlipHorizontal, Crop, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
-  Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X
+  Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge
 } from 'lucide-react';
 import { Track, Clip, ClipType } from '../types';
 import { formatTimeCode } from '../utils/editorUtils';
@@ -48,6 +48,7 @@ interface TimelineProps {
   onSelectClips?: (ids: string[]) => void;
   onSeek: (time: number) => void;
   onSplitClip: () => void;
+  onMergeClips?: () => void;
   onDeleteClip: (id: string) => void;
   onDeleteSelectedClips?: () => void;
   onRippleDelete: (direction: 'left' | 'right') => void;
@@ -98,6 +99,7 @@ export default function Timeline({
   onSelectClips,
   onSeek,
   onSplitClip,
+  onMergeClips,
   onDeleteClip,
   onDeleteSelectedClips,
   onRippleDelete,
@@ -161,6 +163,30 @@ export default function Timeline({
   snapToGridRef.current = snapToGrid;
   const [timelineTool, setTimelineTool] = useState<'pointer' | 'marquee' | 'split'>('pointer');
   const [showToolDropdown, setShowToolDropdown] = useState(false);
+
+  const canMerge = useMemo(() => {
+    const activeIds = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+    if (activeIds.length < 2) return false;
+    for (const track of tracks) {
+      const selectedTrackClips = track.clips.filter(c => activeIds.includes(c.id));
+      if (selectedTrackClips.length >= 2) {
+        const sortedAllClips = [...track.clips].sort((a, b) => a.start - b.start);
+        const selectedIndices = selectedTrackClips
+          .map(c => sortedAllClips.findIndex(sc => sc.id === c.id))
+          .filter(idx => idx !== -1)
+          .sort((a, b) => a - b);
+
+        if (selectedIndices.length >= 2) {
+          const minIdx = selectedIndices[0];
+          const maxIdx = selectedIndices[selectedIndices.length - 1];
+          if (maxIdx - minIdx === selectedIndices.length - 1) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }, [tracks, selectedClipIds, selectedClipId]);
   const [showSelectMenu, setShowSelectMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
@@ -169,6 +195,13 @@ export default function Timeline({
 
   // Multi-Selection Marquee (Rubberband Box Selection)
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
+
+  // Timeline Time Snapping & Vertical Guide Line State
+  const [timelineSnapInfo, setTimelineSnapInfo] = useState<{
+    time: number;
+    label: string;
+    type: 'playhead' | 'clip-edge' | 'zero';
+  } | null>(null);
 
   // Right-Click Context Menu State
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -453,18 +486,95 @@ export default function Timeline({
         const currentZoom = zoomRef.current;
         const deltaX = clientX - activeDragging.dragStartPos;
         const deltaTime = deltaX / currentZoom;
+        const draggingClipIds = activeDragging.clips.map((c) => c.id);
+
+        // Time Matrix Magnetism Snap Calculator
+        const calculateTimeSnap = (
+          candidateTime: number
+        ): { snappedTime: number; snapInfo: { time: number; label: string; type: 'playhead' | 'clip-edge' | 'zero' } | null } => {
+          // Threshold of 0.1s or 8px
+          const threshold = Math.max(0.1, 8 / currentZoom);
+          let bestDist = threshold;
+          let bestTime = candidateTime;
+          let bestSnapInfo: { time: number; label: string; type: 'playhead' | 'clip-edge' | 'zero' } | null = null;
+
+          // 1. Playhead Snap
+          const playheadDist = Math.abs(candidateTime - currentTimeRef.current);
+          if (playheadDist <= bestDist) {
+            bestDist = playheadDist;
+            bestTime = currentTimeRef.current;
+            bestSnapInfo = {
+              time: currentTimeRef.current,
+              label: `Playhead (${currentTimeRef.current.toFixed(2)}s)`,
+              type: 'playhead',
+            };
+          }
+
+          // 2. Timeline Start Snap (0.00s)
+          const zeroDist = Math.abs(candidateTime - 0);
+          if (zeroDist <= bestDist) {
+            bestDist = zeroDist;
+            bestTime = 0;
+            bestSnapInfo = {
+              time: 0,
+              label: 'Start (0.00s)',
+              type: 'zero',
+            };
+          }
+
+          // 3. Adjacent Clip Boundaries across all tracks
+          for (const trk of tracksRef.current) {
+            for (const clp of trk.clips) {
+              if (draggingClipIds.includes(clp.id)) continue;
+
+              // Start edge of adjacent clip
+              const startDist = Math.abs(candidateTime - clp.start);
+              if (startDist <= bestDist) {
+                bestDist = startDist;
+                bestTime = clp.start;
+                bestSnapInfo = {
+                  time: clp.start,
+                  label: `${clp.name || 'Clip'} Start (${clp.start.toFixed(2)}s)`,
+                  type: 'clip-edge',
+                };
+              }
+
+              // End edge of adjacent clip
+              const clipEnd = clp.start + clp.duration;
+              const endDist = Math.abs(candidateTime - clipEnd);
+              if (endDist <= bestDist) {
+                bestDist = endDist;
+                bestTime = clipEnd;
+                bestSnapInfo = {
+                  time: clipEnd,
+                  label: `${clp.name || 'Clip'} End (${clipEnd.toFixed(2)}s)`,
+                  type: 'clip-edge',
+                };
+              }
+            }
+          }
+
+          return { snappedTime: bestTime, snapInfo: bestSnapInfo };
+        };
 
         if (activeDragging.handle === 'left') {
-          // Resize left boundary of ALL selected clips concurrently (restricted to 1/30s frame grid if active)
+          // Trimming Left Handle with Time Matrix Magnetism
+          const primaryItem = activeDragging.clips.find((c) => c.id === activeDragging.primaryId) || activeDragging.clips[0];
+          const rawPrimaryStart = primaryItem.initialStart + deltaTime;
+          const { snappedTime, snapInfo } = calculateTimeSnap(rawPrimaryStart);
+          setTimelineSnapInfo(snapInfo);
+
+          const effectiveDelta = snapInfo ? snappedTime - primaryItem.initialStart : deltaTime;
+
           const updates = activeDragging.clips.map(item => {
-            const rawStart = item.initialStart + deltaTime;
+            const rawStart = item.initialStart + effectiveDelta;
             const boundedStart = Math.max(0, Math.min(item.initialStart + item.initialDuration - 0.2, rawStart));
-            const finalStart = snapToGridRef.current ? Math.round(boundedStart * 30) / 30 : boundedStart;
+            const finalStart = snapToGridRef.current && !snapInfo ? Math.round(boundedStart * 30) / 30 : boundedStart;
             const newDuration = (item.initialStart + item.initialDuration) - finalStart;
             return {
               id: item.id,
               start: finalStart,
-              duration: Math.max(0.033, snapToGridRef.current ? Math.round(newDuration * 30) / 30 : newDuration),
+              duration: Math.max(0.033, snapToGridRef.current && !snapInfo ? Math.round(newDuration * 30) / 30 : newDuration),
             };
           });
 
@@ -474,12 +584,19 @@ export default function Timeline({
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
         } else if (activeDragging.handle === 'right') {
-          // Resize right boundary of ALL selected clips concurrently
+          // Trimming Right Handle with Time Matrix Magnetism
+          const primaryItem = activeDragging.clips.find((c) => c.id === activeDragging.primaryId) || activeDragging.clips[0];
+          const rawPrimaryEnd = primaryItem.initialStart + primaryItem.initialDuration + deltaTime;
+          const { snappedTime, snapInfo } = calculateTimeSnap(rawPrimaryEnd);
+          setTimelineSnapInfo(snapInfo);
+
+          const effectiveDelta = snapInfo ? snappedTime - (primaryItem.initialStart + primaryItem.initialDuration) : deltaTime;
+
           const updates = activeDragging.clips.map(item => {
-            const rawEnd = item.initialStart + item.initialDuration + deltaTime;
+            const rawEnd = item.initialStart + item.initialDuration + effectiveDelta;
             const rawDuration = rawEnd - item.initialStart;
             const boundedDuration = Math.max(0.033, Math.min(durationRef.current - item.initialStart, rawDuration));
-            const finalDuration = snapToGridRef.current ? Math.round(boundedDuration * 30) / 30 : boundedDuration;
+            const finalDuration = snapToGridRef.current && !snapInfo ? Math.round(boundedDuration * 30) / 30 : boundedDuration;
             return {
               id: item.id,
               start: item.initialStart,
@@ -493,14 +610,31 @@ export default function Timeline({
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
         } else {
-          // Move all selected clip nodes concurrently (snap to 1/30s frame boundaries)
+          // Dragging Clip Node horizontally with Time Matrix Magnetism
+          const primaryItem = activeDragging.clips.find((c) => c.id === activeDragging.primaryId) || activeDragging.clips[0];
           const minInitialStart = Math.min(...activeDragging.clips.map(c => c.initialStart));
           const maxDeltaLeft = -minInitialStart;
-          const effectiveDelta = Math.max(maxDeltaLeft, deltaTime);
+          let effectiveDelta = Math.max(maxDeltaLeft, deltaTime);
+
+          const candidateStart = primaryItem.initialStart + effectiveDelta;
+          const candidateEnd = candidateStart + primaryItem.initialDuration;
+
+          const snapStart = calculateTimeSnap(candidateStart);
+          const snapEnd = calculateTimeSnap(candidateEnd);
+
+          if (snapStart.snapInfo) {
+            effectiveDelta = snapStart.snappedTime - primaryItem.initialStart;
+            setTimelineSnapInfo(snapStart.snapInfo);
+          } else if (snapEnd.snapInfo) {
+            effectiveDelta = snapEnd.snappedTime - (primaryItem.initialStart + primaryItem.initialDuration);
+            setTimelineSnapInfo(snapEnd.snapInfo);
+          } else {
+            setTimelineSnapInfo(null);
+          }
 
           const updates = activeDragging.clips.map(item => {
             let targetStart = Math.max(0, item.initialStart + effectiveDelta);
-            if (snapToGridRef.current) {
+            if (snapToGridRef.current && !snapStart.snapInfo && !snapEnd.snapInfo) {
               targetStart = Math.round(targetStart * 30) / 30; // 1/30s frame boundary precision
             }
             return {
@@ -545,6 +679,7 @@ export default function Timeline({
       }
       if (draggingClipsRef.current) {
         setDraggingClips(null);
+        setTimelineSnapInfo(null);
       }
       if (marqueeRef.current && marqueeRef.current.isSelecting) {
         const activeMarquee = marqueeRef.current;
@@ -988,6 +1123,19 @@ export default function Timeline({
             <Scissors className="w-3.5 h-3.5" />
           </button>
 
+          {/* Merge Selected Adjacent Clips (Ctrl + M) */}
+          {onMergeClips && (
+            <button
+              id="btn-merge-clips"
+              onClick={onMergeClips}
+              disabled={!canMerge}
+              className={`p-1.5 rounded transition ${canMerge ? 'hover:bg-purple-950/60 text-purple-400 bg-purple-950/20 border border-purple-500/30' : 'text-gray-600 cursor-not-allowed'}`}
+              title="Merge Selected Adjacent Clips (Ctrl + M)"
+            >
+              <Merge className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Trim Left / Delete Left (Q) */}
           <button
             id="btn-ripple-left"
@@ -1099,18 +1247,6 @@ export default function Timeline({
             title="Crop & Frame Settings"
           >
             <Crop className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Auto Cutout / Background Remover PRO */}
-          <button
-            id="btn-pro-cutout"
-            className="flex items-center gap-1 p-1.5 rounded hover:bg-[#252532] text-purple-400 transition"
-            title="AI Smart Background Cutout (PRO)"
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span className="text-[8px] bg-gradient-to-r from-cyan-400 to-purple-500 text-black font-extrabold px-1 rounded-xs uppercase tracking-tighter leading-tight">
-              PRO
-            </span>
           </button>
 
 
@@ -1553,6 +1689,27 @@ export default function Timeline({
               </div>
             )}
 
+            {/* Vertical Time Guide Line Slicing Down Through All Tracks */}
+            {timelineSnapInfo && (
+              <div
+                id="timeline-vertical-time-guide"
+                className="absolute top-0 bottom-0 w-[2px] bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,1),0_0_4px_rgba(251,191,36,0.9)] z-40 pointer-events-none transition-all duration-75"
+                style={{ left: `${timelineSnapInfo.time * zoom}px` }}
+              >
+                {/* Top Arrow Cap */}
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-[6px] border-t-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,1)]" />
+                
+                {/* Synchronized Time Badge Pill at Top */}
+                <div className="absolute top-1 -left-16 bg-[#091520]/95 border border-cyan-400 text-cyan-200 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-2xl flex items-center gap-1.5 backdrop-blur-md whitespace-nowrap z-50">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  <span>{timelineSnapInfo.label}</span>
+                </div>
+
+                {/* Bottom Arrow Cap */}
+                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-b-[6px] border-b-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,1)]" />
+              </div>
+            )}
+
             {/* Playhead vertical red line */}
             <div
               id="timeline-playhead"
@@ -1676,6 +1833,27 @@ export default function Timeline({
                 </div>
                 <span className="text-[10px] opacity-60 font-mono">Ctrl+B</span>
               </button>
+
+              {/* Merge Selected Clips */}
+              {onMergeClips && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMergeClips();
+                    setContextMenu(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  disabled={!canMerge}
+                  className={`w-full px-3 py-1.5 text-left flex items-center justify-between transition ${
+                    canMerge ? 'hover:bg-purple-500 hover:text-white text-purple-300' : 'text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Merge className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Merge Selected Clips</span>
+                  </div>
+                  <span className="text-[10px] opacity-60 font-mono">Ctrl+M</span>
+                </button>
+              )}
 
               {/* Duplicate */}
               {onDuplicateClip && (
