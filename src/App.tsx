@@ -1174,27 +1174,51 @@ export default function App() {
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
-  // Web Audio API context for real-time audio/video effects
+  // Web Audio API context & dedicated master routing buses for live preview and video export
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const audioSourceNodesRef = useRef<Record<string, MediaElementAudioSourceNode>>({});
+  const masterGainRef = useRef<GainNode | null>(null);
+  const exportDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const audioSourceNodesRef = useRef<Record<string, { source: MediaElementAudioSourceNode; gainNode: GainNode }>>({});
+
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextClass();
+      const masterGain = ctx.createGain();
+      const exportDest = ctx.createMediaStreamDestination();
+      
+      // Route master gain to both speaker destination and recording export destination
+      masterGain.connect(ctx.destination);
+      masterGain.connect(exportDest);
+
+      audioCtxRef.current = ctx;
+      masterGainRef.current = masterGain;
+      exportDestinationRef.current = exportDest;
+    }
+    return {
+      ctx: audioCtxRef.current,
+      masterGain: masterGainRef.current!,
+      exportDest: exportDestinationRef.current!
+    };
+  };
 
   const applyWebAudioEffects = (element: HTMLAudioElement | HTMLVideoElement, clip: Clip) => {
     try {
-      if (!audioCtxRef.current) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        audioCtxRef.current = new AudioContextClass();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended' && isPlaying) {
+      const { ctx, masterGain } = getAudioContext();
+      if (ctx.state === 'suspended' && (isPlaying || exporting)) {
         ctx.resume().catch(() => {});
       }
 
       const key = clip.id;
-      let source = audioSourceNodesRef.current[key];
-      if (!source) {
+      let nodeEntry = audioSourceNodesRef.current[key];
+      if (!nodeEntry) {
         try {
-          source = ctx.createMediaElementSource(element);
-          audioSourceNodesRef.current[key] = source;
+          const source = ctx.createMediaElementSource(element);
+          const gainNode = ctx.createGain();
+          source.connect(gainNode);
+          gainNode.connect(masterGain);
+          nodeEntry = { source, gainNode };
+          audioSourceNodesRef.current[key] = nodeEntry;
         } catch {
           // If already connected to source, proceed with existing source node
           return;
@@ -1205,19 +1229,11 @@ export default function App() {
       const hasEcho = clip.audioEffects?.echo;
       const hasBass = clip.audioEffects?.bassBoost;
 
-      if (!hasReverb && !hasEcho && !hasBass) {
-        try {
-          source.disconnect();
-          source.connect(ctx.destination);
-        } catch {}
-        return;
-      }
-
       try {
-        source.disconnect();
+        nodeEntry.source.disconnect();
       } catch {}
 
-      let currentOutput: AudioNode = source;
+      let currentOutput: AudioNode = nodeEntry.source;
 
       // 1. Bass Boost filter
       if (hasBass) {
@@ -1243,32 +1259,30 @@ export default function App() {
         const dryGain = ctx.createGain();
         dryGain.gain.value = 1.0;
 
-        const masterMix = ctx.createGain();
+        const effectMix = ctx.createGain();
 
         currentOutput.connect(dryGain);
-        dryGain.connect(masterMix);
+        dryGain.connect(effectMix);
 
         currentOutput.connect(delayNode);
         delayNode.connect(delayGain);
         delayGain.connect(delayNode);
 
         delayNode.connect(wetGain);
-        wetGain.connect(masterMix);
+        wetGain.connect(effectMix);
 
-        currentOutput = masterMix;
+        currentOutput = effectMix;
       }
 
-      currentOutput.connect(ctx.destination);
+      currentOutput.connect(nodeEntry.gainNode);
+      nodeEntry.gainNode.connect(masterGain);
     } catch (err) {
       console.warn("Web Audio processing bypass:", err);
     }
   };
 
   const syncAudioEffectsForClip = (element: HTMLAudioElement | HTMLVideoElement, clip: Clip) => {
-    const hasEffects = clip.audioEffects?.reverb || clip.audioEffects?.echo || clip.audioEffects?.bassBoost;
-    if (hasEffects) {
-      applyWebAudioEffects(element, clip);
-    }
+    applyWebAudioEffects(element, clip);
   };
 
   // Maintain hidden audio/video elements map matching tracks state
@@ -1318,7 +1332,6 @@ export default function App() {
               const video = document.createElement('video');
               video.crossOrigin = effectiveCrossOrigin;
               video.src = normalizedUrl;
-              video.muted = true;
               video.playsInline = true;
               video.preload = 'auto';
               video.setAttribute('webkit-playsinline', 'true');
@@ -1336,6 +1349,17 @@ export default function App() {
               video.load();
               videoElementsRef.current[clip.id] = video;
               mediaPool.appendChild(video);
+
+              try {
+                const { ctx, masterGain } = getAudioContext();
+                if (!audioSourceNodesRef.current[clip.id]) {
+                  const source = ctx.createMediaElementSource(video);
+                  const gainNode = ctx.createGain();
+                  source.connect(gainNode);
+                  gainNode.connect(masterGain);
+                  audioSourceNodesRef.current[clip.id] = { source, gainNode };
+                }
+              } catch (e) {}
             }
           }
         }
@@ -1361,6 +1385,17 @@ export default function App() {
             audio.load();
             audioElementRef.current[clip.id] = audio;
             mediaPool.appendChild(audio);
+
+            try {
+              const { ctx, masterGain } = getAudioContext();
+              if (!audioSourceNodesRef.current[clip.id]) {
+                const source = ctx.createMediaElementSource(audio);
+                const gainNode = ctx.createGain();
+                source.connect(gainNode);
+                gainNode.connect(masterGain);
+                audioSourceNodesRef.current[clip.id] = { source, gainNode };
+              }
+            } catch (e) {}
           }
         }
       });
@@ -1386,6 +1421,7 @@ export default function App() {
           }
         }
         delete videoElementsRef.current[id];
+        delete audioSourceNodesRef.current[id];
       }
     });
     Object.keys(audioElementRef.current).forEach(id => {
@@ -1404,11 +1440,12 @@ export default function App() {
           }
         }
         delete audioElementRef.current[id];
+        delete audioSourceNodesRef.current[id];
       }
     });
   }, [tracks]);
 
-  // Sync and control playheads of hidden files
+    // Sync and control playheads of hidden files
   useEffect(() => {
     tracks.forEach((track) => {
       track.clips.forEach((clip) => {
@@ -1416,21 +1453,27 @@ export default function App() {
         const elapsed = currentTime - clip.start;
         const targetSrcTime = clip.sourceStart + elapsed * clip.playbackRate;
 
+        // Normalize volume (clip.volume is 0..100, HTML5 media expects 0.0..1.0)
+        const rawVol = clip.volume !== undefined ? clip.volume : 80;
+        const safeVolume = Math.max(0, Math.min(1, rawVol > 1 ? rawVol / 100 : rawVol));
+        const isAudible = !isMuted && !track.muted && isActive && (isPlaying || exporting);
+        const targetGain = isAudible ? safeVolume : 0;
+
+        if (audioSourceNodesRef.current[clip.id]?.gainNode) {
+          audioSourceNodesRef.current[clip.id].gainNode.gain.value = targetGain;
+        }
+
         // Sync Video element
         if (clip.type === ClipType.VIDEO) {
           const media = videoElementsRef.current[clip.id];
           if (media && media instanceof HTMLVideoElement) {
             const video = media;
             video.playbackRate = clip.playbackRate;
-            
-            // Normalize volume (clip.volume is 0..100, HTML5 media expects 0.0..1.0)
-            const rawVol = clip.volume !== undefined ? clip.volume : 80;
-            const safeVolume = Math.max(0, Math.min(1, rawVol > 1 ? rawVol / 100 : rawVol));
             video.volume = safeVolume;
-            video.muted = isMuted || !isPlaying || !isActive || (safeVolume === 0);
+            video.muted = false;
 
             if (isActive) {
-              if (isPlaying) {
+              if (isPlaying || exporting) {
                 if (video.paused) {
                   video.play().catch(() => {});
                 }
@@ -1466,15 +1509,11 @@ export default function App() {
           const audio = audioElementRef.current[clip.id];
           if (audio) {
             audio.playbackRate = clip.playbackRate;
-
-            // Normalize volume (clip.volume is 0..100, HTML5 media expects 0.0..1.0)
-            const rawVol = clip.volume !== undefined ? clip.volume : 80;
-            const safeVolume = Math.max(0, Math.min(1, rawVol > 1 ? rawVol / 100 : rawVol));
             audio.volume = safeVolume;
-            audio.muted = isMuted || !isPlaying || !isActive || (safeVolume === 0);
+            audio.muted = false;
 
             if (isActive) {
-              if (isPlaying) {
+              if (isPlaying || exporting) {
                 if (audio.paused) {
                   audio.play().catch(() => {});
                 }
@@ -1506,7 +1545,7 @@ export default function App() {
         }
       });
     });
-  }, [currentTime, isPlaying, tracks]);
+  }, [currentTime, isPlaying, tracks, exporting, isMuted]);
 
   // Master playback timing loop
   useEffect(() => {
@@ -3561,66 +3600,55 @@ export default function App() {
 
         let combinedStream = canvasStream;
         try {
-          if (!audioCtxRef.current) {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            audioCtxRef.current = new AudioContextClass();
-          }
-          const audioCtx = audioCtxRef.current;
-          if (audioCtx.state === 'suspended') {
-            await audioCtx.resume().catch(() => {});
+          const { ctx, masterGain, exportDest } = getAudioContext();
+          if (ctx.state === 'suspended') {
+            await ctx.resume().catch(() => {});
           }
 
-          const destNode = audioCtx.createMediaStreamDestination();
           let attachedSources = 0;
 
-          // Connect existing active WebAudio effect nodes
-          Object.values(audioSourceNodesRef.current).forEach((srcNode: any) => {
-            try {
-              if (srcNode && typeof srcNode.connect === 'function') {
-                srcNode.connect(destNode);
-                attachedSources++;
-              }
-            } catch (e) {}
-          });
-
-          // Also connect all active audio and video elements to ensure complete audio muxing
+          // Connect and verify all active audio and video elements in the tracks
           tracks.forEach(track => {
-            if (track.muted) return;
             track.clips.forEach(clip => {
               if (clip.type === ClipType.AUDIO && audioElementRef.current[clip.id]) {
                 const el = audioElementRef.current[clip.id];
                 try {
                   if (!audioSourceNodesRef.current[clip.id]) {
-                    const src = audioCtx.createMediaElementSource(el);
-                    audioSourceNodesRef.current[clip.id] = src;
-                    src.connect(destNode);
-                    src.connect(audioCtx.destination);
-                    attachedSources++;
+                    const source = ctx.createMediaElementSource(el);
+                    const gainNode = ctx.createGain();
+                    source.connect(gainNode);
+                    gainNode.connect(masterGain);
+                    audioSourceNodesRef.current[clip.id] = { source, gainNode };
                   }
+                  attachedSources++;
                 } catch (e) {}
               } else if (clip.type === ClipType.VIDEO && videoElementsRef.current[clip.id]) {
                 const el = videoElementsRef.current[clip.id];
                 if (el instanceof HTMLVideoElement) {
                   try {
                     if (!audioSourceNodesRef.current[clip.id]) {
-                      const src = audioCtx.createMediaElementSource(el);
-                      audioSourceNodesRef.current[clip.id] = src;
-                      src.connect(destNode);
-                      src.connect(audioCtx.destination);
-                      attachedSources++;
+                      const source = ctx.createMediaElementSource(el);
+                      const gainNode = ctx.createGain();
+                      source.connect(gainNode);
+                      gainNode.connect(masterGain);
+                      audioSourceNodesRef.current[clip.id] = { source, gainNode };
                     }
+                    attachedSources++;
                   } catch (e) {}
                 }
               }
             });
           });
 
-          if (destNode.stream && destNode.stream.getAudioTracks().length > 0) {
+          const audioTracks = exportDest.stream.getAudioTracks();
+          if (audioTracks.length > 0) {
             combinedStream = new MediaStream([
               ...canvasStream.getVideoTracks(),
-              ...destNode.stream.getAudioTracks()
+              ...audioTracks
             ]);
-            log(`Muxed ${attachedSources} sound and recitation sources into recording stream.`);
+            log(`Muxed ${attachedSources} sound and recitation sources into studio recording stream.`);
+          } else {
+            log(`Audio stream note: Export destination ready.`);
           }
         } catch (aErr) {
           log(`Audio destination mix note: ${aErr}`);
@@ -3628,11 +3656,11 @@ export default function App() {
 
         const preferredMimes = [
           'video/webm;codecs=vp9,opus',
-          'video/webm;codecs=vp9',
           'video/webm;codecs=vp8,opus',
-          'video/webm;codecs=vp8',
-          'video/webm',
+          'video/webm;codecs=h264,opus',
+          'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
           'video/mp4;codecs=avc1,mp4a',
+          'video/webm',
           'video/mp4'
         ];
         let chosenMime = '';
@@ -3687,6 +3715,52 @@ export default function App() {
 
               const nextTime = Math.min(totalDuration, elapsed);
               setCurrentTime(nextTime);
+
+              // Directly sync and trigger active audio/video media elements during recording
+              tracks.forEach(track => {
+                track.clips.forEach(clip => {
+                  const isActive = nextTime >= clip.start && nextTime <= clip.start + clip.duration;
+                  const clipElapsed = nextTime - clip.start;
+                  const targetSrcTime = clip.sourceStart + clipElapsed * clip.playbackRate;
+                  const rawVol = clip.volume !== undefined ? clip.volume : 80;
+                  const safeVolume = Math.max(0, Math.min(1, rawVol > 1 ? rawVol / 100 : rawVol));
+                  const effectiveGain = (track.muted || isMuted || !isActive) ? 0 : safeVolume;
+
+                  if (audioSourceNodesRef.current[clip.id]?.gainNode) {
+                    audioSourceNodesRef.current[clip.id].gainNode.gain.value = effectiveGain;
+                  }
+
+                  if (clip.type === ClipType.AUDIO) {
+                    const el = audioElementRef.current[clip.id];
+                    if (el) {
+                      if (isActive) {
+                        if (el.paused) el.play().catch(() => {});
+                        const dur = el.duration || 999999;
+                        const clamped = Math.max(0, Math.min(dur, targetSrcTime));
+                        if (Math.abs(el.currentTime - clamped) > 0.15) {
+                          el.currentTime = clamped;
+                        }
+                      } else {
+                        if (!el.paused) el.pause();
+                      }
+                    }
+                  } else if (clip.type === ClipType.VIDEO) {
+                    const el = videoElementsRef.current[clip.id];
+                    if (el instanceof HTMLVideoElement) {
+                      if (isActive) {
+                        if (el.paused) el.play().catch(() => {});
+                        const dur = el.duration || 999999;
+                        const clamped = Math.max(0, Math.min(dur, targetSrcTime));
+                        if (Math.abs(el.currentTime - clamped) > 0.15) {
+                          el.currentTime = clamped;
+                        }
+                      } else {
+                        if (!el.paused) el.pause();
+                      }
+                    }
+                  }
+                });
+              });
 
               if (elapsed >= totalDuration || pct >= 100) {
                 clearInterval(recordInterval);

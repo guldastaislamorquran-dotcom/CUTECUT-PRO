@@ -1,7 +1,7 @@
 {
   "name": "cutecut-pro-setup",
   "private": true,
-  "version": "2.1.1",
+  "version": "2.1.2",
   "license": "MIT",
   "description": "CUTECUT PRO Setup Professional Video Editor Suite",
   "homepage": "https://github.com",
@@ -53,20 +53,7 @@
       ],
       "category": "AudioVideo",
       "icon": "icon.png",
-      "executableName": "cutecut-pro-setup",
-      "snap": {
-        "confinement": "strict",
-        "grade": "stable",
-        "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
-        "plugs": [
-          "desktop",
-          "desktop-legacy",
-          "wayland",
-          "x11",
-          "opengl",
-          "audio-playback"
-        ]
-      }
+      "executableName": "cutecut-pro-setup"
     },
     "snap": {
       "confinement": "strict",
