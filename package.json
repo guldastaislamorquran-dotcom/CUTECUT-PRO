@@ -1,9 +1,9 @@
 {
-  "name": "cutecut-pro-setup",
+  "name": "cutecut-pro",
   "private": true,
-  "version": "2.1.2",
+  "version": "2.2.0",
   "license": "MIT",
-  "description": "CUTECUT PRO Setup Professional Video Editor Suite",
+  "description": "CUTECUT PRO Professional Video Editor Suite",
   "homepage": "https://github.com",
   "author": {
     "name": "Asmatullah Developer",
@@ -19,16 +19,16 @@
     "lint": "tsc --noEmit",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
-    "electron:pack": "npm run build && electron-packager . CUTECUT-PRO-SETUP --out=dist-desktop --overwrite --asar",
-    "pack:win": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:linux": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:mac": "npm run build && electron-packager . CUTECUT-PRO-SETUP --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
+    "electron:pack": "npm run build && electron-packager . CUTECUT-PRO --out=dist-desktop --overwrite --asar",
+    "pack:win": "npm run build && electron-packager . CUTECUT-PRO --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:linux": "npm run build && electron-packager . CUTECUT-PRO --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:mac": "npm run build && electron-packager . CUTECUT-PRO --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
   "build": {
-    "appId": "com.guldastaislamorquran.cutecutprosetup",
-    "productName": "CUTECUT PRO SETUP",
+    "appId": "com.guldastaislamorquran.cutecutpro",
+    "productName": "CUTECUT PRO",
     "copyright": "Copyright © 2026 Asmatullah Developer",
     "npmRebuild": false,
     "asar": true,
@@ -53,12 +53,12 @@
       ],
       "category": "AudioVideo",
       "icon": "icon.png",
-      "executableName": "cutecut-pro-setup"
+      "executableName": "cutecut-pro"
     },
     "snap": {
       "confinement": "strict",
       "grade": "stable",
-      "summary": "CUTECUT PRO Setup Professional Video Editor Suite",
+      "summary": "CUTECUT PRO Professional Video Editor Suite",
       "plugs": [
         "desktop",
         "desktop-legacy",
@@ -90,10 +90,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CUTECUT PRO SETUP"
+      "shortcutName": "CUTECUT PRO"
     },
     "portable": {
-      "artifactName": "CUTECUT-PRO-SETUP-Portable-${version}.${ext}"
+      "artifactName": "CUTECUT-PRO-Portable-${version}.${ext}"
     },
     "mac": {
       "target": [

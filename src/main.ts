@@ -53,7 +53,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'CUTECUT PRO SETUP',
+    title: 'CUTECUT PRO',
     backgroundColor: '#0a0a12',
     show: true,
     webPreferences: {

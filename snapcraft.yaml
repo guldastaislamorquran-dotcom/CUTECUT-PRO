@@ -1,9 +1,9 @@
-name: cutecut-pro-setup
+name: cutecut-pro
 base: core22
-version: '2.1.2'
-summary: CUTECUT PRO Setup Professional Video Editor Suite
+version: '2.2.0'
+summary: CUTECUT PRO Professional Video Editor Suite
 description: |
-  CUTECUT PRO Setup is a high-performance, studio-grade video editing suite
+  CUTECUT PRO is a high-performance, studio-grade video editing suite
   engineered for desktop and cloud workflows, featuring advanced Quran AI
   subtitling, multi-track audio/video composition, keyframing, and professional transitions.
 
@@ -11,8 +11,8 @@ grade: stable
 confinement: strict
 
 apps:
-  cutecut-pro-setup:
-    command: cutecut-pro-setup
+  cutecut-pro:
+    command: cutecut-pro
     extensions: [gnome]
     plugs:
       - desktop

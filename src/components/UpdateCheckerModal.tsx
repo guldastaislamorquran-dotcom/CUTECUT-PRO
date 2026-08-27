@@ -22,12 +22,12 @@ export const UpdateCheckerModal: React.FC<UpdateCheckerModalProps> = ({ isOpen, 
       setLogs((prev) => [...prev, msg]);
     };
 
-    setTimeout(() => log('[System] Querying CUTECUT PRO build manifest (v2.1.1)...'), 200);
+    setTimeout(() => log('[System] Querying CUTECUT PRO build manifest (v2.2.0)...'), 200);
     setTimeout(() => log('[Runtime] Validating WebAssembly FFmpeg core bundle status...'), 600);
     setTimeout(() => log('[Desktop] Checking Linux (.deb) and Windows (.exe) desktop wrapper parity...'), 1000);
     setTimeout(() => log('[Quran AI] Local Micro-Sync Scripture dataset integrity: 100% OK'), 1400);
     setTimeout(() => {
-      log('[Version] Engine build version v2.1.1 is latest production release!');
+      log('[Version] Engine build version v2.2.0 is latest production release!');
       setChecking(false);
       setChecked(true);
     }, 1800);
@@ -93,7 +93,7 @@ export const UpdateCheckerModal: React.FC<UpdateCheckerModalProps> = ({ isOpen, 
           {checked && (
             <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-300 text-xs font-bold flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-teal-400 shrink-0" />
-              <span>You are running the latest CUTECUT PRO release (v2.1.1). No updates required!</span>
+              <span>You are running the latest CUTECUT PRO release (v2.2.0). No updates required!</span>
             </div>
           )}
 
