@@ -1,0 +1,45 @@
+name: cutecut-pro-setup
+base: core22
+version: '2.1.1'
+summary: CUTECUT PRO Setup Professional Video Editor Suite
+description: |
+  CUTECUT PRO Setup is a high-performance, studio-grade video editing suite
+  engineered for desktop and cloud workflows, featuring advanced Quran AI
+  subtitling, multi-track audio/video composition, keyframing, and professional transitions.
+
+grade: stable
+confinement: strict
+
+apps:
+  cutecut-pro-setup:
+    command: cutecut-pro-setup
+    extensions: [gnome]
+    plugs:
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - audio-playback
+      - audio-record
+      - camera
+      - network
+      - network-bind
+      - home
+      - removable-media
+      - opengl
+      - browser-support
+      - unity7
+      - gsettings
+
+parts:
+  cutecut-pro-setup:
+    plugin: nil
+    stage-packages:
+      - libnss3
+      - libatk1.0-0
+      - libatk-bridge2.0-0
+      - libcups2
+      - libdrm2
+      - libgtk-3-0
+      - libgbm1
+      - libasound2
