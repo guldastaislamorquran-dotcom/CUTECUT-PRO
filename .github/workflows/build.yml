@@ -80,12 +80,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Snap to Snap Store
-        if: matrix.os == 'ubuntu-latest' && (env.SNAP_CREDS != '' || secrets.SNAPCRAFT_STORE_CREDENTIALS != '' || secrets.SNAPCRAFT_TOKEN != '' || secrets.SNAP_TOKEN != '')
+        if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
         uses: snapcore/action-publish@v1
         continue-on-error: true
         env:
           SNAP_STORE_ACTION: publish
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
         with:
           snap: dist-desktop/*.snap
           release: edge,stable
