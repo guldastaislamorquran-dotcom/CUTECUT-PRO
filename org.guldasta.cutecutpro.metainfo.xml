@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.guldasta.cutecutpro</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>CUTECUT PRO</name>
+  <summary>CUTECUT PRO Professional Video Editor Suite</summary>
+  <description>
+    <p>
+      CUTECUT PRO is a high-performance, studio-grade multi-track video editor with timeline blade splits, velocity controls, real-time color grading, and Quranic AI subtitling support.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.guldasta.cutecutpro.desktop</launchable>
+  <icon type="stock">org.guldasta.cutecutpro</icon>
+  <url type="homepage">https://github.com/guldastaislamorquran/cutecut-pro</url>
+  <developer_name>Guldasta Islam Or Quran</developer_name>
+  <releases>
+    <release version="2.3.3" date="2026-08-28"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
