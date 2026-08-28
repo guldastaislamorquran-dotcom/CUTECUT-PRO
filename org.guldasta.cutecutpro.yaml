@@ -16,11 +16,13 @@ modules:
   - name: cutecut-pro
     buildsystem: simple
     build-commands:
-      - install -Dm755 cutecut-pro /app/bin/cutecut-pro || true
+      - install -Dm755 cutecut-pro /app/bin/cutecut-pro
       - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/org.guldasta.cutecutpro.png
       - install -Dm644 org.guldasta.cutecutpro.desktop /app/share/applications/org.guldasta.cutecutpro.desktop
       - install -Dm644 org.guldasta.cutecutpro.metainfo.xml /app/share/metainfo/org.guldasta.cutecutpro.metainfo.xml
     sources:
+      - type: file
+        path: cutecut-pro
       - type: file
         path: icon.png
       - type: file

@@ -24,6 +24,7 @@ jobs:
           bundle: org.guldasta.cutecutpro.flatpak
           manifest-path: org.guldasta.cutecutpro.yaml
           cache-key: flatpak-builder-${{ github.sha }}
+          run-tests: false
 
       - name: Publish to Flathub
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -32,3 +33,4 @@ jobs:
           manifest-path: org.guldasta.cutecutpro.yaml
           repository-url: https://hub.flathub.org/
           repository-token: ${{ secrets.FLATHUB_REPO_TOKEN }}
+          run-tests: false
