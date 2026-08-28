@@ -81,14 +81,32 @@ jobs:
 
       - name: Publish Snap to Snap Store
         if: matrix.os == 'ubuntu-latest' && env.SNAP_CREDS != ''
-        uses: snapcore/action-publish@v1
         continue-on-error: true
         env:
-          SNAP_STORE_ACTION: publish
           SNAPCRAFT_STORE_CREDENTIALS: ${{ env.SNAP_CREDS }}
-        with:
-          snap: dist-desktop/*.snap
-          release: edge,stable
+        run: |
+          export PATH="/snap/bin:$PATH"
+          echo "=== Inspecting built Linux installers ==="
+          ls -lh dist-desktop/ || true
+          
+          # Find the exact .snap filename
+          SNAP_FILE=$(ls dist-desktop/*.snap 2>/dev/null | head -n 1 || true)
+          
+          if [ -n "$SNAP_FILE" ] && [ -f "$SNAP_FILE" ]; then
+            echo "Found Snap package: $SNAP_FILE"
+            SNAPCRAFT_BIN=$(which snapcraft || echo "/snap/bin/snapcraft")
+            echo "Using Snapcraft CLI at: $SNAPCRAFT_BIN"
+            
+            echo "Uploading $SNAP_FILE to Canonical Snap Store (channels: edge, stable)..."
+            $SNAPCRAFT_BIN upload "$SNAP_FILE" --release edge,stable || {
+              echo "Standard upload failed, attempting with retry..."
+              sleep 5
+              $SNAPCRAFT_BIN upload "$SNAP_FILE" --release edge,stable
+            }
+            echo "Snap package publish process completed!"
+          else
+            echo "Warning: No .snap package found in dist-desktop directory."
+          fi
 
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
