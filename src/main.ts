@@ -48,12 +48,14 @@ function resolveEntryHtml(): string {
 }
 
 function createWindow() {
+  const iconPath = path.join(app.getAppPath(), 'public', 'icon.png');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'CUTECUT PRO',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0a0a12',
     show: true,
     webPreferences: {

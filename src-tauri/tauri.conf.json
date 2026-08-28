@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AI Quran Video Editor",
-  "version": "2.1.0",
-  "identifier": "com.quraneditor.app",
+  "productName": "CUTECUT PRO",
+  "version": "2.3.0",
+  "identifier": "com.guldastaislamorquran.cutecutpro",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SRC="src/assets/images/cutecut_app_icon_1787658493341.jpg"
+SRC="src/assets/images/cutecut_app_icon_1787873470143.jpg"
 
 mkdir -p build-resources build build/icons public src-tauri/icons
 

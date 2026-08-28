@@ -1,7 +1,7 @@
 {
   "name": "cutecut-pro",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.3.0",
   "license": "MIT",
   "description": "CUTECUT PRO Professional Video Editor Suite",
   "homepage": "https://github.com",
@@ -52,7 +52,7 @@
         "snap"
       ],
       "category": "AudioVideo",
-      "icon": "icon.png",
+      "icon": "build-resources/icon.png",
       "executableName": "cutecut-pro"
     },
     "snap": {
@@ -65,7 +65,13 @@
         "wayland",
         "x11",
         "opengl",
-        "audio-playback"
+        "audio-playback",
+        "audio-record",
+        "camera",
+        "removable-media",
+        "home",
+        "network",
+        "network-bind"
       ]
     },
     "deb": {
@@ -80,7 +86,7 @@
           ]
         }
       ],
-      "icon": "build-resources/icon.png",
+      "icon": "build-resources/icon.ico",
       "signAndEditExecutable": false,
       "signExecutable": false,
       "verifyUpdateCodeSignature": false
@@ -100,7 +106,7 @@
         "dmg"
       ],
       "category": "public.app-category.video",
-      "icon": "icon.icns",
+      "icon": "build-resources/icon.icns",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false

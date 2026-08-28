@@ -1177,27 +1177,35 @@ export default function App() {
   // Web Audio API context & dedicated master routing buses for live preview and video export
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
+  const speakerGainRef = useRef<GainNode | null>(null);
   const exportDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const audioSourceNodesRef = useRef<Record<string, { source: MediaElementAudioSourceNode; gainNode: GainNode }>>({});
+  const activeRecorderRef = useRef<MediaRecorder | null>(null);
+  const activeRecordIntervalRef = useRef<any>(null);
+  const isCancelledExportRef = useRef<boolean>(false);
 
   const getAudioContext = () => {
     if (!audioCtxRef.current) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       const masterGain = ctx.createGain();
+      const speakerGain = ctx.createGain();
       const exportDest = ctx.createMediaStreamDestination();
       
-      // Route master gain to both speaker destination and recording export destination
-      masterGain.connect(ctx.destination);
+      // Route master gain through speaker gain to speakers, and directly to export recording destination
+      masterGain.connect(speakerGain);
+      speakerGain.connect(ctx.destination);
       masterGain.connect(exportDest);
 
       audioCtxRef.current = ctx;
       masterGainRef.current = masterGain;
+      speakerGainRef.current = speakerGain;
       exportDestinationRef.current = exportDest;
     }
     return {
       ctx: audioCtxRef.current,
       masterGain: masterGainRef.current!,
+      speakerGain: speakerGainRef.current!,
       exportDest: exportDestinationRef.current!
     };
   };
@@ -3541,7 +3549,41 @@ export default function App() {
     setExportTerminalLogs([]);
   };
 
+  const handleCancelExport = () => {
+    isCancelledExportRef.current = true;
+    if (activeRecordIntervalRef.current) {
+      clearInterval(activeRecordIntervalRef.current);
+      activeRecordIntervalRef.current = null;
+    }
+    if (activeRecorderRef.current) {
+      try {
+        if (activeRecorderRef.current.state === 'recording') {
+          activeRecorderRef.current.stop();
+        }
+      } catch (e) {}
+      activeRecorderRef.current = null;
+    }
+    // Pause all audio/video playback elements
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        const aEl = audioElementRef.current[clip.id];
+        if (aEl && !aEl.paused) aEl.pause();
+        const vEl = videoElementsRef.current[clip.id];
+        if (vEl instanceof HTMLVideoElement && !vEl.paused) vEl.pause();
+      });
+    });
+    // Unmute speakers
+    if (speakerGainRef.current) {
+      speakerGainRef.current.gain.value = isMuted ? 0 : 1;
+    }
+    setIsPlaying(false);
+    setExporting(false);
+    setExportProgress(0);
+    setExportTerminalLogs(prev => [...prev, `[System] Export stopped / cancelled by user.`]);
+  };
+
   const startFfmpegCompilation = async (config: ExportConfig | '480p' | '720p' | '1080p') => {
+    isCancelledExportRef.current = false;
     const exportConf: ExportConfig = typeof config === 'string'
       ? {
           filename: `cute_cut_export_${config}_${Date.now()}.mp4`,
@@ -3618,10 +3660,13 @@ export default function App() {
 
         let combinedStream = canvasStream;
         try {
-          const { ctx, masterGain, exportDest } = getAudioContext();
+          const { ctx, masterGain, speakerGain, exportDest } = getAudioContext();
           if (ctx.state === 'suspended') {
             await ctx.resume().catch(() => {});
           }
+
+          // MUTE THE MASTER SPEAKERS during export so audio doesn't play loudly in the editor!
+          speakerGain.gain.value = 0;
 
           let attachedSources = 0;
 
@@ -3711,6 +3756,7 @@ export default function App() {
             };
 
             const recorder = new MediaRecorder(combinedStream, recorderOptions);
+            activeRecorderRef.current = recorder;
 
             recorder.ondataavailable = (event) => {
               if (event.data && event.data.size > 0) {
@@ -3720,13 +3766,17 @@ export default function App() {
 
             const totalDuration = Math.max(duration, 1);
             setCurrentTime(0);
-            setIsPlaying(true);
+            setIsPlaying(false); // Do not trigger editor timeline playback state
 
             recorder.start(100);
             log(`Started real-time frame buffer capture (Codec: ${chosenMime || 'default'}, Bitrate: ${(targetVideoBps / 1_000_000).toFixed(1)} Mbps)...`);
 
             const startTime = Date.now();
             const recordInterval = setInterval(() => {
+              if (isCancelledExportRef.current) {
+                clearInterval(recordInterval);
+                return;
+              }
               const elapsed = (Date.now() - startTime) / 1000;
               const pct = Math.min(100, Math.floor((elapsed / totalDuration) * 100));
               setExportProgress(pct);
@@ -3734,7 +3784,7 @@ export default function App() {
               const nextTime = Math.min(totalDuration, elapsed);
               setCurrentTime(nextTime);
 
-              // Directly sync and trigger active audio/video media elements during recording
+              // Directly sync and trigger active audio/video media elements during recording (silent via gain node)
               tracks.forEach(track => {
                 track.clips.forEach(clip => {
                   const isActive = nextTime >= clip.start && nextTime <= clip.start + clip.duration;
@@ -3782,7 +3832,7 @@ export default function App() {
 
               if (elapsed >= totalDuration || pct >= 100) {
                 clearInterval(recordInterval);
-                setIsPlaying(false);
+                activeRecordIntervalRef.current = null;
                 if (recorder.state === 'recording') {
                   try {
                     recorder.requestData();
@@ -3792,8 +3842,32 @@ export default function App() {
               }
             }, 100);
 
+            activeRecordIntervalRef.current = recordInterval;
+
             recorder.onstop = async () => {
-              setIsPlaying(false);
+              activeRecorderRef.current = null;
+              // Pause all media elements
+              tracks.forEach(track => {
+                track.clips.forEach(clip => {
+                  const aEl = audioElementRef.current[clip.id];
+                  if (aEl && !aEl.paused) aEl.pause();
+                  const vEl = videoElementsRef.current[clip.id];
+                  if (vEl instanceof HTMLVideoElement && !vEl.paused) vEl.pause();
+                });
+              });
+
+              // Restore master speaker volume
+              if (speakerGainRef.current) {
+                speakerGainRef.current.gain.value = isMuted ? 0 : 1;
+              }
+
+              if (isCancelledExportRef.current) {
+                isCancelledExportRef.current = false;
+                setExporting(false);
+                setExportProgress(0);
+                return;
+              }
+
               setExportProgress(100);
 
               const rawBlob = new Blob(chunks, { type: chosenMime || 'video/webm' });
@@ -3816,7 +3890,6 @@ export default function App() {
               let ext = chosenMime.includes('mp4') ? 'mp4' : (exportConf.format || 'webm');
               let filename = exportConf.filename?.trim() || `export_${exportConf.resolution}_${Date.now()}`;
               if (!filename.toLowerCase().endsWith(`.${ext}`)) {
-                // remove existing extension if user changed format
                 filename = filename.replace(/\.[a-zA-Z0-9]+$/, '') + `.${ext}`;
               }
 
@@ -4366,6 +4439,7 @@ export default function App() {
         downloadUrl={downloadUrl}
         savedLocalPath={savedLocalPath}
         onStartExport={startFfmpegCompilation}
+        onCancelExport={handleCancelExport}
         onSaveToNativeStorage={(url, filename) => handleExportToNativeStorage(url, filename || `export_${Date.now()}.mp4`)}
       />
 

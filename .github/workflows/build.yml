@@ -79,6 +79,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish Snap to Snap Store
+        if: matrix.os == 'ubuntu-latest' && (env.SNAP_CREDS != '' || secrets.SNAPCRAFT_STORE_CREDENTIALS != '' || secrets.SNAPCRAFT_TOKEN != '' || secrets.SNAP_TOKEN != '')
+        uses: snapcore/action-publish@v1
+        continue-on-error: true
+        env:
+          SNAP_STORE_ACTION: publish
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS || secrets.SNAPCRAFT_TOKEN || secrets.SNAP_TOKEN }}
+        with:
+          snap: dist-desktop/*.snap
+          release: edge,stable
+
       - name: Bundle Windows Executable Binaries (EXE)
         if: matrix.os == 'windows-latest'
         run: |

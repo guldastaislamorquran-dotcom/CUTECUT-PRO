@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  X, Folder, ChevronDown, ChevronRight, Edit3, Image as ImageIcon,
-  Minimize2, RefreshCw, CheckCircle2, Terminal, Download, Sliders,
-  Film, Music, HardDrive, Clock
+  X, Folder, ChevronDown, ChevronRight, Edit3,
+  Minimize2, RefreshCw, CheckCircle2, Terminal, Download,
+  Film, Music, Clock, Square, Play, Pause, FolderOpen,
+  Sliders, Sparkles, FileVideo, RotateCcw, AlertTriangle
 } from 'lucide-react';
 import { formatTimeCode, getExportResolutionDimensions } from '../utils/editorUtils';
 import { Track } from '../types';
@@ -35,6 +36,7 @@ interface ExportModalProps {
   downloadUrl: string | null;
   savedLocalPath: string | null;
   onStartExport: (config: ExportConfig) => void;
+  onCancelExport?: () => void;
   onSaveToNativeStorage: (videoUrlOrBlob: string, filename: string) => void;
 }
 
@@ -52,13 +54,14 @@ export default function ExportModal({
   downloadUrl,
   savedLocalPath,
   onStartExport,
+  onCancelExport,
   onSaveToNativeStorage,
 }: ExportModalProps) {
   const [config, setConfig] = useState<ExportConfig>({
-    filename: `0906 (4)`,
-    outputDirectory: 'C:/Users/GOOD WILL/Videos/CuteCut',
+    filename: `CUTECUT_PRO_Video_${new Date().toISOString().slice(0, 10)}`,
+    outputDirectory: 'C:/Users/Videos/CuteCut',
     exportVideo: true,
-    resolution: '4K',
+    resolution: '1080p',
     bitrateProfile: 'recommended',
     codec: 'h264',
     format: 'mp4',
@@ -73,10 +76,14 @@ export default function ExportModal({
   const [isEditingCover, setIsEditingCover] = useState(false);
   const [coverSnapshot, setCoverSnapshot] = useState<string | null>(null);
   const [coverTime, setCoverTime] = useState(0);
+  const [showLogs, setShowLogs] = useState(false);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [liveRenderFrame, setLiveRenderFrame] = useState<string | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
 
-  // Capture thumbnail snapshot from active preview canvas
+  // Capture cover thumbnail snapshot from active preview canvas
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !exporting) {
       try {
         const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
         if (canvas) {
@@ -87,7 +94,23 @@ export default function ExportModal({
         console.warn('Canvas cover snapshot note:', e);
       }
     }
-  }, [isOpen, coverTime]);
+  }, [isOpen, coverTime, exporting]);
+
+  // Live frame capture while exporting to show inside the export window
+  useEffect(() => {
+    if (exporting) {
+      const interval = setInterval(() => {
+        try {
+          const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+          if (canvas) {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            setLiveRenderFrame(dataUrl);
+          }
+        } catch (e) {}
+      }, 350);
+      return () => clearInterval(interval);
+    }
+  }, [exporting]);
 
   // Dynamic bitrates in Mbps
   const videoBitrateMbps = useMemo(() => {
@@ -117,12 +140,44 @@ export default function ExportModal({
     return Math.max(1, Math.round(mb));
   }, [videoBitrateMbps, duration, config.exportVideo, config.exportAudioSeparately]);
 
+  const formattedFilename = useMemo(() => {
+    const ext = config.format || 'mp4';
+    return config.filename.endsWith(`.${ext}`)
+      ? config.filename
+      : `${config.filename}.${ext}`;
+  }, [config.filename, config.format]);
+
+  // Time calculations during export
+  const totalSec = Math.max(1, Math.round(duration || 10));
+  const currentRenderSec = Math.min(totalSec, Math.round((exportProgress / 100) * totalSec));
+  const remainingSec = Math.max(0, totalSec - currentRenderSec);
+
+  const handleBrowseDirectory = async () => {
+    try {
+      if (typeof window !== 'undefined') {
+        const electron = (window as any).require ? (window as any).require('electron') : null;
+        if (electron && electron.ipcRenderer) {
+          const folder = await electron.ipcRenderer.invoke('show-open-dialog-folder');
+          if (folder) {
+            setConfig(prev => ({ ...prev, outputDirectory: folder }));
+            return;
+          }
+        }
+      }
+    } catch (e) {}
+
+    const custom = window.prompt('Enter local export destination directory path:', config.outputDirectory);
+    if (custom) {
+      setConfig(prev => ({ ...prev, outputDirectory: custom }));
+    }
+  };
+
   if (!isOpen) return null;
 
   // Minimized floating status badge
   if (isMinimized) {
     return (
-      <div className="fixed bottom-6 right-6 z-50 bg-[#1c1c22]/95 border border-cyan-500/50 rounded-xl p-3.5 shadow-2xl backdrop-blur-md flex items-center gap-3 max-w-md animate-in slide-in-from-bottom-4 duration-200">
+      <div className="fixed bottom-6 right-6 z-50 bg-[#1a1a22]/95 border border-cyan-500/50 rounded-xl p-3.5 shadow-2xl backdrop-blur-md flex items-center gap-3.5 max-w-md animate-in slide-in-from-bottom-4 duration-200">
         <div className="relative flex items-center justify-center w-9 h-9 rounded-full bg-cyan-950/80 border border-cyan-500/60 flex-shrink-0">
           {exporting ? (
             <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
@@ -136,7 +191,7 @@ export default function ExportModal({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-bold text-white truncate">
-              {exporting ? `Rendering ${config.resolution}...` : downloadUrl ? 'Export Complete!' : 'Export Window'}
+              {exporting ? `Exporting (${config.resolution})...` : downloadUrl ? 'Export Complete!' : 'Export Window'}
             </span>
             <span className="text-xs font-mono font-bold text-cyan-400">
               {exporting ? `${exportProgress}%` : downloadUrl ? '100%' : ''}
@@ -146,14 +201,24 @@ export default function ExportModal({
           {exporting && (
             <div className="w-full bg-[#2a2a34] h-1.5 rounded-full overflow-hidden mt-1.5">
               <div
-                className="bg-gradient-to-r from-cyan-400 to-teal-400 h-full transition-all duration-300"
+                className="bg-gradient-to-r from-cyan-400 to-teal-400 h-full transition-all duration-200"
                 style={{ width: `${exportProgress}%` }}
               />
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-1 pl-2 border-l border-[#333340]">
+        <div className="flex items-center gap-1.5 pl-2 border-l border-[#333340]">
+          {exporting && onCancelExport && (
+            <button
+              type="button"
+              onClick={onCancelExport}
+              className="p-1.5 text-red-400 hover:text-white hover:bg-red-950/60 rounded-md transition cursor-pointer"
+              title="Stop Export"
+            >
+              <Square className="w-3.5 h-3.5 fill-red-400" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onToggleMinimize}
@@ -177,43 +242,30 @@ export default function ExportModal({
     );
   }
 
-  const handleBrowseDirectory = async () => {
-    try {
-      if (typeof window !== 'undefined') {
-        const electron = (window as any).require ? (window as any).require('electron') : null;
-        if (electron && electron.ipcRenderer) {
-          const folder = await electron.ipcRenderer.invoke('show-open-dialog-folder');
-          if (folder) {
-            setConfig(prev => ({ ...prev, outputDirectory: folder }));
-            return;
-          }
-        }
-      }
-    } catch (e) {}
-
-    const custom = window.prompt('Enter local export destination directory path:', config.outputDirectory);
-    if (custom) {
-      setConfig(prev => ({ ...prev, outputDirectory: custom }));
-    }
-  };
-
-  const formattedFilename = config.filename.endsWith(`.${config.format}`)
-    ? config.filename
-    : `${config.filename}.${config.format}`;
-
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-[#1e1e24] border border-[#32323e] rounded-xl w-full max-w-[660px] shadow-2xl overflow-hidden flex flex-col max-h-[92vh] select-none text-gray-200">
+      <div className="bg-[#1e1e24] border border-[#32323e] rounded-xl w-full max-w-[680px] shadow-2xl overflow-hidden flex flex-col max-h-[92vh] select-none text-gray-200">
         
         {/* Modal Title Bar */}
         <div className="h-11 px-4 flex items-center justify-between border-b border-[#282834] bg-[#22222a] shrink-0">
-          <span className="text-xs font-semibold text-white tracking-wide">Export</span>
+          <div className="flex items-center gap-2">
+            <Film className="w-4 h-4 text-cyan-400" />
+            <span className="text-xs font-bold text-white tracking-wide">
+              {exporting ? 'Exporting Video...' : downloadUrl ? 'Export Finished' : 'Export Settings'}
+            </span>
+            {exporting && (
+              <span className="flex items-center gap-1 text-[10px] bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 px-2 py-0.5 rounded-full font-medium animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                Silent Studio Render
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onToggleMinimize}
               className="text-gray-400 hover:text-white p-1 rounded hover:bg-[#30303c] transition cursor-pointer"
-              title="Minimize"
+              title="Minimize to floating window"
             >
               <Minimize2 className="w-3.5 h-3.5" />
             </button>
@@ -233,8 +285,10 @@ export default function ExportModal({
         {/* Modal Content Body */}
         <div className="p-5 overflow-y-auto custom-scrollbar flex-1 space-y-4">
           
-          {/* Main 2-Column Split Preview & Settings Layout */}
-          {!exporting && !downloadUrl ? (
+          {/* ======================================================== */}
+          {/* 1. SETTINGS SCREEN (CapCut Pro Layout)                    */}
+          {/* ======================================================== */}
+          {!exporting && !downloadUrl && (
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
               
               {/* Left Column: Video Thumbnail Preview with "Edit cover" */}
@@ -248,7 +302,7 @@ export default function ExportModal({
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center text-gray-500 gap-1.5 p-4 text-center">
-                      <Film className="w-8 h-8 opacity-40" />
+                      <Film className="w-8 h-8 opacity-40 text-cyan-400" />
                       <span className="text-[10px]">Active Frame Preview</span>
                     </div>
                   )}
@@ -257,13 +311,13 @@ export default function ExportModal({
                   <button
                     type="button"
                     onClick={() => setIsEditingCover(prev => !prev)}
-                    className="absolute top-2 left-2 bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 hover:border-white/40 text-white text-[11px] font-medium px-2.5 py-1 rounded flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                    className="absolute top-2 left-2 bg-black/65 hover:bg-black/85 backdrop-blur-md border border-white/20 hover:border-white/40 text-white text-[11px] font-medium px-2.5 py-1 rounded flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                   >
-                    <Edit3 className="w-3 h-3 text-white" />
+                    <Edit3 className="w-3 h-3 text-cyan-400" />
                     <span>Edit cover</span>
                   </button>
 
-                  <div className="absolute bottom-2 right-2 bg-black/70 px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-300 border border-white/10">
+                  <div className="absolute bottom-2 right-2 bg-black/75 px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 border border-white/10">
                     {formatTimeCode(coverTime || 0)}
                   </div>
                 </div>
@@ -304,7 +358,7 @@ export default function ExportModal({
                       value={config.filename}
                       onChange={(e) => setConfig({ ...config, filename: e.target.value })}
                       className="w-full bg-[#15151a] border border-[#2f2f3e] focus:border-cyan-400 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition"
-                      placeholder="0906 (4)"
+                      placeholder="CUTECUT_PRO_Video"
                     />
                   </div>
                 </div>
@@ -350,15 +404,8 @@ export default function ExportModal({
                       />
                       <span className="text-[12px] font-semibold text-white">Video</span>
                     </label>
-                    <button
-                      type="button"
-                      className="text-gray-400 hover:text-white p-0.5"
-                    >
-                      {isVideoExpanded ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
+                    <button type="button" className="text-gray-400 hover:text-white p-0.5">
+                      {isVideoExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>
 
@@ -367,7 +414,7 @@ export default function ExportModal({
                       
                       {/* Resolution */}
                       <div className="grid grid-cols-12 items-center gap-2">
-                        <span className="col-span-4 text-gray-400">Resol...</span>
+                        <span className="col-span-4 text-gray-400">Resolution</span>
                         <div className="col-span-8">
                           <select
                             value={config.resolution}
@@ -392,9 +439,9 @@ export default function ExportModal({
                             onChange={(e) => setConfig({ ...config, bitrateProfile: e.target.value as any })}
                             className="w-full bg-[#15151a] border border-[#2f2f3e] focus:border-cyan-400 rounded px-2 py-1 text-xs text-white focus:outline-none cursor-pointer"
                           >
-                            <option value="recommended">Recommended</option>
-                            <option value="higher">Higher</option>
-                            <option value="lower">Lower</option>
+                            <option value="recommended">Recommended (Smart CBR)</option>
+                            <option value="higher">Higher (Ultra Quality)</option>
+                            <option value="lower">Lower (Compact Size)</option>
                           </select>
                         </div>
                       </div>
@@ -408,8 +455,8 @@ export default function ExportModal({
                             onChange={(e) => setConfig({ ...config, codec: e.target.value as any })}
                             className="w-full bg-[#15151a] border border-[#2f2f3e] focus:border-cyan-400 rounded px-2 py-1 text-xs text-white focus:outline-none cursor-pointer"
                           >
-                            <option value="h264">H.264</option>
-                            <option value="hevc">HEVC</option>
+                            <option value="h264">H.264 / AVC</option>
+                            <option value="hevc">HEVC / H.265</option>
                             <option value="av1">AV1</option>
                             <option value="vp9">VP9</option>
                           </select>
@@ -450,8 +497,7 @@ export default function ExportModal({
                         </div>
                       </div>
 
-                      {/* Color Space Subtext */}
-                      <div className="text-[10px] text-gray-400 pt-1">
+                      <div className="text-[10px] text-gray-400 pt-0.5">
                         Color space: Rec. 709 SDR
                       </div>
                     </div>
@@ -473,15 +519,8 @@ export default function ExportModal({
                       />
                       <span className="text-[12px] font-semibold text-white">Audio</span>
                     </label>
-                    <button
-                      type="button"
-                      className="text-gray-400 hover:text-white p-0.5"
-                    >
-                      {isAudioExpanded ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
+                    <button type="button" className="text-gray-400 hover:text-white p-0.5">
+                      {isAudioExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>
 
@@ -495,9 +534,9 @@ export default function ExportModal({
                             onChange={(e) => setConfig({ ...config, audioFormat: e.target.value as any })}
                             className="w-full bg-[#15151a] border border-[#2f2f3e] focus:border-cyan-400 rounded px-2 py-1 text-xs text-white focus:outline-none cursor-pointer"
                           >
-                            <option value="mp3">MP3</option>
-                            <option value="wav">WAV</option>
-                            <option value="aac">AAC</option>
+                            <option value="mp3">MP3 (320kbps)</option>
+                            <option value="wav">WAV (Lossless 24-bit)</option>
+                            <option value="aac">AAC (192kbps)</option>
                             <option value="opus">Opus</option>
                           </select>
                         </div>
@@ -508,138 +547,278 @@ export default function ExportModal({
 
               </div>
             </div>
-          ) : (
-            /* Active Export Progress State */
-            <div className="space-y-4 py-2">
-              <div className="bg-[#15151c] border border-[#2d2d3c] rounded-xl p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-white flex items-center gap-2">
-                    {exporting ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
-                        <span>Rendering {config.resolution} @ {config.frameRate}fps (Full project duration: {Math.round(duration)}s)...</span>
-                      </>
+          )}
+
+          {/* ======================================================== */}
+          {/* 2. IN-PROGRESS EXPORTING SCREEN (CapCut In-Window Render) */}
+          {/* ======================================================== */}
+          {exporting && (
+            <div className="space-y-4 py-2 animate-in fade-in duration-200">
+              
+              {/* Top Banner: Video live preview thumbnail + progress details */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-[#14141a] border border-[#282836] rounded-xl p-4">
+                
+                {/* Live Render Canvas Snapshot */}
+                <div className="md:col-span-4 flex flex-col items-center justify-center">
+                  <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-cyan-500/30 flex items-center justify-center shadow-lg">
+                    {liveRenderFrame || coverSnapshot ? (
+                      <img
+                        src={liveRenderFrame || coverSnapshot!}
+                        alt="Live Encoding Frame"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Video Export Complete!</span>
-                      </>
+                      <div className="flex flex-col items-center justify-center text-cyan-400/70 gap-1.5 p-3 text-center">
+                        <Film className="w-6 h-6 animate-pulse" />
+                        <span className="text-[10px]">Rendering frames...</span>
+                      </div>
                     )}
-                  </span>
-                  <span className="font-mono font-bold text-cyan-400 text-sm">
-                    {exporting ? `${exportProgress}%` : '100%'}
+                    <div className="absolute top-1.5 left-1.5 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                      REC
+                    </div>
+                    <div className="absolute bottom-1.5 right-1.5 bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-300 border border-white/10">
+                      {formatTimeCode(currentRenderSec)} / {formatTimeCode(totalSec)}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-gray-400 mt-1.5">
+                    Audio plays silently during export
                   </span>
                 </div>
 
-                <div className="w-full bg-[#0c0c12] h-2.5 rounded-full overflow-hidden border border-gray-800">
-                  <div
-                    className="bg-gradient-to-r from-cyan-400 to-teal-400 h-full transition-all duration-200"
-                    style={{ width: `${exporting ? exportProgress : 100}%` }}
-                  />
+                {/* Progress Stats & Status */}
+                <div className="md:col-span-8 flex flex-col justify-center space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                        <span className="text-sm font-bold text-white">
+                          Rendering {config.resolution} ({config.format.toUpperCase()})
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Encoding visual tracks, Quran typography & studio audio mix...
+                      </p>
+                    </div>
+                    <span className="text-2xl font-black font-mono text-cyan-400 tracking-tight">
+                      {exportProgress}%
+                    </span>
+                  </div>
+
+                  {/* High Precision Progress Bar */}
+                  <div className="w-full bg-[#0c0c12] h-3 rounded-full overflow-hidden border border-gray-800 p-0.5">
+                    <div
+                      className="bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 h-full rounded-full transition-all duration-200 shadow-sm shadow-cyan-500/50"
+                      style={{ width: `${exportProgress}%` }}
+                    />
+                  </div>
+
+                  {/* Real-time Render Metrics Grid */}
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    <div className="bg-[#1c1c24] border border-[#2b2b38] rounded-md p-2 text-center">
+                      <div className="text-[9px] text-gray-400 uppercase tracking-wider">Elapsed</div>
+                      <div className="text-xs font-mono font-bold text-gray-200">{currentRenderSec}s</div>
+                    </div>
+                    <div className="bg-[#1c1c24] border border-[#2b2b38] rounded-md p-2 text-center">
+                      <div className="text-[9px] text-gray-400 uppercase tracking-wider">Remaining</div>
+                      <div className="text-xs font-mono font-bold text-cyan-300">~{remainingSec}s</div>
+                    </div>
+                    <div className="bg-[#1c1c24] border border-[#2b2b38] rounded-md p-2 text-center">
+                      <div className="text-[9px] text-gray-400 uppercase tracking-wider">FPS / Rate</div>
+                      <div className="text-xs font-mono font-bold text-gray-200">{config.frameRate} FPS</div>
+                    </div>
+                    <div className="bg-[#1c1c24] border border-[#2b2b38] rounded-md p-2 text-center">
+                      <div className="text-[9px] text-gray-400 uppercase tracking-wider">Codec</div>
+                      <div className="text-xs font-mono font-bold text-gray-200">{config.codec.toUpperCase()}</div>
+                    </div>
+                  </div>
+
                 </div>
+
               </div>
 
-              {/* Terminal Logs Box */}
-              <div className="bg-black/90 rounded-lg p-3 h-44 border border-gray-900 font-mono text-[10px] text-emerald-400 overflow-y-auto flex flex-col gap-1 custom-scrollbar">
-                {exportTerminalLogs.map((log, idx) => (
-                  <div key={idx} className="leading-relaxed truncate">
-                    {log}
-                  </div>
-                ))}
-                {exporting && (
-                  <div className="text-gray-500 animate-pulse mt-0.5">
-                    ▋ Processing multi-track visual compositions & audio stream...
+              {/* Collapsible Studio Logs */}
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowLogs(!showLogs)}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-cyan-400 transition cursor-pointer"
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>{showLogs ? 'Hide Render Terminal' : 'Show Render Terminal & Engine Details'}</span>
+                  {showLogs ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                </button>
+
+                {showLogs && (
+                  <div className="bg-black/90 rounded-lg p-3 h-36 border border-gray-900 font-mono text-[10px] text-emerald-400 overflow-y-auto flex flex-col gap-1 custom-scrollbar animate-in fade-in duration-150">
+                    {exportTerminalLogs.map((log, idx) => (
+                      <div key={idx} className="leading-relaxed truncate">
+                        {log}
+                      </div>
+                    ))}
+                    <div className="text-gray-500 animate-pulse mt-0.5">
+                      ▋ Processing multi-layer compositions & high-bitrate encoding...
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Save Trigger */}
-              {!exporting && downloadUrl && (
-                <div className="bg-cyan-950/30 border border-cyan-500/40 rounded-xl p-4 text-center space-y-2.5">
-                  <p className="text-xs text-gray-200">
-                    🎉 Full Video Duration ({Math.round(duration)}s) encoded successfully!
+            </div>
+          )}
+
+          {/* ======================================================== */}
+          {/* 3. EXPORT COMPLETED SCREEN (CapCut Completion)           */}
+          {/* ======================================================== */}
+          {!exporting && downloadUrl && (
+            <div className="space-y-5 py-2 animate-in fade-in duration-200">
+              
+              <div className="bg-gradient-to-b from-cyan-950/40 to-[#141820] border border-cyan-500/40 rounded-xl p-5 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-cyan-500/20 border border-cyan-400 flex items-center justify-center mx-auto shadow-lg shadow-cyan-500/20">
+                  <CheckCircle2 className="w-7 h-7 text-cyan-300" />
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-white">Video Exported Successfully!</h3>
+                  <p className="text-xs text-gray-300 mt-1">
+                    Your project duration ({totalSec}s) has been encoded into {config.resolution} ({config.format.toUpperCase()}).
                   </p>
-                  {savedLocalPath && (
-                    <div className="bg-[#0b0f16] border border-cyan-500/40 p-2 rounded text-[11px] font-mono text-cyan-300 truncate">
-                      📁 Output: {savedLocalPath}
-                    </div>
-                  )}
+                </div>
+
+                {/* Video Playback Preview Card */}
+                <div className="max-w-md mx-auto bg-black rounded-lg overflow-hidden border border-gray-800 shadow-xl">
+                  <video
+                    ref={videoPreviewRef}
+                    src={downloadUrl}
+                    controls
+                    className="w-full aspect-video object-contain bg-black"
+                    onPlay={() => setPreviewPlaying(true)}
+                    onPause={() => setPreviewPlaying(false)}
+                  />
+                </div>
+
+                {savedLocalPath && (
+                  <div className="bg-[#0b0f16] border border-cyan-500/30 p-2.5 rounded-lg text-xs font-mono text-cyan-300 flex items-center justify-center gap-2 max-w-lg mx-auto truncate">
+                    <FolderOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="truncate">Saved: {savedLocalPath}</span>
+                  </div>
+                )}
+
+                {/* Main Action Buttons */}
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
                   <button
                     type="button"
                     onClick={() => onSaveToNativeStorage(downloadUrl, formattedFilename)}
-                    className="inline-flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-extrabold text-xs rounded transition shadow-md shadow-cyan-500/20 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-bold text-xs rounded-lg transition shadow-lg shadow-cyan-500/20 cursor-pointer"
                   >
                     <Download className="w-4 h-4 text-slate-950" />
-                    <span>Save {formattedFilename}</span>
+                    <span>Save / Download {formattedFilename}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (videoPreviewRef.current) {
+                        if (videoPreviewRef.current.paused) videoPreviewRef.current.play();
+                        else videoPreviewRef.current.pause();
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#252532] hover:bg-[#323242] text-gray-200 text-xs font-semibold rounded-lg transition cursor-pointer border border-[#3c3c4e]"
+                  >
+                    {previewPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                    <span>{previewPlaying ? 'Pause Video' : 'Play Video Preview'}</span>
                   </button>
                 </div>
-              )}
+
+              </div>
+
             </div>
           )}
 
         </div>
 
-        {/* Modal Bottom Action Bar (Identical to Screenshot) */}
+        {/* Modal Bottom Action Bar (Identical to CapCut) */}
         <div className="h-14 px-5 flex items-center justify-between border-t border-[#282834] bg-[#22222a] shrink-0 text-xs">
           
           {/* Bottom Left Stats: Duration & Estimated File Size */}
-          <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
-            <Film className="w-3.5 h-3.5 text-gray-400" />
+          <div className="flex items-center gap-2 text-gray-400 text-[11px]">
+            <Film className="w-3.5 h-3.5 text-cyan-400" />
             <span>
-              Duration: <strong className="text-gray-200 font-normal">{Math.round(duration || 31)}s</strong> | Size: about <strong className="text-gray-200 font-normal">{estimatedSizeMB} MB</strong>
+              Duration: <strong className="text-gray-200 font-normal">{totalSec}s</strong> | Size: about <strong className="text-gray-200 font-normal">{estimatedSizeMB} MB</strong>
             </span>
           </div>
 
-          {/* Bottom Right Actions: Export (Cyan Highlight) & Cancel */}
+          {/* Bottom Right Actions */}
           <div className="flex items-center gap-2.5">
+            
+            {/* Setting Screen: Export & Cancel */}
             {!exporting && !downloadUrl && (
               <>
                 <button
                   type="button"
                   id="export-panel-start-btn"
                   onClick={() => onStartExport(config)}
-                  className="px-5 py-1.5 bg-[#00e5ff] hover:bg-[#33ebff] active:bg-[#00cce6] text-black font-bold text-xs rounded transition shadow-md shadow-cyan-500/20 cursor-pointer"
+                  className="px-6 py-2 bg-[#00e5ff] hover:bg-[#33ebff] active:bg-[#00cce6] text-black font-bold text-xs rounded-lg transition shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5"
                 >
-                  Export
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Export</span>
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-1.5 bg-[#2d2d38] hover:bg-[#383846] text-gray-300 hover:text-white text-xs rounded transition cursor-pointer"
+                  className="px-4 py-2 bg-[#2d2d38] hover:bg-[#383846] text-gray-300 hover:text-white text-xs rounded-lg transition cursor-pointer"
                 >
                   Cancel
                 </button>
               </>
             )}
 
+            {/* In-Progress Screen: Stop Export & Minimize */}
             {exporting && (
-              <button
-                type="button"
-                onClick={onToggleMinimize}
-                className="px-4 py-1.5 bg-[#2d2d38] hover:bg-[#383846] text-gray-300 text-xs rounded transition cursor-pointer"
-              >
-                Minimize
-              </button>
+              <>
+                {onCancelExport && (
+                  <button
+                    type="button"
+                    id="export-panel-stop-btn"
+                    onClick={onCancelExport}
+                    className="px-4 py-2 bg-red-950/80 hover:bg-red-900 border border-red-500/50 hover:border-red-400 text-red-200 hover:text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-red-950/40"
+                    title="Abort and Stop Export Immediately"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-red-400 text-red-400" />
+                    <span>Stop Export</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onToggleMinimize}
+                  className="px-4 py-2 bg-[#2d2d38] hover:bg-[#383846] text-gray-300 text-xs rounded-lg transition cursor-pointer flex items-center gap-1"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Minimize</span>
+                </button>
+              </>
             )}
 
+            {/* Completed Screen: Re-Export & Done */}
             {downloadUrl && !exporting && (
               <>
                 <button
                   type="button"
                   onClick={() => onStartExport(config)}
-                  className="px-4 py-1.5 bg-[#00e5ff] hover:bg-[#33ebff] text-black font-bold text-xs rounded transition cursor-pointer"
+                  className="px-4 py-2 bg-[#2d2d38] hover:bg-[#383846] text-cyan-300 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5 border border-cyan-500/30"
                 >
-                  Re-Export
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Re-Export</span>
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-1.5 bg-[#2d2d38] hover:bg-[#383846] text-gray-300 hover:text-white text-xs rounded transition cursor-pointer"
+                  className="px-5 py-2 bg-[#00e5ff] hover:bg-[#33ebff] text-black font-bold text-xs rounded-lg transition cursor-pointer"
                 >
                   Done
                 </button>
               </>
             )}
+
           </div>
 
         </div>
