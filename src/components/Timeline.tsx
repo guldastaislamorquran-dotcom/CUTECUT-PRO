@@ -81,6 +81,7 @@ interface TimelineProps {
   aspectRatio?: '16:9' | '9:16' | '1:1';
   onAspectRatioChange?: (ratio: '16:9' | '9:16' | '1:1') => void;
   onUpdateClip?: (clipId: string, updates: Partial<Clip>) => void;
+  onAddClip?: (clip: Partial<Clip>) => void;
 
   // Auto-Segmentation Suite
   onAutoSegmentAudio?: (clipId?: string) => void;
@@ -128,6 +129,7 @@ export default function Timeline({
   aspectRatio = '16:9',
   onAspectRatioChange,
   onUpdateClip,
+  onAddClip,
   onAutoSegmentAudio,
   onAutoSyncVideoToAyahs,
   onAutoRemoveSilence,
@@ -140,6 +142,111 @@ export default function Timeline({
   const gridWrapperRef = useRef<HTMLDivElement>(null);
   const headersScrollRef = useRef<HTMLDivElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
+
+  // Live Timeline Microphone Voiceover Recorder State
+  const [isRecordingMic, setIsRecordingMic] = useState(false);
+  const [micRecordingTime, setMicRecordingTime] = useState(0);
+  const [micError, setMicError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micTimerRef = useRef<any>(null);
+  const micChunksRef = useRef<Blob[]>([]);
+
+  const startMicRecording = async () => {
+    setMicError(null);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone recording is not supported in this browser.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      micChunksRef.current = [];
+
+      // Determine best supported MIME type
+      let recorderOptions: MediaRecorderOptions = {};
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          recorderOptions = { mimeType: 'audio/webm;codecs=opus' };
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          recorderOptions = { mimeType: 'audio/webm' };
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          recorderOptions = { mimeType: 'audio/mp4' };
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, recorderOptions);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          micChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(micChunksRef.current, { type: mimeType });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const recordDuration = Math.max(1, micRecordingTime);
+
+        if (onAddClip) {
+          onAddClip({
+            name: `Voiceover Recording (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`,
+            type: ClipType.AUDIO,
+            url: audioUrl,
+            start: currentTime,
+            duration: recordDuration,
+            sourceStart: 0,
+            sourceDuration: recordDuration,
+            playbackRate: 1.0,
+            volume: 1.0,
+          });
+        }
+
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach(t => t.stop());
+          micStreamRef.current = null;
+        }
+      };
+
+      recorder.start(100);
+      setIsRecordingMic(true);
+      setMicRecordingTime(0);
+
+      if (micTimerRef.current) clearInterval(micTimerRef.current);
+      micTimerRef.current = setInterval(() => {
+        setMicRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error('Mic recording error on Timeline toolbar:', err);
+      let msg = err.message || 'Microphone access denied or unreadable.';
+      if (err.name === 'NotAllowedError' || msg.toLowerCase().includes('permission denied')) {
+        msg = 'Microphone permission blocked. Please allow mic access in browser settings or open in a new tab.';
+      }
+      setMicError(msg);
+      setIsRecordingMic(false);
+    }
+  };
+
+  const stopMicRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (micTimerRef.current) {
+      clearInterval(micTimerRef.current);
+      micTimerRef.current = null;
+    }
+    setIsRecordingMic(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (micTimerRef.current) clearInterval(micTimerRef.current);
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
 
   const handleVerticalScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
@@ -1425,14 +1532,48 @@ export default function Timeline({
 
         {/* Right Section: Voice, Magnet, Ripple, Link & Zoom Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Voice Record Mic */}
-          <button
-            id="btn-mic-recorder"
-            className="p-1.5 rounded hover:bg-[#252532] text-gray-300 hover:text-emerald-400 transition"
-            title="Record Voiceover"
-          >
-            <Mic className="w-3.5 h-3.5" />
-          </button>
+          {/* Voice Record Mic Toolbar Control */}
+          <div className="flex items-center gap-1 relative">
+            {!isRecordingMic ? (
+              <button
+                id="btn-mic-recorder"
+                onClick={startMicRecording}
+                className="px-2 py-1 rounded hover:bg-[#252532] text-gray-200 hover:text-red-400 border border-[#333342] hover:border-red-500/50 transition flex items-center gap-1.5 cursor-pointer text-xs font-semibold"
+                title="Record Live Voiceover on Timeline (Click to Start)"
+              >
+                <Mic className="w-3.5 h-3.5 text-red-400" />
+                <span>Voiceover</span>
+              </button>
+            ) : (
+              <button
+                id="btn-mic-recorder-stop"
+                onClick={stopMicRecording}
+                className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-red-950/90 border border-red-500 text-white font-mono text-[11px] font-bold transition shadow-lg animate-pulse cursor-pointer"
+                title="Recording Voiceover Live... Click to Stop & Add to Timeline"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                <Mic className="w-3.5 h-3.5 text-red-300 animate-bounce" />
+                <span>REC {Math.floor(micRecordingTime / 60).toString().padStart(2, '0')}:{(micRecordingTime % 60).toString().padStart(2, '0')}</span>
+                <span className="bg-red-600 hover:bg-red-500 text-white px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ml-1">STOP</span>
+              </button>
+            )}
+
+            {micError && (
+              <div className="absolute top-full right-0 mt-1 z-50 bg-red-950/95 border border-red-500/80 rounded-lg p-2 shadow-2xl text-[11px] text-red-200 max-w-xs flex items-start gap-1.5">
+                <span className="shrink-0">⚠️</span>
+                <div className="flex-1 leading-snug">
+                  {micError}
+                </div>
+                <button
+                  onClick={() => setMicError(null)}
+                  className="text-red-400 hover:text-white font-bold text-xs px-1 cursor-pointer"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Timeline Continuous Loop Toggle */}
           <button
@@ -1751,8 +1892,8 @@ export default function Timeline({
                           />
                         )}
 
-                        {/* Video Frame Strip Visuals for Video Tracks */}
-                        {clip.type === ClipType.VIDEO && (
+                        {/* Video & Image Frame Strip Visuals for Visual Tracks */}
+                        {(clip.type === ClipType.VIDEO || clip.type === ClipType.IMAGE) && (
                           <VideoFilmstripVisual
                             clip={clip}
                             width={width}
@@ -1771,18 +1912,18 @@ export default function Timeline({
                           <div className="w-0.5 h-3.5 bg-white/90 rounded-full group-hover/handle:bg-white" />
                         </div>
 
-                        {/* Title text & Metadata Badge Overlay */}
-                        <div className="flex-1 mx-2 overflow-hidden pointer-events-none z-10 flex items-center justify-between">
-                          <div className="truncate">
-                            <div className="flex items-center gap-1.5 truncate">
-                              <p className={`text-[10px] font-bold truncate tracking-wide ${isSelected ? 'text-amber-200' : 'text-white'}`}>
+                        {/* Title text & Metadata Badge Overlay with Glass Floating Card */}
+                        <div className="flex-1 mx-1.5 overflow-hidden pointer-events-none z-10 flex items-center justify-between">
+                          <div className="truncate bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 shadow-xs max-w-[calc(100%-40px)]">
+                            <div className="flex items-center gap-1 truncate">
+                              <p className={`text-[9.5px] font-bold truncate tracking-wide ${isSelected ? 'text-amber-200' : 'text-white'}`}>
                                 {clip.name}
                               </p>
 
                               {/* Transition Indicator Badge */}
                               {clip.transition && (clip.transition.inType !== 'none' || clip.transition.outType !== 'none' || clip.transition.type !== 'none') && (
                                 <span
-                                  className="px-1 py-0.2 rounded text-[7px] font-mono font-black bg-cyan-950/90 text-cyan-300 border border-cyan-500/60 shrink-0 shadow-xs uppercase flex items-center gap-0.5"
+                                  className="px-1 py-0.2 rounded text-[6.5px] font-mono font-black bg-cyan-950/90 text-cyan-300 border border-cyan-500/60 shrink-0 shadow-xs uppercase flex items-center gap-0.5"
                                   title={`Transition Effect: ${clip.transition.type || clip.transition.inType || 'Active'} (${clip.transition.duration || 1.0}s)`}
                                 >
                                   ✨ {clip.transition.type || clip.transition.inType || 'Trans'}
@@ -1792,7 +1933,7 @@ export default function Timeline({
                               {/* Audio Peak Indicator Badge */}
                               {clip.peakDb !== undefined && (
                                 <span
-                                  className={`px-1 py-0.2 rounded text-[7px] font-mono font-black border shrink-0 shadow-xs ${
+                                  className={`px-1 py-0.2 rounded text-[6.5px] font-mono font-black border shrink-0 shadow-xs ${
                                     clip.peakDb > -0.5
                                       ? 'bg-red-500/90 text-white border-red-300'
                                       : clip.peakDb > -6
@@ -1805,7 +1946,7 @@ export default function Timeline({
                                 </span>
                               )}
                             </div>
-                            <p className={`text-[8px] font-mono mt-0.5 ${isSelected ? 'text-amber-300/80' : 'text-gray-300'}`}>
+                            <p className={`text-[7.5px] font-mono leading-none mt-0.5 ${isSelected ? 'text-amber-300/90' : 'text-gray-300'}`}>
                               {clip.duration.toFixed(2)}s • x{clip.playbackRate.toFixed(1)}
                               {clip.peakDb !== undefined && ` • Peak: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)}dB`}
                             </p>
@@ -1818,7 +1959,7 @@ export default function Timeline({
                                 SEL
                               </span>
                             )}
-                            <div className="px-1 py-0.5 rounded text-[7px] font-mono font-extrabold uppercase bg-black/40 text-white/80 border border-white/10 shrink-0">
+                            <div className="px-1 py-0.5 rounded text-[7px] font-mono font-extrabold uppercase bg-black/60 backdrop-blur-xs text-white/90 border border-white/15 shrink-0 shadow-xs">
                               {clip.type}
                             </div>
                           </div>

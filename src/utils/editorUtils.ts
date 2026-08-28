@@ -1385,6 +1385,125 @@ export function assignAcousticSegmentsToVerses(
 }
 
 /**
+ * Splits a Quran verse across multiple detected breath phrases (1, 2, 3, 4, or 5 breaths / waqf pauses).
+ * If segs.length === 1, returns the single segment.
+ * If segs.length > 1, proportionally splits the Arabic words and Translation words across each breath segment,
+ * attaching the Ayah symbol only to the final segment and providing clean gaps during inhalation.
+ */
+export function splitVerseAcrossBreaths(
+  verse: {
+    verse_key: string;
+    verse_number?: number;
+    text_arabic: string;
+    text_english: string;
+    isTaawwuz?: boolean;
+    isTasmiyah?: boolean;
+  },
+  segs: Array<{ start: number; end: number }>,
+  options?: {
+    showAyahSymbol?: boolean;
+    ayahSymbolStyle?: AyahSymbolStyle;
+    ayahDigitType?: AyahDigitType;
+    ayahSymbolPosition?: AyahSymbolPosition;
+  }
+): Array<{
+  verse_key: string;
+  text_arabic: string;
+  text_english: string;
+  start: number;
+  end: number;
+  isTaawwuz?: boolean;
+  isTasmiyah?: boolean;
+}> {
+  if (!segs || segs.length === 0) return [];
+
+  const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : 1);
+  const showSymbol = options?.showAyahSymbol ?? true;
+  const symStyle = options?.ayahSymbolStyle ?? 'none';
+  const symDigit = options?.ayahDigitType ?? 'arabic';
+  const symPos = options?.ayahSymbolPosition ?? 'end';
+
+  if (segs.length === 1) {
+    let arText = verse.text_arabic || '';
+    if (arText && !verse.isTaawwuz && !verse.isTasmiyah && showSymbol) {
+      arText = attachAyahSymbolToText(arText, vNum, symStyle, symDigit, symPos);
+    }
+    return [{
+      verse_key: verse.verse_key,
+      text_arabic: arText,
+      text_english: verse.text_english || '',
+      start: Number(segs[0].start.toFixed(2)),
+      end: Number(Math.max(segs[0].start + 0.8, segs[0].end).toFixed(2)),
+      isTaawwuz: verse.isTaawwuz,
+      isTasmiyah: verse.isTasmiyah,
+    }];
+  }
+
+  // Multi-breath splitting: Reciter paused 2, 3, 4, or 5 times during this verse
+  const segDurations = segs.map(s => Math.max(0.5, s.end - s.start));
+  const arPhrases = splitTextIntoPhrases(verse.text_arabic || '', segDurations);
+
+  // Split translation words proportionally across segments
+  const enWords = (verse.text_english || '').trim().split(/\s+/).filter(Boolean);
+  const totalSpeech = segDurations.reduce((a, b) => a + b, 0) || 1;
+  const enPhrases: string[] = [];
+
+  let enWordCursor = 0;
+  for (let sIdx = 0; sIdx < segs.length; sIdx++) {
+    const isLast = (sIdx === segs.length - 1);
+    if (isLast) {
+      enPhrases.push(enWords.slice(enWordCursor).join(' '));
+    } else {
+      const durRatio = segDurations[sIdx] / totalSpeech;
+      let count = Math.max(1, Math.round(enWords.length * durRatio));
+      const remainingSegments = segs.length - 1 - sIdx;
+      if (enWordCursor + count + remainingSegments > enWords.length) {
+        count = Math.max(1, enWords.length - enWordCursor - remainingSegments);
+      }
+      enPhrases.push(enWords.slice(enWordCursor, enWordCursor + count).join(' '));
+      enWordCursor += count;
+    }
+  }
+
+  const result: Array<{
+    verse_key: string;
+    text_arabic: string;
+    text_english: string;
+    start: number;
+    end: number;
+    isTaawwuz?: boolean;
+    isTasmiyah?: boolean;
+  }> = [];
+
+  for (let sIdx = 0; sIdx < segs.length; sIdx++) {
+    const isLast = (sIdx === segs.length - 1);
+    let chunkArabic = arPhrases[sIdx] || '';
+    const chunkEnglish = enPhrases[sIdx] || '';
+
+    // Attach Ayah symbol only to the final breath clip of the Ayah
+    if (isLast && chunkArabic && !verse.isTaawwuz && !verse.isTasmiyah && showSymbol) {
+      chunkArabic = attachAyahSymbolToText(chunkArabic, vNum, symStyle, symDigit, symPos);
+    }
+
+    const subKey = segs.length > 1
+      ? `${verse.verse_key} [${sIdx + 1}/${segs.length}]`
+      : verse.verse_key;
+
+    result.push({
+      verse_key: subKey,
+      text_arabic: chunkArabic,
+      text_english: chunkEnglish,
+      start: Number(segs[sIdx].start.toFixed(2)),
+      end: Number(Math.max(segs[sIdx].start + 0.8, segs[sIdx].end).toFixed(2)),
+      isTaawwuz: verse.isTaawwuz,
+      isTasmiyah: verse.isTasmiyah,
+    });
+  }
+
+  return result;
+}
+
+/**
  * Fits raw acoustic voice activity segments 1-to-1 to total verses,
  * merging tiny gaps or splitting long segments so EVERY verse gets its own segment.
  */

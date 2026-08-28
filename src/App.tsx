@@ -11,7 +11,7 @@ import UpdateCheckerModal from './components/UpdateCheckerModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import ExportModal, { ExportConfig } from './components/ExportModal';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText } from './utils/editorUtils';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -749,6 +749,9 @@ export default function App() {
 
   // Quran Intro Mode: 'both' (⭐ Ta'awwuz + Bismillah) | 'taawwuz-only' | 'bismillah-only' | 'none'
   const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('none');
+
+  // Quran Breath & Waqf Segmentation Mode: 'full-ayah' (Full Ayah Display) | 'split-breaths' (Split Breath Phrases)
+  const [quranBreathSegmentationMode, setQuranBreathSegmentationMode] = useState<'full-ayah' | 'split-breaths'>('split-breaths');
 
   // ⚡ Dedicated Instant Action: Replace Bismillah with Surah 67:1 (Tabarakallazi) across the timeline
   const handleReplaceBismillahWithTabarakallazi = async () => {
@@ -2601,6 +2604,104 @@ export default function App() {
     }
   };
 
+  // Helper: Split an Ayah into distinct breath phrases when Option 2 (Split Breath Phrases) is active
+  const splitVerseAcrossBreaths = (
+    verse: any,
+    segs: { start: number; end: number }[],
+    symbolOpts: {
+      showAyahSymbol: boolean;
+      ayahSymbolStyle: AyahSymbolStyle;
+      ayahDigitType: AyahDigitType;
+      ayahSymbolPosition: AyahSymbolPosition;
+    }
+  ) => {
+    const result: any[] = [];
+    const totalSegs = segs.length;
+
+    if (totalSegs <= 1) {
+      const vNum = verse.verse_number || (verse.verse_key ? parseInt(String(verse.verse_key).split(':')[1], 10) : 1);
+      let arText = verse.text_arabic || '';
+      if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
+        arText = attachAyahSymbolToText(
+          arText,
+          vNum,
+          symbolOpts.showAyahSymbol ? symbolOpts.ayahSymbolStyle : 'none',
+          symbolOpts.ayahDigitType,
+          symbolOpts.ayahSymbolPosition
+        );
+      }
+      const vStart = Number(segs[0].start.toFixed(2));
+      const vEnd = Number(segs[0].end.toFixed(2));
+      return [{
+        verse_key: verse.verse_key,
+        text_arabic: arText,
+        text_english: verse.text_english || '',
+        start: vStart,
+        end: Math.max(vStart + 0.8, vEnd),
+        isTaawwuz: verse.isTaawwuz,
+        isTasmiyah: verse.isTasmiyah
+      }];
+    }
+
+    const arWords = (verse.text_arabic || '').trim().split(/\s+/);
+    const enWords = (verse.text_english || '').trim().split(/\s+/);
+
+    const totalSegDur = segs.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0) || 1;
+    let arWordOffset = 0;
+    let enWordOffset = 0;
+
+    for (let sIdx = 0; sIdx < totalSegs; sIdx++) {
+      const seg = segs[sIdx];
+      const segDur = Math.max(0.2, seg.end - seg.start);
+      const segRatio = segDur / totalSegDur;
+      const isLastSeg = (sIdx === totalSegs - 1);
+
+      let arCount = isLastSeg ? arWords.length - arWordOffset : Math.max(1, Math.round(arWords.length * segRatio));
+      if (arWordOffset + arCount > arWords.length) {
+        arCount = arWords.length - arWordOffset;
+      }
+
+      let enCount = isLastSeg ? enWords.length - enWordOffset : Math.max(1, Math.round(enWords.length * segRatio));
+      if (enWordOffset + enCount > enWords.length) {
+        enCount = enWords.length - enWordOffset;
+      }
+
+      const arPhrase = arWords.slice(arWordOffset, arWordOffset + arCount).join(' ');
+      const enPhrase = enWords.slice(enWordOffset, enWordOffset + enCount).join(' ');
+
+      arWordOffset += arCount;
+      enWordOffset += enCount;
+
+      const vNum = verse.verse_number || (verse.verse_key ? parseInt(String(verse.verse_key).split(':')[1], 10) : 1);
+      let arTextWithSym = arPhrase;
+
+      if (isLastSeg && arTextWithSym && !verse.isTaawwuz && !verse.isTasmiyah) {
+        arTextWithSym = attachAyahSymbolToText(
+          arTextWithSym,
+          vNum,
+          symbolOpts.showAyahSymbol ? symbolOpts.ayahSymbolStyle : 'none',
+          symbolOpts.ayahDigitType,
+          symbolOpts.ayahSymbolPosition
+        );
+      }
+
+      const vStart = Number(seg.start.toFixed(2));
+      const vEnd = Number(seg.end.toFixed(2));
+
+      result.push({
+        verse_key: verse.isTaawwuz || verse.isTasmiyah ? verse.verse_key : `${verse.verse_key} [${sIdx + 1}/${totalSegs}]`,
+        text_arabic: arTextWithSym,
+        text_english: enPhrase,
+        start: vStart,
+        end: Math.max(vStart + 0.8, vEnd),
+        isTaawwuz: verse.isTaawwuz,
+        isTasmiyah: verse.isTasmiyah
+      });
+    }
+
+    return result;
+  };
+
   // ------------------ (D2) QURAN AUDIO ALIGNMENT ENGINE ------------------
   const handleAlignQuran = async (params: {
     surah: number | string;
@@ -2611,8 +2712,10 @@ export default function App() {
     surahEnd?: number;
     surahList?: string;
     introMode?: 'both' | 'taawwuz-only' | 'bismillah-only' | 'none';
+    breathMode?: 'full-ayah' | 'split-breaths';
   }) => {
-    const { surah, startAyah = 1, mode = 'batch', style = 'Imperial Gold', selectionType = 'single', surahEnd, surahList, introMode } = params;
+    const { surah, startAyah = 1, mode = 'batch', style = 'Imperial Gold', selectionType = 'single', surahEnd, surahList, introMode, breathMode } = params;
+    const effectiveBreathMode = breathMode || quranBreathSegmentationMode;
     
     // Initialize the Diagnostics Terminal
     setAligningStatus({
@@ -2623,6 +2726,7 @@ export default function App() {
         `[System] Target Scope: Surah ${surah} (${selectionType.toUpperCase()}), starting at Ayah ${startAyah}`,
         `[System] Compilation Style: ${style}`,
         `[System] Opening Mode: ${(introMode || quranIntroMode).toUpperCase()}`,
+        `[System] Breath Mode: ${effectiveBreathMode === 'full-ayah' ? 'Option 1: Full Ayah Display' : 'Option 2: Split Breath Phrases'}`,
         `[System] Extraction Mode: ${mode === 'batch' ? 'High-Performance Batch Download' : 'Interactive Individual Verse Sync'}`
       ]
     });
@@ -3013,9 +3117,50 @@ export default function App() {
       const totalAvailableSpan = audioEndTarget - speechOnset;
 
       if (totalVerses === 1) {
-        // Single Ayah spans the full duration of the recitation
-        startTimes[0] = Number(speechOnset.toFixed(2));
-        endTimes[0] = Number(audioEndTarget.toFixed(2));
+        // Single Ayah alignment
+        const singleVerse = allRawVerses[0];
+        const segs = acousticSpeechSegments.length > 0
+          ? acousticSpeechSegments
+          : [{ start: speechOnset, end: audioEndTarget }];
+
+        if (effectiveBreathMode === 'split-breaths' && segs.length > 1) {
+          const multiSubs = splitVerseAcrossBreaths(
+            singleVerse,
+            segs,
+            {
+              showAyahSymbol: quranShowAyahSymbol,
+              ayahSymbolStyle: quranAyahSymbolStyle,
+              ayahDigitType: quranAyahDigitType,
+              ayahSymbolPosition: quranAyahSymbolPosition,
+            }
+          );
+          subtitles.push(...multiSubs);
+        } else {
+          const vNum = singleVerse.verse_number || (singleVerse.verse_key ? parseInt(singleVerse.verse_key.split(':')[1], 10) : 1);
+          let arText = singleVerse.text_arabic || '';
+          if (arText && !singleVerse.isTaawwuz && !singleVerse.isTasmiyah) {
+            arText = attachAyahSymbolToText(
+              arText,
+              vNum,
+              quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
+              quranAyahDigitType,
+              quranAyahSymbolPosition
+            );
+          }
+
+          const vStart = Number(segs[0].start.toFixed(2));
+          const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+
+          subtitles.push({
+            verse_key: singleVerse.verse_key,
+            text_arabic: arText,
+            text_english: singleVerse.text_english || '',
+            start: vStart,
+            end: Math.max(vStart + 0.8, vEnd),
+            isTaawwuz: singleVerse.isTaawwuz,
+            isTasmiyah: singleVerse.isTasmiyah
+          });
+        }
       } else {
         // Multi-verse distribution:
         // Calculate natural breathing silence gap between verses
@@ -3045,18 +3190,33 @@ export default function App() {
               );
             }
 
-            const vStart = Number(segs[0].start.toFixed(2));
-            const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+            if (effectiveBreathMode === 'split-breaths' && segs.length > 1) {
+              const multiSubs = splitVerseAcrossBreaths(
+                verse,
+                segs,
+                {
+                  showAyahSymbol: quranShowAyahSymbol,
+                  ayahSymbolStyle: quranAyahSymbolStyle,
+                  ayahDigitType: quranAyahDigitType,
+                  ayahSymbolPosition: quranAyahSymbolPosition,
+                }
+              );
+              subtitles.push(...multiSubs);
+            } else {
+              // Keep the complete Ayah intact across all internal breaths (Option 1 - Full Ayah Display)
+              const vStart = Number(segs[0].start.toFixed(2));
+              const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
 
-            subtitles.push({
-              verse_key: verse.verse_key,
-              text_arabic: arText,
-              text_english: verse.text_english || '',
-              start: vStart,
-              end: Math.max(vStart + 0.8, vEnd),
-              isTaawwuz: verse.isTaawwuz,
-              isTasmiyah: verse.isTasmiyah
-            });
+              subtitles.push({
+                verse_key: verse.verse_key,
+                text_arabic: arText,
+                text_english: verse.text_english || '',
+                start: vStart,
+                end: Math.max(vStart + 0.8, vEnd),
+                isTaawwuz: verse.isTaawwuz,
+                isTasmiyah: verse.isTasmiyah
+              });
+            }
           }
         } else {
           // Fallback continuous flow: leave clean breathing silence gaps between verses
@@ -3242,6 +3402,66 @@ export default function App() {
         };
       });
     }
+  };
+
+  const handleReplaceVideoTrackClips = (newClips: Partial<Clip>[]) => {
+    setTracks(prevTracks => {
+      const videoTrackIdx = prevTracks.findIndex(t => t.type === ClipType.VIDEO || t.type === 'video' || t.name.toLowerCase().includes('video'));
+      if (videoTrackIdx === -1) {
+        const newTrackId = `track-video-${Date.now()}`;
+        const newTrack: Track = {
+          id: newTrackId,
+          name: 'Video Background',
+          type: ClipType.VIDEO,
+          clips: newClips.map((c, i) => ({
+            id: c.id || `clip-vid-${Date.now()}-${i}`,
+            name: c.name || `Scene ${i + 1}`,
+            type: ClipType.VIDEO,
+            trackId: newTrackId,
+            start: c.start !== undefined ? c.start : i * 5,
+            duration: c.duration || 5,
+            sourceStart: 0,
+            sourceDuration: c.duration || 5,
+            playbackRate: 1.0,
+            volume: 0,
+            url: c.url,
+            isImage: c.isImage,
+            filters: c.filters || {
+              brightness: 100, contrast: 100, saturation: 100,
+              grayscale: 0, sepia: 0, invert: 0, hueRotate: 0,
+              chromaKey: { enabled: false, color: '#00ff00', threshold: 40, smoothness: 10 }
+            }
+          }))
+        };
+        return [newTrack, ...prevTracks];
+      }
+
+      return prevTracks.map((track, idx) => {
+        if (idx !== videoTrackIdx) return track;
+        return {
+          ...track,
+          clips: newClips.map((c, i) => ({
+            id: c.id || `clip-vid-${Date.now()}-${i}`,
+            name: c.name || `Scene ${i + 1}`,
+            type: ClipType.VIDEO,
+            trackId: track.id,
+            start: c.start !== undefined ? c.start : i * 5,
+            duration: c.duration || 5,
+            sourceStart: 0,
+            sourceDuration: c.duration || 5,
+            playbackRate: 1.0,
+            volume: 0,
+            url: c.url,
+            isImage: c.isImage,
+            filters: c.filters || {
+              brightness: 100, contrast: 100, saturation: 100,
+              grayscale: 0, sepia: 0, invert: 0, hueRotate: 0,
+              chromaKey: { enabled: false, color: '#00ff00', threshold: 40, smoothness: 10 }
+            }
+          }))
+        };
+      });
+    });
   };
 
   // ------------------ (D) DONATION & SUPPORT SYSTEM ------------------
@@ -4288,6 +4508,8 @@ export default function App() {
           setQuranTranslation={setQuranTranslation}
           quranIntroMode={quranIntroMode}
           setQuranIntroMode={setQuranIntroMode}
+          quranBreathSegmentationMode={quranBreathSegmentationMode}
+          setQuranBreathSegmentationMode={setQuranBreathSegmentationMode}
           onReplaceBismillahWithTabarakallazi={handleReplaceBismillahWithTabarakallazi}
           onApplyTranslationToTimeline={handleApplyTranslationToTimeline}
           onApplyQuranStyles={applyQuranStylesToTimeline}
@@ -4303,6 +4525,8 @@ export default function App() {
           onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
           onAutoRemoveSilence={handleAutoRemoveSilence}
           onAutoSegmentRhythm={handleAutoSegmentRhythm}
+          onReplaceVideoTrackClips={handleReplaceVideoTrackClips}
+          currentTime={currentTime}
         />
 
         {/* Media Side-Panel Splitter Bar */}
@@ -4413,6 +4637,7 @@ export default function App() {
         aspectRatio={aspectRatio}
         onAspectRatioChange={setAspectRatio}
         onUpdateClip={updateClipProperties}
+        onAddClip={addNewClip}
         isPlaying={isPlaying}
         isLooping={isLooping}
         onToggleLoop={() => setIsLooping(prev => !prev)}

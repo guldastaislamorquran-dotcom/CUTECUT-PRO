@@ -88,19 +88,64 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     }
   }, [isListening, transcript]);
 
-  const toggleMic = () => {
+  const toggleMic = async () => {
     if (isListening) {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.start();
+          recognitionRef.current.stop();
         } catch (e) {
-          console.warn('Recognition start failed:', e);
+          console.warn('Recognition stop error:', e);
         }
-      } else {
-        alert('Speech recognition is not supported in this browser. You can type message directly!');
+      }
+      setIsListening(false);
+    } else {
+      try {
+        // Explicitly request microphone stream permission
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!recognitionRef.current && SpeechRecognition) {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+
+          recognition.onstart = () => {
+            setIsListening(true);
+            setTranscript('');
+          };
+
+          recognition.onresult = (event: any) => {
+            let currentTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              currentTranscript += event.results[i][0].transcript;
+            }
+            setTranscript(currentTranscript);
+          };
+
+          recognition.onerror = (event: any) => {
+            console.warn('[Voice Recognition] Error:', event.error);
+            setIsListening(false);
+          };
+
+          recognition.onend = () => {
+            setIsListening(false);
+          };
+
+          recognitionRef.current = recognition;
+        }
+
+        if (recognitionRef.current) {
+          recognitionRef.current.start();
+        } else {
+          alert('Speech Recognition is not directly supported in this browser. You can type commands directly in the input box below!');
+        }
+      } catch (e: any) {
+        console.warn('Microphone permission / recognition error:', e);
+        alert('Microphone access was denied or not available. Please allow microphone access or type your command below.');
+        setIsListening(false);
       }
     }
   };

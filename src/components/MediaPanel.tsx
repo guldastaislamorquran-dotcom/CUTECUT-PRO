@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Film, Music, Type, Sliders, Play, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio } from 'lucide-react';
+import { Upload, Film, Music, Type, Sliders, Play, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio, Square } from 'lucide-react';
 import { Clip, ClipType, Track, WatermarkSettings, QuranTranslationOption } from '../types';
 import { STOCK_VIDEOS, STOCK_AUDIOS, STOCK_IMAGES, TEXT_PRESETS, PRESET_LUTS } from '../data/presetAssets';
 import { AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, formatAyahSymbol } from '../utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, SUPPORTED_TRANSLATION_FONTS, getSuggestedFontsForLanguage } from '../utils/quranTranslations';
 import OrnateAyahMedallion from './OrnateAyahMedallion';
 import EffectsPanel from './EffectsPanel';
+import { QuranVisualsPanel } from './QuranVisualsPanel';
 
 /**
  * Asset URL Resolver Helper using Tauri's convertFileSrc API.
@@ -57,7 +58,7 @@ export async function openExternalUrl(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-const SURAHS = [
+export const SURAHS = [
   { id: 1, name: '1. Al-Fatihah (The Opening)' },
   { id: 2, name: '2. Al-Baqarah (The Cow)' },
   { id: 3, name: '3. Ali \'Imran (Family of Imran)' },
@@ -243,6 +244,8 @@ interface MediaPanelProps {
   setQuranTranslation?: (t: string) => void;
   quranIntroMode?: 'both' | 'taawwuz-only' | 'bismillah-only' | 'none';
   setQuranIntroMode?: (m: 'both' | 'taawwuz-only' | 'bismillah-only' | 'none') => void;
+  quranBreathSegmentationMode?: 'full-ayah' | 'split-breaths';
+  setQuranBreathSegmentationMode?: (m: 'full-ayah' | 'split-breaths') => void;
   onReplaceBismillahWithTabarakallazi?: () => void;
   onApplyTranslationToTimeline?: (translationId?: string) => Promise<void> | void;
   onApplyQuranStyles: (customParams?: any) => void;
@@ -260,6 +263,8 @@ interface MediaPanelProps {
   onAutoSyncVideoToAyahs?: () => void;
   onAutoRemoveSilence?: (clipId?: string) => void;
   onAutoSegmentRhythm?: (clipId?: string, interval?: number) => void;
+  onReplaceVideoTrackClips?: (clips: Partial<Clip>[]) => void;
+  currentTime?: number;
 }
 
 export default function MediaPanel({
@@ -318,6 +323,8 @@ export default function MediaPanel({
   setQuranTranslation,
   quranIntroMode = 'none',
   setQuranIntroMode,
+  quranBreathSegmentationMode = 'split-breaths',
+  setQuranBreathSegmentationMode,
   onReplaceBismillahWithTabarakallazi,
   onApplyTranslationToTimeline,
   onApplyQuranStyles,
@@ -333,8 +340,10 @@ export default function MediaPanel({
   onAutoSyncVideoToAyahs,
   onAutoRemoveSilence,
   onAutoSegmentRhythm,
+  onReplaceVideoTrackClips,
+  currentTime = 0,
 }: MediaPanelProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'video' | 'audio' | 'image' | 'text' | 'quran' | 'effects' | 'background' | 'watermark'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'video' | 'audio' | 'image' | 'text' | 'quran-visuals' | 'quran' | 'effects' | 'background' | 'watermark'>('upload');
   const [customAssets, setCustomAssets] = useState<any[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -343,6 +352,105 @@ export default function MediaPanel({
   const [audioSensitivity, setAudioSensitivity] = useState<'studio' | 'mosque' | 'tartil' | 'hadr'>('studio');
   const [isSegmentingAudio, setIsSegmentingAudio] = useState(false);
   const [isSyncingVideo, setIsSyncingVideo] = useState(false);
+
+  // Live Microphone Voiceover Recorder State
+  const [isRecordingMic, setIsRecordingMic] = useState(false);
+  const [micRecordingTime, setMicRecordingTime] = useState(0);
+  const [micError, setMicError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micTimerRef = useRef<any>(null);
+  const micChunksRef = useRef<Blob[]>([]);
+
+  const startMicRecording = async () => {
+    setMicError(null);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone recording is not supported in this browser environment.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      micChunksRef.current = [];
+
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          micChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(micChunksRef.current, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const recordDuration = Math.max(1, micRecordingTime);
+
+        const fileId = `voiceover-${Date.now()}`;
+        const newAsset = {
+          id: fileId,
+          name: `Voiceover Recording (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`,
+          type: 'audio',
+          url: audioUrl,
+          duration: recordDuration,
+          thumbnail: '🎙️',
+          size: `${(audioBlob.size / (1024 * 1024)).toFixed(2)} MB`
+        };
+
+        setCustomAssets(prev => [newAsset, ...prev]);
+
+        // Auto Add to Timeline Audio track
+        onAddClip({
+          name: newAsset.name,
+          type: ClipType.AUDIO,
+          url: audioUrl,
+          duration: recordDuration,
+          sourceStart: 0,
+          sourceDuration: recordDuration,
+          playbackRate: 1.0,
+          volume: 1.0
+        });
+
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach(t => t.stop());
+          micStreamRef.current = null;
+        }
+      };
+
+      recorder.start(100);
+      setIsRecordingMic(true);
+      setMicRecordingTime(0);
+
+      if (micTimerRef.current) clearInterval(micTimerRef.current);
+      micTimerRef.current = setInterval(() => {
+        setMicRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error('Mic recording error:', err);
+      setMicError(err.message || 'Microphone access denied or unreadable.');
+      setIsRecordingMic(false);
+    }
+  };
+
+  const stopMicRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (micTimerRef.current) {
+      clearInterval(micTimerRef.current);
+      micTimerRef.current = null;
+    }
+    setIsRecordingMic(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (micTimerRef.current) clearInterval(micTimerRef.current);
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
 
   // Translation Suite Internal UI State
   const [isApplyingTranslation, setIsApplyingTranslation] = useState<boolean>(false);
@@ -872,6 +980,16 @@ export default function MediaPanel({
             </button>
 
             <button
+              id="tab-quran-visuals"
+              onClick={() => setActiveTab('quran-visuals')}
+              className={`shrink-0 px-3.5 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'quran-visuals' ? 'text-emerald-400 bg-emerald-950/50 font-bold border border-emerald-500/50 shadow-md shadow-emerald-500/20' : 'text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-950/20'}`}
+              title="AI Ayah Media & Background Scenery Generator"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+              <span className="font-extrabold text-emerald-300">Ayah Visuals</span>
+            </button>
+
+            <button
               id="tab-quran"
               onClick={() => setActiveTab('quran')}
               className={`shrink-0 px-3.5 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'quran' ? 'text-amber-400 bg-amber-950/40 font-bold border border-amber-500/50 shadow-md shadow-amber-500/10' : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/20'}`}
@@ -1171,6 +1289,16 @@ export default function MediaPanel({
           </div>
         )}
 
+        {activeTab === 'quran-visuals' && (
+          <QuranVisualsPanel
+            tracks={tracks}
+            onAddClip={onAddClip}
+            onReplaceVideoTrackClips={onReplaceVideoTrackClips}
+            quranTranslation={quranTranslation}
+            currentTime={currentTime}
+          />
+        )}
+
         {activeTab === 'quran' && (
           <div className="space-y-4">
             <div className="bg-gradient-to-br from-amber-500/10 to-yellow-600/10 border border-amber-500/20 rounded-xl p-4 space-y-3">
@@ -1241,7 +1369,7 @@ export default function MediaPanel({
                 {/* BLOCK 2: ALIGNMENT SCOPE */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-gray-300 uppercase tracking-wide flex items-center justify-between">
-                    <span>ALIGNMENT SCOPE (سورتیں / آیات)</span>
+                    <span>ALIGNMENT SCOPE</span>
                     <span className="text-[10px] text-amber-400 font-medium">
                       {quranSelectionType === 'all'
                         ? '✨ Single Whole Surah'
@@ -1257,10 +1385,10 @@ export default function MediaPanel({
                       type="button"
                       id="scope-all"
                       onClick={() => setQuranSelectionType('all')}
-                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer border ${
                         quranSelectionType === 'all'
-                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                          ? 'bg-black text-white border-white shadow-md font-extrabold'
+                          : 'bg-[#15151e] border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800/50'
                       }`}
                     >
                       <span>Whole Surah</span>
@@ -1269,24 +1397,24 @@ export default function MediaPanel({
                       type="button"
                       id="scope-list"
                       onClick={() => setQuranSelectionType('list')}
-                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer border ${
                         quranSelectionType === 'list'
-                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                          ? 'bg-black text-white border-white shadow-md font-extrabold'
+                          : 'bg-[#15151e] border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800/50'
                       }`}
                       title="Multi-Surahs in one audio with automatic opening rules"
                     >
-                      <Sparkles className="w-3 h-3 text-black/70 inline" />
+                      <Sparkles className={`w-3 h-3 inline ${quranSelectionType === 'list' ? 'text-white' : 'text-gray-400'}`} />
                       <span>Multi-Surah</span>
                     </button>
                     <button
                       type="button"
                       id="scope-single"
                       onClick={() => setQuranSelectionType('single')}
-                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                      className={`py-2 px-2 text-xs font-bold rounded-md transition flex items-center justify-center gap-1 cursor-pointer border ${
                         quranSelectionType === 'single'
-                          ? 'bg-amber-500 text-black shadow-md font-extrabold'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                          ? 'bg-black text-white border-white shadow-md font-extrabold'
+                          : 'bg-[#15151e] border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800/50'
                       }`}
                     >
                       <span>Single Ayah</span>
@@ -1349,7 +1477,7 @@ export default function MediaPanel({
                   <div className="flex items-center justify-between pb-1 border-b border-gray-800/80">
                     <label className="text-xs font-extrabold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
                       <Languages className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>TRANSLATION LANGUAGE & TRANSLATOR (ترجمہ و زبان)</span>
+                      <span>TRANSLATION LANGUAGE & TRANSLATOR</span>
                     </label>
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 font-bold border border-cyan-500/20 flex items-center gap-1">
                       <span>{currentTranslation.flag}</span>
@@ -1370,14 +1498,14 @@ export default function MediaPanel({
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SELECT LANGUAGE:</span>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                       {[
-                        { code: 'ur', id: 'ur-jalandhry', label: 'Urdu (اردو)', flag: '🇵🇰' },
-                        { code: 'hi', id: 'hi-suhel', label: 'Hindi (हिन्दी)', flag: '🇮🇳' },
+                        { code: 'ur', id: 'ur-jalandhry', label: 'Urdu', flag: '🇵🇰' },
+                        { code: 'hi', id: 'hi-suhel', label: 'Hindi', flag: '🇮🇳' },
                         { code: 'en', id: 'en-sahih', label: 'English', flag: '🇬🇧' },
                         { code: 'id', id: 'id-kemenag', label: 'Indonesian', flag: '🇮🇩' },
                         { code: 'tr', id: 'tr-diyanet', label: 'Turkish', flag: '🇹🇷' },
                         { code: 'fr', id: 'fr-hamidullah', label: 'French', flag: '🇫🇷' },
                         { code: 'bn', id: 'bn-muhiuddin', label: 'Bengali', flag: '🇧🇩' },
-                        { code: 'fa', id: 'fa-kaldari', label: 'Persian (فارسی)', flag: '🇮🇷' },
+                        { code: 'fa', id: 'fa-kaldari', label: 'Persian', flag: '🇮🇷' },
                         { code: 'es', id: 'es-garcia', label: 'Spanish', flag: '🇪🇸' },
                         { code: 'de', id: 'de-bubenheim', label: 'German', flag: '🇩🇪' },
                         { code: 'ru', id: 'ru-kuliev', label: 'Russian', flag: '🇷🇺' },
@@ -1392,7 +1520,7 @@ export default function MediaPanel({
                             onClick={() => handleSelectTranslation(lang.id)}
                             className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition border cursor-pointer ${
                               isSelected
-                                ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-extrabold shadow-md shadow-cyan-500/20'
+                                ? 'bg-black text-white border-white font-extrabold shadow-md'
                                 : 'bg-[#15151e] border-gray-800 text-gray-300 hover:text-white hover:bg-gray-800/80 hover:border-gray-700'
                             }`}
                           >
@@ -1496,7 +1624,7 @@ export default function MediaPanel({
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-extrabold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>OPENING VERSES (تسمیہ و تعوذ)</span>
+                      <span>OPENING VERSES</span>
                     </label>
                     <span className="text-[10px] text-amber-300 font-mono font-bold">
                       {quranIntroMode === 'both' ? '⭐ A’udhu + Bismillah' : quranIntroMode === 'bismillah-only' ? 'Bismillah Only' : quranIntroMode === 'taawwuz-only' ? 'A’udhu Only' : 'Direct Ayah 1'}
@@ -1504,10 +1632,10 @@ export default function MediaPanel({
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
-                      { id: 'both', label: '⭐ A’udhu + Bismillah', desc: 'دونوں شامل کریں' },
-                      { id: 'bismillah-only', label: 'Bismillah Only', desc: 'صرف بسم اللہ' },
-                      { id: 'taawwuz-only', label: 'A’udhu Only', desc: 'صرف اعوذ باللہ' },
-                      { id: 'none', label: 'Direct Ayah 1', desc: 'براہِ راست آیت' },
+                      { id: 'both', label: '⭐ A’udhu + Bismillah', desc: 'Include Both' },
+                      { id: 'bismillah-only', label: 'Bismillah Only', desc: 'Bismillah Only' },
+                      { id: 'taawwuz-only', label: 'A’udhu Only', desc: 'A’udhu Only' },
+                      { id: 'none', label: 'Direct Ayah 1', desc: 'Direct Ayah' },
                     ].map((mode) => (
                       <button
                         key={mode.id}
@@ -1520,15 +1648,66 @@ export default function MediaPanel({
                         }}
                         className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex flex-col items-center justify-center border cursor-pointer ${
                           quranIntroMode === mode.id
-                            ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                            ? 'bg-black text-white border-white shadow-md'
                             : 'bg-[#15151e] border-gray-800 text-gray-300 hover:text-white hover:bg-gray-800/80'
                         }`}
                       >
                         <span className="text-[11px] leading-tight">{mode.label}</span>
-                        <span className={`text-[9px] ${quranIntroMode === mode.id ? 'text-black/80 font-semibold' : 'text-gray-400'}`}>{mode.desc}</span>
+                        <span className={`text-[9px] ${quranIntroMode === mode.id ? 'text-white/80 font-semibold' : 'text-gray-400'}`}>{mode.desc}</span>
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* BLOCK 2.9: BREATH & WAQF SEGMENTATION MODE */}
+                <div className="bg-[#101016] border border-amber-500/30 rounded-xl p-3 space-y-2 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>BREATH & WAQF MODE</span>
+                    </label>
+                    <span className="text-[10px] text-amber-300 font-mono font-bold">
+                      {quranBreathSegmentationMode === 'full-ayah' ? '📖 Full Ayah Display' : '✂️ Split Breath Phrases'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      {
+                        id: 'full-ayah',
+                        label: '📖 Full Ayah Display',
+                        desc: 'Full Ayah intact (continuous screen display)',
+                      },
+                      {
+                        id: 'split-breaths',
+                        label: '✂️ Split Breath Phrases',
+                        desc: 'Separate phrase per breath ([1/2], [2/2]) for long Ayahs',
+                      },
+                    ].map((bMode) => (
+                      <button
+                        key={bMode.id}
+                        type="button"
+                        id={`btn-breath-mode-${bMode.id}`}
+                        onClick={() => {
+                          if (setQuranBreathSegmentationMode) {
+                            setQuranBreathSegmentationMode(bMode.id as any);
+                          }
+                        }}
+                        className={`py-2 px-2 rounded-lg text-xs font-bold transition flex flex-col items-center justify-center border cursor-pointer text-center ${
+                          quranBreathSegmentationMode === bMode.id
+                            ? 'bg-black text-white border-white shadow-md'
+                            : 'bg-[#15151e] border-gray-800 text-gray-300 hover:text-white hover:bg-gray-800/80'
+                        }`}
+                      >
+                        <span className="text-[11px] font-extrabold leading-tight">{bMode.label}</span>
+                        <span className={`text-[9px] mt-0.5 ${quranBreathSegmentationMode === bMode.id ? 'text-white/80 font-semibold' : 'text-gray-400'}`}>
+                          {bMode.desc}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-amber-300/80 italic pt-0.5 leading-snug">
+                    💡 Note: An Ayah recited in a single breath will never be split into parts.
+                  </p>
                 </div>
 
                 {/* BLOCK 3: ✨ 1-CLICK AUTO-GENERATE CAPTIONS BUTTON */}
@@ -1548,15 +1727,15 @@ export default function MediaPanel({
                       introMode: quranIntroMode,
                     });
                   }}
-                  className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-extrabold rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer border border-amber-300/30"
+                  className="w-full py-3.5 px-4 bg-black text-white hover:bg-gray-900 font-extrabold rounded-xl text-xs sm:text-sm transition-all shadow-lg active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer border border-amber-400/80"
                 >
-                  <Sparkles className="w-4 h-4 text-black animate-spin" />
+                  <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
                   <span>
                     ✨ 1-Click Auto-Generate Captions (
                     {quranSelectionType === 'list'
                       ? `Multi-Surah: ${quranSurahList}`
                       : quranSelectionType === 'all'
-                      ? 'Mukammal Surah'
+                      ? 'Whole Surah'
                       : `Ayah ${quranStartAyah}`}
                     {' '}• Arabic + {currentTranslation.language.split(' ')[0]})
                   </span>
@@ -1609,7 +1788,7 @@ export default function MediaPanel({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">AYAH NUMBER SYMBOL (رقم الآية)</span>
+                        <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">AYAH NUMBER SYMBOL</span>
                       </div>
                       {/* Show/Hide Toggle */}
                       <button
@@ -1622,11 +1801,11 @@ export default function MediaPanel({
                         }}
                         className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition cursor-pointer border ${
                           quranShowAyahSymbol
-                            ? 'bg-amber-500 text-black border-amber-400'
+                            ? 'bg-black text-white border-white'
                             : 'bg-gray-800 text-gray-400 border-gray-700'
                         }`}
                       >
-                        {quranShowAyahSymbol ? 'ON (ظاهر)' : 'OFF (مخفي)'}
+                        {quranShowAyahSymbol ? 'ON' : 'OFF'}
                       </button>
                     </div>
 
@@ -1658,7 +1837,7 @@ export default function MediaPanel({
                                 }}
                                 className={`py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-between transition border cursor-pointer ${
                                   quranAyahSymbolStyle === styleOpt.id
-                                    ? 'bg-amber-500/25 border-amber-400 text-amber-300 font-bold shadow'
+                                    ? 'bg-black text-white border-white font-bold shadow'
                                     : 'bg-[#15151e] border-gray-800 text-gray-300 hover:text-white hover:bg-gray-800'
                                 } ${styleOpt.id === 'ornate-medallion' ? 'col-span-2 bg-gradient-to-r from-amber-950/40 via-[#1a1528] to-amber-950/40 border-amber-500/40' : ''}`}
                               >
@@ -1700,11 +1879,11 @@ export default function MediaPanel({
                                 }}
                                 className={`py-1 text-[11px] font-bold rounded transition border cursor-pointer ${
                                   quranAyahDigitType === 'arabic'
-                                    ? 'bg-amber-500 text-black border-amber-400'
+                                    ? 'bg-black text-white border-white'
                                     : 'bg-[#15151e] text-gray-400 border-gray-800 hover:text-white'
                                 }`}
                               >
-                                ١, ٢, ٣ (عربي)
+                                Arabic (١, ٢, ٣)
                               </button>
                               <button
                                 type="button"
@@ -1715,11 +1894,11 @@ export default function MediaPanel({
                                 }}
                                 className={`py-1 text-[11px] font-bold rounded transition border cursor-pointer ${
                                   quranAyahDigitType === 'latin'
-                                    ? 'bg-amber-500 text-black border-amber-400'
+                                    ? 'bg-black text-white border-white'
                                     : 'bg-[#15151e] text-gray-400 border-gray-800 hover:text-white'
                                 }`}
                               >
-                                1, 2, 3 (Latin)
+                                Latin (1, 2, 3)
                               </button>
                             </div>
                           </div>
@@ -1737,11 +1916,11 @@ export default function MediaPanel({
                                 }}
                                 className={`py-1 text-[11px] font-bold rounded transition border cursor-pointer ${
                                   quranAyahSymbolPosition === 'end'
-                                    ? 'bg-amber-500 text-black border-amber-400'
+                                    ? 'bg-black text-white border-white'
                                     : 'bg-[#15151e] text-gray-400 border-gray-800 hover:text-white'
                                 }`}
                               >
-                                End (نهاية)
+                                End
                               </button>
                               <button
                                 type="button"
@@ -1752,11 +1931,11 @@ export default function MediaPanel({
                                 }}
                                 className={`py-1 text-[11px] font-bold rounded transition border cursor-pointer ${
                                   quranAyahSymbolPosition === 'start'
-                                    ? 'bg-amber-500 text-black border-amber-400'
+                                    ? 'bg-black text-white border-white'
                                     : 'bg-[#15151e] text-gray-400 border-gray-800 hover:text-white'
                                 }`}
                               >
-                                Start (بداية)
+                                Start
                               </button>
                             </div>
                           </div>
@@ -1895,7 +2074,7 @@ export default function MediaPanel({
                             }}
                             className={`py-2 px-2 text-xs font-semibold rounded-lg transition capitalize border cursor-pointer ${
                               quranArabicStyle === styleKey
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md font-bold'
+                                ? 'bg-black text-white border-white shadow-md font-bold'
                                 : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                             }`}
                           >
@@ -1914,7 +2093,7 @@ export default function MediaPanel({
                           }}
                           className={`py-2 px-1 text-xs font-semibold rounded-lg transition border cursor-pointer ${
                             quranArabicStyle === 'neon'
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md font-bold'
+                              ? 'bg-black text-white border-white shadow-md font-bold'
                               : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                           }`}
                         >
@@ -1929,7 +2108,7 @@ export default function MediaPanel({
                           }}
                           className={`py-2 px-1 text-xs font-semibold rounded-lg transition border cursor-pointer ${
                             quranArabicStyle === 'gold-glow'
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md font-bold'
+                              ? 'bg-black text-white border-white shadow-md font-bold'
                               : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                           }`}
                         >
@@ -1944,7 +2123,7 @@ export default function MediaPanel({
                           }}
                           className={`py-2 px-1 text-xs font-semibold rounded-lg transition border cursor-pointer ${
                             quranArabicStyle === 'viral-reels'
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md font-bold'
+                              ? 'bg-black text-white border-white shadow-md font-bold'
                               : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                           }`}
                         >
@@ -2057,7 +2236,7 @@ export default function MediaPanel({
                           }}
                           className={`py-2 px-2 text-xs font-semibold rounded-lg transition capitalize border cursor-pointer ${
                             quranArabicAlign === alignKey
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md font-bold'
+                              ? 'bg-black text-white border-white shadow-md font-bold'
                               : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                           }`}
                         >
@@ -2242,7 +2421,7 @@ export default function MediaPanel({
                           }}
                           className={`py-2 px-1 text-xs font-semibold rounded-lg transition capitalize border cursor-pointer ${
                             quranEnglishStyle === styleKey
-                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-md font-bold'
+                              ? 'bg-black text-white border-white shadow-md font-bold'
                               : 'bg-[#181822] text-gray-300 hover:text-white hover:bg-gray-800 border-gray-800'
                           }`}
                         >

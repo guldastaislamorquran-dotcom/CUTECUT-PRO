@@ -253,7 +253,7 @@ export default function PreviewPlayer({
             const normUrl = normalizeMediaUrl(clip.url);
             const safeCrossOrigin = getSafeCrossOrigin(clip.url);
 
-            if (clip.isImage || clip.url.startsWith('data:image/') || /\.(jpeg|jpg|png|gif|webp|svg)/i.test(clip.url)) {
+            if (clip.isImage || clip.url.startsWith('data:image/') || /\.(jpeg|jpg|png|gif|webp|svg|avif)/i.test(clip.url)) {
               const img = document.createElement('img');
               img.crossOrigin = safeCrossOrigin || 'anonymous';
               img.src = normUrl;
@@ -264,6 +264,10 @@ export default function PreviewPlayer({
                   img.src = normUrl;
                 }
               });
+
+              if (typeof img.decode === 'function') {
+                img.decode().catch(() => {});
+              }
 
               fallbackMediaRef.current[clip.id] = img;
               media = img;
