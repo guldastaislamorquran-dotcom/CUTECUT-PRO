@@ -1,6 +1,6 @@
-name: cutecut-pro
+name: cutecute-pro
 base: core22
-version: '2.3.2'
+version: '2.3.3'
 summary: CUTECUT PRO Professional Video Editor Suite
 description: |
   CUTECUT PRO is a high-performance, studio-grade video editing suite
@@ -11,22 +11,10 @@ grade: stable
 confinement: strict
 
 apps:
-  cutecut-pro:
+  cutecute-pro:
     command: cutecut-pro --no-sandbox --disable-gpu-sandbox --ozone-platform-hint=auto
     extensions: [gnome]
-    plugs:
-      - desktop
-      - desktop-legacy
-      - wayland
-      - x11
-      - opengl
-      - audio-playback
-      - audio-record
-      - camera
-      - removable-media
-      - home
-      - network
-      - network-bind
+    plugs: [desktop, desktop-legacy, wayland, x11, opengl, audio-playback, home]
 
 parts:
   desktop-gtk3:
