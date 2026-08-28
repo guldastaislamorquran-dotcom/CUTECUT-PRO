@@ -1,6 +1,6 @@
 name: cutecut-pro
 base: core22
-version: '2.3.1'
+version: '2.3.2'
 summary: CUTECUT PRO Professional Video Editor Suite
 description: |
   CUTECUT PRO is a high-performance, studio-grade video editing suite
@@ -12,7 +12,7 @@ confinement: strict
 
 apps:
   cutecut-pro:
-    command: desktop-init.sh
+    command: cutecut-pro --no-sandbox --disable-gpu-sandbox --ozone-platform-hint=auto
     extensions: [gnome]
     plugs:
       - desktop
@@ -42,9 +42,3 @@ parts:
       - libasound2
       - desktop-file-utils
       - shared-mime-info
-
-  desktop-init:
-    plugin: dump
-    source: snap/local
-    organize:
-      desktop-init.sh: desktop-init.sh
