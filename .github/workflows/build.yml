@@ -44,7 +44,10 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install --include=optional --no-audit
-          npm rebuild esbuild rollup || true
+          npm rebuild esbuild rollup lightningcss || true
+          # Fallback check to ensure lightningcss and rollup work for current runner OS
+          node -e "try { require('lightningcss'); console.log('lightningcss ready'); } catch(e) { console.log('Fetching platform lightningcss...'); require('child_process').execSync('npm install --no-save --no-audit lightningcss @rollup/rollup'); }"
+
 
       - name: Build Web Core Assets
         run: npm run build

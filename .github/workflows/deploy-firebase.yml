@@ -31,15 +31,25 @@ jobs:
       - name: Build Web Application
         run: npm run build
 
-      # 5. Deploy to Firebase (Hosting & Firestore Rules) using FIREBASE_TOKEN secret
-      - name: Deploy to Firebase
+      # 5. Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
           if [ -z "$FIREBASE_TOKEN" ]; then
             echo "ERROR: FIREBASE_TOKEN secret is not set in GitHub repository settings!"
             echo "Please add your token in Repository Settings -> Secrets and variables -> Actions -> New repository secret (Name: FIREBASE_TOKEN)"
             exit 1
           fi
-          echo "Deploying to Firebase Hosting (and Firestore if enabled)..."
-          npx firebase-tools deploy --only hosting --token "$FIREBASE_TOKEN" --non-interactive || npx firebase-tools deploy --token "$FIREBASE_TOKEN" --non-interactive
+
+          PROJ_ARG=""
+          if [ -n "$FIREBASE_PROJECT" ]; then
+            PROJ_ARG="--project $FIREBASE_PROJECT"
+            echo "Using specified Firebase Project ID: $FIREBASE_PROJECT"
+          else
+            echo "Using project from .firebaserc or logged-in account..."
+          fi
+
+          echo "Deploying hosting files to Firebase..."
+          npx firebase-tools deploy --only hosting $PROJ_ARG --token "$FIREBASE_TOKEN" --non-interactive
