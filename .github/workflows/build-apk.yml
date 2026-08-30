@@ -49,24 +49,35 @@ jobs:
       # 7. Initialize and Synchronize Capacitor Android project
       - name: Sync Capacitor Android
         run: |
-          if [ ! -d "android" ]; then
-            echo "Android directory not found. Adding Android platform via Capacitor..."
+          # If android folder is missing or incomplete, create a fresh Capacitor Android project
+          if [ ! -f "android/build.gradle" ]; then
+            echo "Initializing fresh Capacitor Android platform..."
+            rm -rf android
             npx cap add android
           fi
+          
+          # Inject Google AdMob App ID meta-data into AndroidManifest.xml if missing
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ] && ! grep -q "com.google.android.gms.ads.APPLICATION_ID" "$MANIFEST"; then
+            echo "Injecting AdMob App ID into AndroidManifest.xml..."
+            sed -i '/<\/application>/i \        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-8898043565822840~4018462556"/>' "$MANIFEST"
+          fi
+
           echo "Syncing web assets to Android platform..."
           npx cap sync android
-          ls -la android || true
 
       # 8. Build Android Debug APK with Gradle
       - name: Build APK with Gradle
+        working-directory: android
         run: |
-          cd android
+          # Accept any pending Android SDK licenses
+          yes | sdkmanager --licenses || true
+          
           if [ -f "gradlew" ]; then
             chmod +x gradlew
-            ./gradlew assembleDebug --stacktrace --no-daemon
+            ./gradlew assembleDebug --no-daemon
           else
-            echo "gradlew wrapper not found, using system Gradle..."
-            gradle assembleDebug --stacktrace --no-daemon
+            gradle assembleDebug --no-daemon
           fi
 
       # 9. Upload generated APK as GitHub Action Artifact
@@ -74,6 +85,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CuteCut-Pro-Android-APK
-          path: android/app/build/outputs/apk/**/*.apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/**/*.apk
           retention-days: 14
           if-no-files-found: error
