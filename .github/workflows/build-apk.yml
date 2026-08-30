@@ -34,6 +34,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # 4b. Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       # 5. Install NPM dependencies
       - name: Install NPM Dependencies
         run: npm install --legacy-peer-deps --no-audit
@@ -45,31 +49,31 @@ jobs:
       # 7. Initialize and Synchronize Capacitor Android project
       - name: Sync Capacitor Android
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/admob
           if [ ! -d "android" ]; then
-            echo "Adding Android platform..."
+            echo "Android directory not found. Adding Android platform via Capacitor..."
             npx cap add android
           fi
           echo "Syncing web assets to Android platform..."
           npx cap sync android
+          ls -la android || true
 
-      # 8. Grant execute permissions for Gradle wrapper
-      - name: Make Gradle Wrapper Executable
+      # 8. Build Android Debug APK with Gradle
+      - name: Build APK with Gradle
         run: |
-          if [ -f "android/gradlew" ]; then
-            chmod +x android/gradlew
+          cd android
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            echo "gradlew wrapper not found, using system Gradle..."
+            gradle assembleDebug --stacktrace --no-daemon
           fi
 
-      # 9. Build Android Debug APK with Gradle
-      - name: Build APK with Gradle
-        working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
-
-      # 10. Upload generated APK as GitHub Action Artifact
+      # 9. Upload generated APK as GitHub Action Artifact
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: CuteCut-Pro-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/**/*.apk
           retention-days: 14
           if-no-files-found: error
