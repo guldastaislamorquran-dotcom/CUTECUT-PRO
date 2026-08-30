@@ -1,16 +1,20 @@
 {
-  "appId": "com.quraneditor.app",
-  "appName": "AI Quran Video Editor",
+  "appId": "org.guldasta.cutecutpro",
+  "appName": "CuteCut Pro",
   "webDir": "dist",
+  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https",
-    "allowNavigation": [
-      "quran.com",
-      "api.quran.com",
-      "download.quranicaudio.com"
-    ]
+    "cleartext": true
   },
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "AdMob": {
+      "appId": "ca-app-pub-8898043565822840~4018462556"
+    }
   }
 }

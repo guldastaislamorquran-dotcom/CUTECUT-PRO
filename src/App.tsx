@@ -11,7 +11,10 @@ import UpdateCheckerModal from './components/UpdateCheckerModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import ExportModal, { ExportConfig } from './components/ExportModal';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText } from './utils/editorUtils';
+import LandingPortal from './components/LandingPortal';
+import { MobileCapCutLayout } from './components/MobileCapCutLayout';
+import { AdMobService } from './utils/admobService';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, inspectQuranAyahAlignment, generateAutoFixQuranTextClips } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -144,6 +147,32 @@ export default function App() {
   });
 
   const [systemSpecs, setSystemSpecs] = useState<SystemSpecs>(() => getSystemSpecs());
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
+
+  // Track screen size for responsive Android/CapCut layout and AdMob Banner initialization
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+
+    // Initialize AdMob
+    AdMobService.initialize().then(() => {
+      if (window.innerWidth < 768) {
+        AdMobService.showBanner();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      AdMobService.hideBanner();
+    };
+  }, []);
 
   // Listen to network status (online/offline) and update hardware profile
   useEffect(() => {
@@ -214,6 +243,9 @@ export default function App() {
       document.body.style.cursor = 'col-resize';
     }
   };
+
+  // View switcher: 'portal' (CapCut/Filmora style landing page) or 'editor' (Full Timeline Workspace)
+  const [currentView, setCurrentView] = useState<'portal' | 'editor'>('portal');
 
   // Timeline Loop Playback & Grid Snapping state
   const [isLooping, setIsLooping] = useState(true);
@@ -650,6 +682,441 @@ export default function App() {
       setSelectedClipId(null);
       setCurrentTime(0);
     }
+  };
+
+  const handleLoadTemplate = (templateId: string) => {
+    setCurrentView('editor');
+    setCurrentTime(0);
+    
+    let templateTracks: Track[] = [];
+    let templateDuration = 30;
+    let templateAspectRatio: '16:9' | '9:16' | '1:1' = '9:16';
+    
+    if (templateId === 'tpl-quran-reels' || templateId === 'tpl-surah-yasin') {
+      templateAspectRatio = templateId === 'tpl-surah-yasin' ? '16:9' : '9:16';
+      templateDuration = templateId === 'tpl-surah-yasin' ? 60 : 30;
+      templateTracks = [
+        {
+          id: 'track-text-1',
+          name: 'Quran Arabic Calligraphy',
+          type: ClipType.TEXT,
+          clips: [
+            {
+              id: 'clip-arabic-1',
+              name: 'Quran Ayah Calligraphy 1',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 1,
+              duration: 8,
+              sourceStart: 0,
+              sourceDuration: 8,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'وَبِالْحَقِّ أَنزَلْنَاهُ وَبِالْحَقِّ نَزَلَ ۗ',
+              fontSize: 32,
+              fontFamily: 'traditional-arabic',
+              textX: 50,
+              textY: 45,
+              color: '#fbbf24',
+              textStyle: 'gold-glow',
+              textAlignment: 'center',
+            },
+            {
+              id: 'clip-arabic-2',
+              name: 'Quran Ayah Calligraphy 2',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 10,
+              duration: 10,
+              sourceStart: 0,
+              sourceDuration: 10,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'وَمَا أَرْسَلْنَاكَ إِلَّا مُبَشِّا وَنَذِيرًا',
+              fontSize: 32,
+              fontFamily: 'traditional-arabic',
+              textX: 50,
+              textY: 45,
+              color: '#fbbf24',
+              textStyle: 'gold-glow',
+              textAlignment: 'center',
+            }
+          ]
+        },
+        {
+          id: 'track-text-2',
+          name: 'Translations & Subtitles',
+          type: ClipType.TEXT,
+          clips: [
+            {
+              id: 'clip-trans-1',
+              name: 'English Subtitle 1',
+              type: ClipType.TEXT,
+              trackId: 'track-text-2',
+              start: 1,
+              duration: 8,
+              sourceStart: 0,
+              sourceDuration: 8,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'And with the truth We have sent it down, and with the truth it has descended.',
+              fontSize: 18,
+              fontFamily: 'sans-serif',
+              textX: 50,
+              textY: 65,
+              color: '#ffffff',
+              textStyle: 'shadow',
+              textAlignment: 'center',
+            },
+            {
+              id: 'clip-trans-2',
+              name: 'English Subtitle 2',
+              type: ClipType.TEXT,
+              trackId: 'track-text-2',
+              start: 10,
+              duration: 10,
+              sourceStart: 0,
+              sourceDuration: 10,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'And We have not sent you except as a bringer of good tidings and a warner.',
+              fontSize: 18,
+              fontFamily: 'sans-serif',
+              textX: 50,
+              textY: 65,
+              color: '#ffffff',
+              textStyle: 'shadow',
+              textAlignment: 'center',
+            }
+          ]
+        },
+        {
+          id: 'track-video-1',
+          name: 'Atmospheric Video Background',
+          type: ClipType.VIDEO,
+          clips: [
+            {
+              id: 'clip-bg-video-1',
+              name: 'Mosque Arch Silhouette & Sky',
+              type: ClipType.VIDEO,
+              trackId: 'track-video-1',
+              start: 0,
+              duration: templateDuration,
+              sourceStart: 0,
+              sourceDuration: templateDuration,
+              playbackRate: 1.0,
+              volume: 0.0,
+              url: 'https://images.unsplash.com/photo-1542816417-0983c9c9ad53?w=800&auto=format&fit=crop&q=80',
+              isImage: true,
+              filters: {
+                brightness: 60,
+                contrast: 110,
+                saturation: 85,
+                grayscale: 0,
+                sepia: 0,
+                invert: 0,
+                hueRotate: 0,
+                chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+              }
+            }
+          ]
+        },
+        {
+          id: 'track-audio-1',
+          name: 'Quran Recitation Track',
+          type: ClipType.AUDIO,
+          clips: [
+            {
+              id: 'clip-audio-rec-1',
+              name: 'Mishary Alafasy Recitation Track',
+              type: ClipType.AUDIO,
+              trackId: 'track-audio-1',
+              start: 0,
+              duration: templateDuration,
+              sourceStart: 0,
+              sourceDuration: 180,
+              playbackRate: 1.0,
+              volume: 80,
+              url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
+            }
+          ]
+        }
+      ];
+    } else if (templateId === 'tpl-viral-captions' || templateId === 'tpl-podcast-clip') {
+      templateAspectRatio = '9:16';
+      templateDuration = templateId === 'tpl-podcast-clip' ? 30 : 15;
+      templateTracks = [
+        {
+          id: 'track-text-1',
+          name: 'Neon Viral Captions',
+          type: ClipType.TEXT,
+          clips: [
+            {
+              id: 'clip-caption-1',
+              name: 'Caption Word 1',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 1,
+              duration: 3,
+              sourceStart: 0,
+              sourceDuration: 3,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'KEEP CREATING!',
+              fontSize: 32,
+              fontFamily: 'impact',
+              textX: 50,
+              textY: 50,
+              color: '#22d3ee',
+              textStyle: 'neon',
+              textAlignment: 'center',
+            },
+            {
+              id: 'clip-caption-2',
+              name: 'Caption Word 2',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 4.5,
+              duration: 3,
+              sourceStart: 0,
+              sourceDuration: 3,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'NEVER STOP!',
+              fontSize: 36,
+              fontFamily: 'impact',
+              textX: 50,
+              textY: 50,
+              color: '#f43f5e',
+              textStyle: 'neon',
+              textAlignment: 'center',
+            }
+          ]
+        },
+        {
+          id: 'track-video-1',
+          name: 'Vibrant Dynamic Visual',
+          type: ClipType.VIDEO,
+          clips: [
+            {
+              id: 'clip-bg-video-2',
+              name: 'Abstract Paint Motion',
+              type: ClipType.VIDEO,
+              trackId: 'track-video-1',
+              start: 0,
+              duration: templateDuration,
+              sourceStart: 0,
+              sourceDuration: templateDuration,
+              playbackRate: 1.0,
+              volume: 0.0,
+              url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+              isImage: true,
+              filters: {
+                brightness: 80,
+                contrast: 130,
+                saturation: 120,
+                grayscale: 0,
+                sepia: 0,
+                invert: 0,
+                hueRotate: 180,
+                chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+              }
+            }
+          ]
+        },
+        {
+          id: 'track-audio-1',
+          name: 'Electronic Beats (BGM)',
+          type: ClipType.AUDIO,
+          clips: [
+            {
+              id: 'clip-audio-beat-1',
+              name: 'Phonk Beat Background Track',
+              type: ClipType.AUDIO,
+              trackId: 'track-audio-1',
+              start: 0,
+              duration: templateDuration,
+              sourceStart: 0,
+              sourceDuration: 60,
+              playbackRate: 1.0,
+              volume: 60,
+              url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3'
+            }
+          ]
+        }
+      ];
+    } else if (templateId === 'tpl-cinematic-documentary') {
+      templateAspectRatio = '16:9';
+      templateDuration = 45;
+      templateTracks = [
+        {
+          id: 'track-text-1',
+          name: 'Cinematic Minimalist Titles',
+          type: ClipType.TEXT,
+          clips: [
+            {
+              id: 'clip-title-1',
+              name: 'Intro Title Card',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 2,
+              duration: 8,
+              sourceStart: 0,
+              sourceDuration: 8,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'THE JOURNEY OF FAITH',
+              fontSize: 24,
+              fontFamily: 'serif',
+              textX: 50,
+              textY: 50,
+              color: '#ffffff',
+              textStyle: 'shadow',
+              textAlignment: 'center',
+            }
+          ]
+        },
+        {
+          id: 'track-video-1',
+          name: 'Scenic Drone Shots',
+          type: ClipType.VIDEO,
+          clips: [
+            {
+              id: 'clip-bg-video-3',
+              name: 'Mist Mountains Scenic drone',
+              type: ClipType.VIDEO,
+              trackId: 'track-video-1',
+              start: 0,
+              duration: 45,
+              sourceStart: 0,
+              sourceDuration: 45,
+              playbackRate: 1.0,
+              volume: 0.0,
+              url: 'https://images.unsplash.com/photo-1564769625905-50e93615e769?w=800&auto=format&fit=crop&q=80',
+              isImage: true,
+              filters: {
+                brightness: 70,
+                contrast: 100,
+                saturation: 90,
+                grayscale: 0,
+                sepia: 10,
+                invert: 0,
+                hueRotate: 0,
+                chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+              }
+            }
+          ]
+        },
+        {
+          id: 'track-audio-1',
+          name: 'Epic Orchestral Ambient',
+          type: ClipType.AUDIO,
+          clips: [
+            {
+              id: 'clip-audio-cinematic-1',
+              name: 'Orchestral Slow Strings',
+              type: ClipType.AUDIO,
+              trackId: 'track-audio-1',
+              start: 0,
+              duration: 45,
+              sourceStart: 0,
+              sourceDuration: 120,
+              playbackRate: 1.0,
+              volume: 75,
+              url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'
+            }
+          ]
+        }
+      ];
+    } else {
+      templateAspectRatio = '1:1';
+      templateDuration = 20;
+      templateTracks = [
+        {
+          id: 'track-text-1',
+          name: 'Elegant Showcase Title',
+          type: ClipType.TEXT,
+          clips: [
+            {
+              id: 'clip-fallback-t-1',
+              name: 'Showcase Subtitle',
+              type: ClipType.TEXT,
+              trackId: 'track-text-1',
+              start: 1,
+              duration: 10,
+              sourceStart: 0,
+              sourceDuration: 10,
+              playbackRate: 1.0,
+              volume: 1.0,
+              text: 'CYBER NEON CALLIGRAPHY',
+              fontSize: 28,
+              fontFamily: 'sans-serif',
+              textX: 50,
+              textY: 50,
+              color: '#06b6d4',
+              textStyle: 'neon',
+              textAlignment: 'center',
+            }
+          ]
+        },
+        {
+          id: 'track-video-1',
+          name: 'Cyber particles Base',
+          type: ClipType.VIDEO,
+          clips: [
+            {
+              id: 'clip-fallback-v-1',
+              name: 'Glow Swirl Background',
+              type: ClipType.VIDEO,
+              trackId: 'track-video-1',
+              start: 0,
+              duration: 20,
+              sourceStart: 0,
+              sourceDuration: 20,
+              playbackRate: 1.0,
+              volume: 0.0,
+              url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800&auto=format&fit=crop&q=80',
+              isImage: true,
+              filters: {
+                brightness: 50,
+                contrast: 120,
+                saturation: 100,
+                grayscale: 0,
+                sepia: 0,
+                invert: 0,
+                hueRotate: 0,
+                chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+              }
+            }
+          ]
+        },
+        {
+          id: 'track-audio-1',
+          name: 'BGM Chill Track',
+          type: ClipType.AUDIO,
+          clips: [
+            {
+              id: 'clip-fallback-a-1',
+              name: 'Chill Ambient Synth',
+              type: ClipType.AUDIO,
+              trackId: 'track-audio-1',
+              start: 0,
+              duration: 20,
+              sourceStart: 0,
+              sourceDuration: 90,
+              playbackRate: 1.0,
+              volume: 60,
+              url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+            }
+          ]
+        }
+      ];
+    }
+    
+    setTracks(templateTracks);
+    setDuration(templateDuration);
+    setAspectRatio(templateAspectRatio);
+    setSelectedClipId(null);
   };
 
   // Quran Aligner state
@@ -1745,16 +2212,19 @@ export default function App() {
     if (currentTime > selectedClip.start && currentTime < selectedClip.start + selectedClip.duration) {
       const elapsedInClip = currentTime - selectedClip.start;
       
-      // Split into two parts
+      // Split into two parts with guaranteed unique IDs
+      const timestamp = Date.now().toString(36);
+      const rand1 = Math.random().toString(36).substring(2, 6);
+      const rand2 = Math.random().toString(36).substring(2, 6);
       const clip1: Clip = {
         ...selectedClip,
-        id: `${selectedClip.id}-pt1`,
+        id: `${selectedClip.id}-pt1-${timestamp}-${rand1}`,
         duration: elapsedInClip,
       };
 
       const clip2: Clip = {
         ...selectedClip,
-        id: `${selectedClip.id}-pt2`,
+        id: `${selectedClip.id}-pt2-${timestamp}-${rand2}`,
         start: currentTime,
         duration: selectedClip.duration - elapsedInClip,
         sourceStart: selectedClip.sourceStart + elapsedInClip * selectedClip.playbackRate,
@@ -2263,7 +2733,14 @@ export default function App() {
   // ------------------ (D1) ACOUSTIC AUDIO & VIDEO AUTO-SEGMENTATION SUITE ------------------
   const handleAutoSegmentAudio = async (
     targetClipId?: string,
-    sensitivity: 'studio' | 'mosque' | 'tartil' | 'hadr' = 'studio'
+    sensitivity: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' = 'quran-ayah',
+    customOptions?: {
+      minSilenceMs?: number;
+      minSpeechMs?: number;
+      startAyahNumber?: number;
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      paddingMs?: number;
+    }
   ) => {
     let targetClip: Clip | null = null;
     if (targetClipId) {
@@ -2306,15 +2783,21 @@ export default function App() {
 
       const speechSegments = analyzeVoiceActivityRMS(pcmData, sampleRate, {
         noiseFloorSensitivity: sensitivity,
+        minSilenceMs: customOptions?.minSilenceMs,
+        minSpeechMs: customOptions?.minSpeechMs,
+        paddingMs: customOptions?.paddingMs,
       });
 
       if (speechSegments.length === 0) {
-        alert('No distinct speech silence pauses detected in this audio.');
+        alert('No distinct speech silence pauses detected in this audio. Try adjusting the sensitivity mode or silence threshold.');
         return;
       }
 
       const segmentedClips = autoSegmentAudioClipsBySilence(targetClip, speechSegments, {
-        labelPrefix: targetClip.name.replace(/\s*\[Part\s*\d+\]/gi, ''),
+        labelPrefix: targetClip.name.replace(/\s*\[(Part|Ayah)\s*\d+\]/gi, ''),
+        startAyahNumber: customOptions?.startAyahNumber || 1,
+        gapHandling: customOptions?.gapHandling || 'preserve-gaps',
+        paddingMs: customOptions?.paddingMs,
       });
 
       setTracks(prevTracks => prevTracks.map(track => {
@@ -2474,6 +2957,36 @@ export default function App() {
       }
       return track;
     }));
+  };
+
+  // ------------------ (C2) QURAN TILAWAT ALIGNMENT DETECTOR & SUBTITLE AUTO-FIXER ------------------
+  const handleAutoFixQuranText = async (params: {
+    surahNumber?: number;
+    startAyahNumber?: number;
+    translationOption?: any;
+    targetClipIds?: string[];
+  }) => {
+    try {
+      const report = inspectQuranAyahAlignment(tracks);
+      const surahToUse = params.surahNumber || report.detectedSurah || 1;
+      const startAyahToUse = params.startAyahNumber || report.detectedStartAyah || 1;
+      const transOptionToUse = params.translationOption || getTranslationOptionById(quranTranslation);
+
+      const { newTracks, fixedCount } = await generateAutoFixQuranTextClips({
+        tracks,
+        surahNumber: surahToUse,
+        startAyahNumber: startAyahToUse,
+        translationOption: transOptionToUse,
+        targetClipIds: params.targetClipIds,
+      });
+
+      if (fixedCount > 0) {
+        setTracks(newTracks);
+      }
+    } catch (err: any) {
+      console.error('handleAutoFixQuranText error:', err);
+      alert(`Quran subtitle auto-fix notice: ${err?.message || 'Could not align text'}`);
+    }
   };
 
   // ------------------ (D) AI AUTO CAPTION PARSER ------------------
@@ -4119,6 +4632,9 @@ export default function App() {
               setDownloadUrl(objectUrl);
               setExporting(false);
 
+              // Trigger AdMob Interstitial Ad on export complete
+              AdMobService.showInterstitial();
+
               await handleExportToNativeStorage(finalVideoBlob, filename);
             };
 
@@ -4155,27 +4671,298 @@ export default function App() {
     }, 250);
   };
 
+  if (currentView === 'portal') {
+    return (
+      <LandingPortal
+        user={currentUser}
+        onOpenEditor={() => setCurrentView('editor')}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenProjectModal={() => setShowSaveModal(true)}
+        onLoadTemplate={handleLoadTemplate}
+        recentProjects={[]}
+      />
+    );
+  }
+
+  // Mobile / Android CapCut Layout Mode
+  if (isMobileScreen) {
+    return (
+      <div id="video-editor-mobile-workspace" className="h-screen w-screen bg-[#07070b] overflow-hidden">
+        <MobileCapCutLayout
+          onBackToPortal={() => setCurrentView('portal')}
+          onOpenExport={triggerExport}
+          aspectRatio={aspectRatio}
+          onSetAspectRatio={setAspectRatio}
+          isPlaying={isPlaying}
+          onTogglePlay={togglePlayPause}
+          currentTime={currentTime}
+          duration={duration}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={historyIndex > 0}
+          canRedo={historyIndex < tracksHistory.length - 1}
+          selectedClip={getSelectedClip()}
+          onSplitClip={splitClip}
+          onDeleteClip={deleteClip}
+          onDuplicateClip={duplicateClip}
+          renderPreviewPlayer={() => (
+            <PreviewPlayer
+              tracks={tracks}
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={isPlaying}
+              aspectRatio={aspectRatio}
+              watermark={watermark}
+              isExporting={exporting}
+              exportResolution={exportResolution}
+              onCanvasReady={handleCanvasReady}
+              onPlayPause={togglePlayPause}
+              onSeek={setCurrentTime}
+              onSetAspectRatio={setAspectRatio}
+              videoNodes={videoElementsRef.current}
+              selectedClip={getSelectedClip()}
+              selectedClipIds={selectedClipIds}
+              onSelectClip={(clip) => setSelectedClipId(clip ? clip.id : null)}
+              onSelectClips={setSelectedClipIds}
+              onUpdateClip={updateClipProperties}
+              onBatchUpdateClips={batchUpdateClipProperties}
+            />
+          )}
+          renderTimeline={() => (
+            <Timeline
+              tracks={tracks}
+              currentTime={currentTime}
+              duration={duration}
+              zoom={zoom}
+              selectedClipId={selectedClipId}
+              selectedClipIds={selectedClipIds}
+              onSelectClip={handleSelectClip}
+              onSelectClips={setSelectedClipIds}
+              onSeek={setCurrentTime}
+              onSplitClip={splitClip}
+              onMergeClips={mergeSelectedClips}
+              onDeleteClip={deleteClip}
+              onDeleteSelectedClips={deleteSelectedClips}
+              onRippleDelete={rippleDelete}
+              onUpdateClipTimes={updateClipTimes}
+              onBatchUpdateClipTimes={batchUpdateClipTimes}
+              onZoomChange={setZoom}
+              height={260}
+              onUpdateDuration={handleUpdateDuration}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              canUndo={historyIndex > 0}
+              canRedo={historyIndex < tracksHistory.length - 1}
+              onDuplicateClip={duplicateClip}
+              onFreezeFrame={freezeFrame}
+              onExtractAudio={extractAudio}
+              onSetClipSpeed={setClipSpeed}
+              onToggleTrackMute={toggleTrackMute}
+              onToggleTrackLock={toggleTrackLock}
+              onToggleTrackHidden={toggleTrackHidden}
+              onAddTrack={handleAddTrack}
+              onDeleteTrack={handleDeleteTrack}
+              aspectRatio={aspectRatio}
+              onAspectRatioChange={setAspectRatio}
+              onUpdateClip={updateClipProperties}
+              onAddClip={addNewClip}
+              isPlaying={isPlaying}
+              isLooping={isLooping}
+              onToggleLoop={() => setIsLooping(prev => !prev)}
+              snapToGrid={snapToGrid}
+              onToggleSnapToGrid={() => setSnapToGrid(prev => !prev)}
+              onAutoSegmentAudio={handleAutoSegmentAudio}
+              onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
+              onAutoRemoveSilence={handleAutoRemoveSilence}
+              onAutoSegmentRhythm={handleAutoSegmentRhythm}
+              onAutoFixQuranText={handleAutoFixQuranText}
+            />
+          )}
+          renderMediaPanel={() => (
+            <MediaPanel
+              onAddClip={addNewClip}
+              selectedAspectRatio={aspectRatio}
+              tracks={tracks}
+              onAlignQuran={handleAlignQuran}
+              aligningStatus={aligningStatus}
+              quranArabicFont={quranArabicFont}
+              setQuranArabicFont={setQuranArabicFont}
+              quranArabicSize={quranArabicSize}
+              setQuranArabicSize={setQuranArabicSize}
+              quranArabicColor={quranArabicColor}
+              setQuranArabicColor={setQuranArabicColor}
+              quranArabicStyle={quranArabicStyle}
+              setQuranArabicStyle={setQuranArabicStyle}
+              quranArabicY={quranArabicY}
+              setQuranArabicY={setQuranArabicY}
+              quranArabicWrap={quranArabicWrap}
+              setQuranArabicWrap={setQuranArabicWrap}
+              quranArabicMaxWidth={quranArabicMaxWidth}
+              setQuranArabicMaxWidth={setQuranArabicMaxWidth}
+              quranArabicLineHeight={quranArabicLineHeight}
+              setQuranArabicLineHeight={setQuranArabicLineHeight}
+              quranArabicAlign={quranArabicAlign}
+              setQuranArabicAlign={setQuranArabicAlign}
+              quranAyahSymbolStyle={quranAyahSymbolStyle}
+              setQuranAyahSymbolStyle={setQuranAyahSymbolStyle}
+              quranAyahDigitType={quranAyahDigitType}
+              setQuranAyahDigitType={setQuranAyahDigitType}
+              quranAyahSymbolPosition={quranAyahSymbolPosition}
+              setQuranAyahSymbolPosition={setQuranAyahSymbolPosition}
+              quranShowAyahSymbol={quranShowAyahSymbol}
+              setQuranShowAyahSymbol={setQuranShowAyahSymbol}
+              quranEnglishFont={quranEnglishFont}
+              setQuranEnglishFont={setQuranEnglishFont}
+              quranEnglishSize={quranEnglishSize}
+              setQuranEnglishSize={setQuranEnglishSize}
+              quranEnglishColor={quranEnglishColor}
+              setQuranEnglishColor={setQuranEnglishColor}
+              quranEnglishStyle={quranEnglishStyle}
+              setQuranEnglishStyle={setQuranEnglishStyle}
+              quranEnglishY={quranEnglishY}
+              setQuranEnglishY={setQuranEnglishY}
+              quranEnglishUppercase={quranEnglishUppercase}
+              setQuranEnglishUppercase={setQuranEnglishUppercase}
+              quranEnglishWrap={quranEnglishWrap}
+              setQuranEnglishWrap={setQuranEnglishWrap}
+              quranEnglishMaxWidth={quranEnglishMaxWidth}
+              setQuranEnglishMaxWidth={setQuranEnglishMaxWidth}
+              quranEnglishLineHeight={quranEnglishLineHeight}
+              setQuranEnglishLineHeight={setQuranEnglishLineHeight}
+              quranEnglishAlign={quranEnglishAlign}
+              setQuranEnglishAlign={setQuranEnglishAlign}
+              quranTranslation={quranTranslation}
+              setQuranTranslation={setQuranTranslation}
+              quranIntroMode={quranIntroMode}
+              setQuranIntroMode={setQuranIntroMode}
+              quranBreathSegmentationMode={quranBreathSegmentationMode}
+              setQuranBreathSegmentationMode={setQuranBreathSegmentationMode}
+              onReplaceBismillahWithTabarakallazi={handleReplaceBismillahWithTabarakallazi}
+              onApplyTranslationToTimeline={handleApplyTranslationToTimeline}
+              onApplyQuranStyles={applyQuranStylesToTimeline}
+              onApplyGlobalFontSize={handleApplyGlobalFontSize}
+              onApplyGlobalTextCase={handleApplyGlobalTextCase}
+              onOpenAISegmentation={() => setShowAISegmentationModal(true)}
+              watermark={watermark}
+              setWatermark={setWatermark}
+              width={window.innerWidth || 360}
+              selectedClip={getSelectedClip()}
+              onUpdateClip={(clipId, updates) => updateClipProperties(clipId, updates)}
+              onAutoSegmentAudio={handleAutoSegmentAudio}
+              onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
+              onAutoRemoveSilence={handleAutoRemoveSilence}
+              onAutoSegmentRhythm={handleAutoSegmentRhythm}
+              onReplaceVideoTrackClips={handleReplaceVideoTrackClips}
+              currentTime={currentTime}
+            />
+          )}
+          renderInspector={() => (
+            <Inspector
+              selectedClip={getSelectedClip()}
+              selectedClipIds={selectedClipIds}
+              tracks={tracks}
+              onUpdateClip={updateClipProperties}
+              onBatchUpdateClips={batchUpdateClipProperties}
+              onGenerateAICaptions={handleGenerateAICaptions}
+              onGenerateTTS={handleGenerateTTS}
+              width={window.innerWidth || 360}
+              currentTime={currentTime}
+              onSeek={setCurrentTime}
+              onMergeClips={mergeSelectedClips}
+            />
+          )}
+        />
+
+        {/* Export Modal */}
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          isMinimized={isExportMinimized}
+          onToggleMinimize={() => setIsExportMinimized(prev => !prev)}
+          duration={duration}
+          aspectRatio={aspectRatio}
+          tracks={tracks}
+          exporting={exporting}
+          exportProgress={exportProgress}
+          exportTerminalLogs={exportTerminalLogs}
+          downloadUrl={downloadUrl}
+          savedLocalPath={savedLocalPath}
+          onStartExport={startFfmpegCompilation}
+          onCancelExport={handleCancelExport}
+          onSaveToNativeStorage={(url, filename) => handleExportToNativeStorage(url, filename || `export_${Date.now()}.mp4`)}
+        />
+
+        {/* Auth Modal */}
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          user={currentUser}
+          onLogin={handleLoginUser}
+          onLogout={handleLogoutUser}
+        />
+
+        {/* Project Save & Style Presets Modal */}
+        <ProjectSaveModal
+          isOpen={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          currentTracks={tracks}
+          currentDuration={duration}
+          currentZoom={zoom}
+          currentAspectRatio={aspectRatio}
+          watermark={watermark}
+          userProfile={currentUser}
+          selectedClip={getSelectedClip()}
+          onLoadProject={handleLoadSavedProject}
+          onApplyStylePreset={handleApplyStylePreset}
+        />
+
+        {/* Update Checker Modal */}
+        <UpdateCheckerModal
+          isOpen={showUpdateModal}
+          onClose={() => setShowUpdateModal(false)}
+        />
+
+        {/* Voice Assistant Modal */}
+        <VoiceAssistantModal
+          isOpen={showVoiceModal}
+          onClose={() => setShowVoiceModal(false)}
+          onExecuteAction={handleExecuteVoiceAction}
+        />
+      </div>
+    );
+  }
+
   return (
     <div id="video-editor-workspace" className="h-screen bg-[#0e0e11] text-gray-200 flex flex-col font-sans overflow-hidden">
       
       {/* Top Header */}
       <header className="h-14 bg-[#121217] border-b border-[#242430] flex items-center justify-between px-5 z-10 select-none shadow-md">
         <div className="flex items-center gap-3">
-          <div className="relative group flex items-center justify-center">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-teal-400 rounded-lg blur opacity-40 group-hover:opacity-100 transition duration-300"></div>
-            <div className="relative w-8.5 h-8.5 bg-[#121216] border border-cyan-500/30 rounded-lg flex items-center justify-center shadow-lg transition duration-200 group-hover:border-cyan-400">
-              <div className="relative flex items-center justify-center w-full h-full">
-                <Film className="w-4.5 h-4.5 text-cyan-500/20 absolute" />
-                <Scissors className="w-4 h-4 text-cyan-400 transform -rotate-12 group-hover:rotate-45 transition-transform duration-500" />
-              </div>
+          <div className="relative group flex items-center justify-center cursor-pointer select-none">
+            {/* Ambient Warm Golden/Cyan Glow Aura */}
+            <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/15 via-cyan-500/15 to-amber-500/10 rounded-2xl blur-lg group-hover:opacity-100 group-hover:scale-110 opacity-70 transition-all duration-500"></div>
+            
+            {/* Squircle Icon Container */}
+            <div className="relative w-9.5 h-9.5 bg-[#0b0e14] border border-cyan-500/35 rounded-xl overflow-hidden flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.25)] transition-all duration-300 group-hover:border-cyan-300 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.5)] group-hover:scale-105 group-active:scale-95">
+              {/* Cyan Grid Pattern background */}
+              <div className="absolute inset-0 bg-[linear-gradient(to_right,#083344_1px,transparent_1px),linear-gradient(to_bottom,#083344_1px,transparent_1px)] bg-[size:6px_6px] opacity-70 group-hover:opacity-100 transition-opacity"></div>
+              
+              {/* Subtle Cyan Scanline Sweep */}
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-400/10 to-transparent translate-y-[-100%] group-hover:translate-y-[100%] transition-transform duration-700 pointer-events-none"></div>
+
+              {/* Central Cyan Scissors with Cutting Animation on Hover */}
+              <Scissors className="relative z-10 w-4.5 h-4.5 text-cyan-400 stroke-[2.25] transform -rotate-45 drop-shadow-[0_0_6px_rgba(34,211,238,0.9)] group-hover:rotate-0 group-hover:scale-110 group-active:scale-90 transition-all duration-300 ease-out" />
             </div>
           </div>
-          <div>
-            <h1 className="text-sm font-black tracking-wider text-white flex items-center gap-1.5">
-              <span>CUTECUT</span>
-              <span className="text-[10px] bg-gradient-to-r from-cyan-400 to-teal-400 text-black px-1.5 py-0.5 rounded font-black font-mono">PRO</span>
-            </h1>
-            <p className="text-[9px] font-mono text-cyan-400 tracking-widest uppercase">Video Processing Suite</p>
+          <div className="flex flex-col justify-center">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-black tracking-wider text-white">CUTECUT</span>
+              <span className="text-[10px] bg-[#fefce8] text-black font-extrabold px-1.5 py-0.2 rounded-md font-mono shadow-sm tracking-tight border border-amber-200/50">PRO</span>
+            </div>
+            <div className="text-[8px] font-mono font-bold text-cyan-400 tracking-widest uppercase leading-tight mt-0.5">
+              <div>VIDEO PROCESSING</div>
+              <div>SUITE</div>
+            </div>
           </div>
         </div>
 
@@ -4188,6 +4975,17 @@ export default function App() {
 
         {/* Top Header Action Buttons */}
         <div className="flex items-center gap-2">
+          {/* Home Portal Button */}
+          <button
+            id="btn-back-to-portal-header"
+            onClick={() => setCurrentView('portal')}
+            className="flex items-center gap-1.5 px-3 h-9 bg-[#161622] hover:bg-[#202030] border border-[#2e2e42] hover:border-cyan-500/40 text-gray-300 text-xs font-bold rounded-lg transition shadow-sm active:scale-95 cursor-pointer"
+            title="Return to home landing portal & video templates"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline">Home Portal</span>
+          </button>
+
           {/* Gemini Live Voice Conversation Button */}
           <button
             id="btn-gemini-voice-chat"
@@ -4647,6 +5445,7 @@ export default function App() {
         onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
         onAutoRemoveSilence={handleAutoRemoveSilence}
         onAutoSegmentRhythm={handleAutoSegmentRhythm}
+        onAutoFixQuranText={handleAutoFixQuranText}
       />
 
       {/* ------------------ (E) EXPORT MODULE PANEL (MODAL OVERLAY WINDOW) ------------------ */}

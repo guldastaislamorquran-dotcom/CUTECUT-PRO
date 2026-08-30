@@ -2,14 +2,16 @@ import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Scissors, Trash2, ZoomIn, ZoomOut, Layers, SquareSlash, Undo2, Redo2,
   Copy, Snowflake, Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Plus, Minus,
-  Magnet, Gauge, RotateCcw, RotateCw, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
+  Magnet, Gauge, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
-  Zap, Split, Radio, ChevronDown, Flag, FlipHorizontal, Crop, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
+  Zap, Split, Radio, ChevronDown, Flag, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
   Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge,
-  GripHorizontal, Move
+  GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
 } from 'lucide-react';
 import { Track, Clip, ClipType } from '../types';
-import { formatTimeCode } from '../utils/editorUtils';
+import { formatTimeCode, inspectQuranAyahAlignment, QuranSyncInspectionReport, QuranSyncInspectionItem, generateAutoFixQuranTextClips, extractAyahNumberFromClip } from '../utils/editorUtils';
+import { SURAHS } from './MediaPanel';
+import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById } from '../utils/quranTranslations';
 import AudioWaveformGraph from './AudioWaveformGraph';
 import VideoFilmstripVisual from './VideoFilmstripVisual';
 
@@ -84,10 +86,26 @@ interface TimelineProps {
   onAddClip?: (clip: Partial<Clip>) => void;
 
   // Auto-Segmentation Suite
-  onAutoSegmentAudio?: (clipId?: string) => void;
+  onAutoSegmentAudio?: (
+    clipId?: string,
+    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom',
+    customOptions?: {
+      minSilenceMs?: number;
+      minSpeechMs?: number;
+      startAyahNumber?: number;
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      paddingMs?: number;
+    }
+  ) => void;
   onAutoSyncVideoToAyahs?: () => void;
   onAutoRemoveSilence?: (clipId?: string) => void;
   onAutoSegmentRhythm?: (clipId?: string, interval?: number) => void;
+  onAutoFixQuranText?: (params: {
+    surahNumber?: number;
+    startAyahNumber?: number;
+    translationOption?: any;
+    targetClipIds?: string[];
+  }) => Promise<void> | void;
 }
 
 export default function Timeline({
@@ -134,6 +152,7 @@ export default function Timeline({
   onAutoSyncVideoToAyahs,
   onAutoRemoveSilence,
   onAutoSegmentRhythm,
+  onAutoFixQuranText,
   snapToGrid: propSnapToGrid = true,
   onToggleSnapToGrid,
 }: TimelineProps) {
@@ -300,6 +319,56 @@ export default function Timeline({
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
   const [showAutoSegmentMenu, setShowAutoSegmentMenu] = useState(false);
   const [showSilenceGuide, setShowSilenceGuide] = useState(true);
+  const [followPlayheadMode, setFollowPlayheadMode] = useState<'page' | 'smooth' | 'off'>('page');
+  const lastAutoScrollRef = useRef<number>(0);
+
+  // Real-Time Quran Tilawat & Ayah Subtitle Sync Inspection Suite
+  const quranSyncReport = useMemo(() => {
+    return inspectQuranAyahAlignment(tracks);
+  }, [tracks]);
+
+  const [showQuranInspectorModal, setShowQuranInspectorModal] = useState(false);
+  const [isFixingText, setIsFixingText] = useState(false);
+  const [inspectorSurah, setInspectorSurah] = useState<number>(1);
+  const [inspectorStartAyah, setInspectorStartAyah] = useState<number>(1);
+  const [inspectorTranslationId, setInspectorTranslationId] = useState<string>('urdu-jalandhry');
+  const [inspectorTargetClips, setInspectorTargetClips] = useState<string[]>([]);
+  const [fixNotification, setFixNotification] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (quranSyncReport.detectedSurah) {
+      setInspectorSurah(quranSyncReport.detectedSurah);
+    }
+    if (quranSyncReport.detectedStartAyah) {
+      setInspectorStartAyah(quranSyncReport.detectedStartAyah);
+    }
+  }, [quranSyncReport.detectedSurah, quranSyncReport.detectedStartAyah]);
+
+  const handleExecuteFixText = async (targetClipIds?: string[], specificSurah?: number, specificStartAyah?: number) => {
+    setIsFixingText(true);
+    try {
+      const surahNum = specificSurah || inspectorSurah || 1;
+      const startAyahNum = specificStartAyah || inspectorStartAyah || 1;
+      const transOption = getTranslationOptionById(inspectorTranslationId);
+
+      if (onAutoFixQuranText) {
+        await onAutoFixQuranText({
+          surahNumber: surahNum,
+          startAyahNumber: startAyahNum,
+          translationOption: transOption,
+          targetClipIds: targetClipIds || (inspectorTargetClips.length > 0 ? inspectorTargetClips : undefined),
+        });
+      }
+      setFixNotification(`✓ Successfully synced Ayah subtitles!`);
+      setTimeout(() => setFixNotification(null), 4000);
+      setShowQuranInspectorModal(false);
+    } catch (err) {
+      console.error('Failed to auto-fix Quran text:', err);
+    } finally {
+      setIsFixingText(false);
+    }
+  };
+
 
   // Multi-Selection Marquee (Rubberband Box Selection)
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
@@ -387,26 +456,46 @@ export default function Timeline({
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
 
-  // Auto-scroll timeline smoothly when video is playing so playhead slider stays in view
+  // Auto-scroll timeline when video is playing so playhead stays in view without glitching or freezing
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || followPlayheadMode === 'off') return;
     const container = tracksContainerRef.current;
     if (!container) return;
+
+    // Do not auto-scroll if user is actively dragging or marquee-selecting
+    if (draggingClipsRef.current || isScrubbingRef.current || marqueeRef.current) return;
 
     const playheadX = currentTime * zoom;
     const scrollLeft = container.scrollLeft;
     const clientWidth = container.clientWidth;
-    const rightThreshold = scrollLeft + clientWidth - 90;
-    const leftThreshold = scrollLeft + 30;
+    const rightThreshold = scrollLeft + clientWidth - 70;
+    const leftThreshold = scrollLeft - 10;
+    const now = Date.now();
 
-    // If playhead travels past view window on playback, smoothly scroll forward
-    if (playheadX > rightThreshold || playheadX < leftThreshold) {
-      container.scrollTo({
-        left: Math.max(0, playheadX - clientWidth / 3),
-        behavior: 'smooth'
-      });
+    // Check if playhead moved beyond visible timeline window
+    if (playheadX > rightThreshold || (playheadX < leftThreshold && currentTime < 0.6)) {
+      if (followPlayheadMode === 'page') {
+        // Cooldown between page scrolls to eliminate browser layout thrashing and jitter
+        if (now - lastAutoScrollRef.current < 450) return;
+        lastAutoScrollRef.current = now;
+
+        const targetLeft = playheadX < leftThreshold 
+          ? 0 
+          : Math.max(0, playheadX - Math.floor(clientWidth * 0.18));
+        
+        container.scrollLeft = targetLeft;
+      } else if (followPlayheadMode === 'smooth') {
+        // Debounce smooth scroll so competing smooth animations never stutter the UI
+        if (now - lastAutoScrollRef.current < 650) return;
+        lastAutoScrollRef.current = now;
+
+        container.scrollTo({
+          left: Math.max(0, playheadX - Math.floor(clientWidth * 0.25)),
+          behavior: 'smooth'
+        });
+      }
     }
-  }, [currentTime, isPlaying, zoom]);
+  }, [currentTime, isPlaying, zoom, followPlayheadMode]);
 
   const selectedClip = selectedClipId ? tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId) : null;
 
@@ -550,6 +639,7 @@ export default function Timeline({
       setContextMenu(prev => prev.isOpen ? { ...prev, isOpen: false } : prev);
       setShowToolDropdown(false);
       setShowSelectMenu(false);
+      setShowAutoSegmentMenu(false);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1401,6 +1491,122 @@ export default function Timeline({
             <Scissors className="w-3.5 h-3.5" />
           </button>
 
+          {/* Auto-Segment Ayahs & Audio Menu */}
+          {onAutoSegmentAudio && (
+            <div className="relative">
+              <button
+                id="btn-toolbar-auto-segment"
+                onClick={() => setShowAutoSegmentMenu(!showAutoSegmentMenu)}
+                className={`p-1.5 rounded transition flex items-center gap-1 cursor-pointer ${
+                  showAutoSegmentMenu
+                    ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
+                    : 'hover:bg-[#252532] text-amber-400'
+                }`}
+                title="Auto-Segment Quran Ayahs & Audio by Waqf / Pauses"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+              </button>
+
+              {showAutoSegmentMenu && (
+                <div
+                  className="absolute top-full left-0 mt-1 z-50 bg-[#16161e] border border-amber-500/40 rounded-xl shadow-2xl p-2 w-64 text-xs space-y-1.5 backdrop-blur-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between pb-1 border-b border-gray-800 px-1">
+                    <span className="font-extrabold text-[10px] text-amber-400 tracking-wider uppercase flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      Auto-Segment Ayahs
+                    </span>
+                    <button
+                      onClick={() => setShowAutoSegmentMenu(false)}
+                      className="text-gray-400 hover:text-white text-xs px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(selectedClipId || undefined, 'quran-ayah');
+                      setShowAutoSegmentMenu(false);
+                    }}
+                    className="w-full text-left p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-200 hover:text-amber-200 transition cursor-pointer flex items-center gap-2"
+                  >
+                    <span className="text-sm">🕌</span>
+                    <div>
+                      <p className="font-bold text-[11px] leading-tight">Quran Ayah (Standard Waqf)</p>
+                      <p className="text-[9px] text-gray-400">480ms natural verse pause</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(selectedClipId || undefined, 'tartil');
+                      setShowAutoSegmentMenu(false);
+                    }}
+                    className="w-full text-left p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-200 hover:text-amber-200 transition cursor-pointer flex items-center gap-2"
+                  >
+                    <span className="text-sm">📖</span>
+                    <div>
+                      <p className="font-bold text-[11px] leading-tight">Slow Tartil / Mujawwad</p>
+                      <p className="text-[9px] text-gray-400">600ms long Madd & deep pause</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(selectedClipId || undefined, 'hadr');
+                      setShowAutoSegmentMenu(false);
+                    }}
+                    className="w-full text-left p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-200 hover:text-amber-200 transition cursor-pointer flex items-center gap-2"
+                  >
+                    <span className="text-sm">⚡</span>
+                    <div>
+                      <p className="font-bold text-[11px] leading-tight">Fast Hadr Recitation</p>
+                      <p className="text-[9px] text-gray-400">340ms quick pause detection</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(selectedClipId || undefined, 'mosque');
+                      setShowAutoSegmentMenu(false);
+                    }}
+                    className="w-full text-left p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-200 hover:text-amber-200 transition cursor-pointer flex items-center gap-2"
+                  >
+                    <span className="text-sm">🏛️</span>
+                    <div>
+                      <p className="font-bold text-[11px] leading-tight">Mosque Reverb & Echo</p>
+                      <p className="text-[9px] text-gray-400">Reverb ambient suppression</p>
+                    </div>
+                  </button>
+
+                  {onAutoSegmentRhythm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAutoSegmentRhythm(selectedClipId || undefined, 3.0);
+                        setShowAutoSegmentMenu(false);
+                      }}
+                      className="w-full text-left p-1.5 rounded-lg hover:bg-cyan-500/20 text-gray-200 hover:text-cyan-200 transition cursor-pointer flex items-center gap-2 border-t border-gray-800/80 mt-1"
+                    >
+                      <span className="text-sm">✂️</span>
+                      <div>
+                        <p className="font-bold text-[11px] leading-tight">Fixed Rhythm Cut (3s)</p>
+                        <p className="text-[9px] text-gray-400">Equal beat intervals</p>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Merge Selected Adjacent Clips (Ctrl + M) */}
           {onMergeClips && (
             <button
@@ -1475,59 +1681,6 @@ export default function Timeline({
           >
             <Snowflake className="w-3.5 h-3.5" />
           </button>
-
-          {/* Reverse Playback */}
-          <button
-            id="btn-reverse-clip"
-            onClick={() => {
-              if (selectedClip && onSetClipSpeed) {
-                onSetClipSpeed(-1.0);
-              }
-            }}
-            disabled={!selectedClipId}
-            className={`p-1.5 rounded transition ${selectedClipId ? 'hover:bg-[#252532] text-gray-200' : 'text-gray-600 cursor-not-allowed'}`}
-            title="Reverse Playback"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Flip / Mirror */}
-          <button
-            id="btn-flip-clip"
-            onClick={() => {
-              // Toggle horizontal mirror state on clip
-            }}
-            disabled={!selectedClipId}
-            className={`p-1.5 rounded transition ${selectedClipId ? 'hover:bg-[#252532] text-gray-200' : 'text-gray-600 cursor-not-allowed'}`}
-            title="Flip / Mirror Horizontal"
-          >
-            <FlipHorizontal className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Rotate */}
-          <button
-            id="btn-rotate-clip"
-            onClick={() => {
-              // Rotate clip 90 degrees
-            }}
-            disabled={!selectedClipId}
-            className={`p-1.5 rounded transition ${selectedClipId ? 'hover:bg-[#252532] text-gray-200' : 'text-gray-600 cursor-not-allowed'}`}
-            title="Rotate 90°"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Crop */}
-          <button
-            id="btn-crop-clip"
-            disabled={!selectedClipId}
-            className={`p-1.5 rounded transition ${selectedClipId ? 'hover:bg-[#252532] text-gray-200' : 'text-gray-600 cursor-not-allowed'}`}
-            title="Crop & Frame Settings"
-          >
-            <Crop className="w-3.5 h-3.5" />
-          </button>
-
-
         </div>
 
         {/* Right Section: Voice, Magnet, Ripple, Link & Zoom Controls */}
@@ -1647,6 +1800,85 @@ export default function Timeline({
           >
             <Crosshair className="w-3.5 h-3.5" />
           </button>
+
+          {/* Follow Playhead Mode Switcher (Page / Smooth / Off) */}
+          <button
+            id="btn-follow-playhead"
+            onClick={() => {
+              setFollowPlayheadMode(prev => {
+                if (prev === 'page') return 'smooth';
+                if (prev === 'smooth') return 'off';
+                return 'page';
+              });
+            }}
+            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              followPlayheadMode !== 'off'
+                ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-xs'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532] border border-[#333342]'
+            }`}
+            title={`Follow Playhead: ${followPlayheadMode.toUpperCase()} (Click to toggle: Page -> Smooth -> Off)`}
+          >
+            <LocateFixed className={`w-3.5 h-3.5 ${followPlayheadMode !== 'off' ? 'text-cyan-400 animate-pulse' : 'text-gray-500'}`} />
+            <span className="hidden sm:inline text-[10px]">
+              {followPlayheadMode === 'page' ? 'Page Follow' : followPlayheadMode === 'smooth' ? 'Smooth' : 'Follow Off'}
+            </span>
+          </button>
+
+          {/* Quran Tilawat & Ayah Subtitle Sync Inspector & Auto-Fixer Toolbar Widget */}
+          {quranSyncReport.isQuranAudioPresent && (
+            <div className="flex items-center gap-1 bg-[#13131d] border border-amber-500/40 rounded-lg p-0.5 shadow-sm">
+              <button
+                id="btn-quran-sync-detector"
+                onClick={() => {
+                  setInspectorTargetClips([]);
+                  setShowQuranInspectorModal(true);
+                }}
+                className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  quranSyncReport.missingTextCount > 0
+                    ? 'bg-amber-950/90 text-amber-300 border border-amber-500/60 hover:bg-amber-900/80 shadow-xs animate-pulse'
+                    : quranSyncReport.outOfSyncCount > 0
+                    ? 'bg-orange-950/90 text-orange-300 border border-orange-500/60 hover:bg-orange-900/80'
+                    : 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/80'
+                }`}
+                title={`Quran Tilawat Alignment Detector: ${quranSyncReport.syncedCount}/${quranSyncReport.totalAudioSegments} Synced (${quranSyncReport.missingTextCount} Missing Subtitles). Click to inspect & fix!`}
+              >
+                <span className="text-xs">🕌</span>
+                <span className="font-semibold text-[10px] hidden md:inline">
+                  {quranSyncReport.missingTextCount > 0
+                    ? `Ayah Text: ${quranSyncReport.missingTextCount} Missing ⚠️`
+                    : quranSyncReport.outOfSyncCount > 0
+                    ? `Ayah Text: ${quranSyncReport.outOfSyncCount} Shifted ⚠️`
+                    : `Ayah Text: ${quranSyncReport.syncedCount} Synced ✓`}
+                </span>
+                <span className="md:hidden text-[10px]">
+                  {quranSyncReport.missingTextCount > 0 ? `⚠️ ${quranSyncReport.missingTextCount}` : '✓'}
+                </span>
+              </button>
+
+              {/* 1-Click Instant Auto-Fix All Button */}
+              {(quranSyncReport.missingTextCount > 0 || quranSyncReport.outOfSyncCount > 0) && (
+                <button
+                  id="btn-quick-fix-all-quran-text"
+                  onClick={() => handleExecuteFixText()}
+                  disabled={isFixingText}
+                  className="px-2 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold text-[10px] rounded shadow-sm flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                  title="1-Click Auto-Fix & Generate Missing Ayah Subtitle Text Clips"
+                >
+                  <Zap className="w-3 h-3 fill-current text-black" />
+                  <span className="hidden sm:inline">Fix Text</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Quick Notification Toast */}
+          {fixNotification && (
+            <div className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 text-[10px] font-mono flex items-center gap-1 animate-fade-in">
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span>{fixNotification}</span>
+            </div>
+          )}
+
 
           <div className="h-4 w-px bg-[#2a2a35] mx-0.5" />
 
@@ -1876,22 +2108,6 @@ export default function Timeline({
                           width: `${width}px`,
                         }}
                       >
-                        {/* Audio Waveform Graph for Audio Tracks */}
-                        {clip.type === ClipType.AUDIO && (
-                          <AudioWaveformGraph
-                            clipId={clip.id}
-                            url={clip.url}
-                            width={width}
-                            isSelected={isSelected}
-                            volume={clip.volume}
-                            showSilenceHighlights={showSilenceGuide}
-                            currentTime={currentTime}
-                            clipStart={clip.start}
-                            clipDuration={clip.duration}
-                            isPlaying={isPlaying}
-                          />
-                        )}
-
                         {/* Video & Image Frame Strip Visuals for Visual Tracks */}
                         {(clip.type === ClipType.VIDEO || clip.type === ClipType.IMAGE) && (
                           <VideoFilmstripVisual
@@ -1899,6 +2115,24 @@ export default function Timeline({
                             width={width}
                             isSelected={isSelected}
                             zoom={zoom}
+                          />
+                        )}
+
+                        {/* Real-time Audio Waveform Graph Visualizer for Audio & Video Clips */}
+                        {(clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url)) && (
+                          <AudioWaveformGraph
+                            clipId={clip.id}
+                            url={clip.url}
+                            width={width}
+                            isSelected={isSelected}
+                            volume={clip.volume}
+                            showSilenceHighlights={showSilenceGuide}
+                            showBeatMarkers={true}
+                            overlayMode={clip.type === ClipType.VIDEO}
+                            currentTime={currentTime}
+                            clipStart={clip.start}
+                            clipDuration={clip.duration}
+                            isPlaying={isPlaying}
                           />
                         )}
 
@@ -1913,57 +2147,109 @@ export default function Timeline({
                         </div>
 
                         {/* Title text & Metadata Badge Overlay with Glass Floating Card */}
-                        <div className="flex-1 mx-1.5 overflow-hidden pointer-events-none z-10 flex items-center justify-between">
-                          <div className="truncate bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 shadow-xs max-w-[calc(100%-40px)]">
-                            <div className="flex items-center gap-1 truncate">
-                              <p className={`text-[9.5px] font-bold truncate tracking-wide ${isSelected ? 'text-amber-200' : 'text-white'}`}>
-                                {clip.name}
-                              </p>
+                        {(() => {
+                          const syncItem = clip.type === ClipType.AUDIO
+                            ? quranSyncReport.items.find(it => it.audioClipId === clip.id)
+                            : null;
 
-                              {/* Transition Indicator Badge */}
-                              {clip.transition && (clip.transition.inType !== 'none' || clip.transition.outType !== 'none' || clip.transition.type !== 'none') && (
-                                <span
-                                  className="px-1 py-0.2 rounded text-[6.5px] font-mono font-black bg-cyan-950/90 text-cyan-300 border border-cyan-500/60 shrink-0 shadow-xs uppercase flex items-center gap-0.5"
-                                  title={`Transition Effect: ${clip.transition.type || clip.transition.inType || 'Active'} (${clip.transition.duration || 1.0}s)`}
-                                >
-                                  ✨ {clip.transition.type || clip.transition.inType || 'Trans'}
-                                </span>
-                              )}
+                          return (
+                            <div className="flex-1 mx-1.5 overflow-hidden pointer-events-none z-10 flex items-center justify-between">
+                              <div className="truncate bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 shadow-xs max-w-[calc(100%-40px)]">
+                                <div className="flex items-center gap-1 truncate">
+                                  <p className={`text-[9.5px] font-bold truncate tracking-wide ${isSelected ? 'text-amber-200' : 'text-white'}`}>
+                                    {clip.name}
+                                  </p>
 
-                              {/* Audio Peak Indicator Badge */}
-                              {clip.peakDb !== undefined && (
-                                <span
-                                  className={`px-1 py-0.2 rounded text-[6.5px] font-mono font-black border shrink-0 shadow-xs ${
-                                    clip.peakDb > -0.5
-                                      ? 'bg-red-500/90 text-white border-red-300'
-                                      : clip.peakDb > -6
-                                      ? 'bg-amber-500/90 text-black border-amber-200'
-                                      : 'bg-emerald-500/90 text-black border-emerald-200'
-                                  }`}
-                                  title={`Audio Peak Level: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)} dBFS`}
-                                >
-                                  Peak {clip.peakDb > 0 ? `+${clip.peakDb.toFixed(1)}` : clip.peakDb.toFixed(1)}dB
-                                </span>
-                              )}
+                                  {/* Quran Ayah Alignment Badge & Fix Button */}
+                                  {syncItem && (
+                                    <div className="shrink-0 flex items-center gap-1 ml-0.5 pointer-events-auto">
+                                      {syncItem.status === 'missing_text' ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setInspectorTargetClips([clip.id]);
+                                            if (syncItem.ayahNumber) setInspectorStartAyah(syncItem.ayahNumber);
+                                            setShowQuranInspectorModal(true);
+                                          }}
+                                          className="px-1.5 py-0.2 rounded text-[7px] font-mono font-black bg-red-950 text-red-200 border border-red-500 hover:bg-red-900 shadow-xs flex items-center gap-1 transition cursor-pointer"
+                                          title="⚠️ No subtitle text found for this Ayah audio segment! Click to Fix."
+                                        >
+                                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping shrink-0" />
+                                          <span>No Text</span>
+                                          <span className="bg-red-500 text-white font-extrabold px-1 rounded text-[6.5px]">⚡ Fix</span>
+                                        </button>
+                                      ) : syncItem.status === 'out_of_sync' ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setInspectorTargetClips([clip.id]);
+                                            if (syncItem.ayahNumber) setInspectorStartAyah(syncItem.ayahNumber);
+                                            setShowQuranInspectorModal(true);
+                                          }}
+                                          className="px-1.5 py-0.2 rounded text-[7px] font-mono font-black bg-amber-950 text-amber-200 border border-amber-500 hover:bg-amber-900 shadow-xs flex items-center gap-1 transition cursor-pointer"
+                                          title={`⚠️ Subtitle text timing is shifted by ${syncItem.timeShiftSec}s. Click to Re-align!`}
+                                        >
+                                          <span>Shift {syncItem.timeShiftSec}s</span>
+                                          <span className="bg-amber-500 text-black font-extrabold px-1 rounded text-[6.5px]">⚡ Re-align</span>
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className="px-1.5 py-0.2 rounded text-[6.5px] font-mono font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 shadow-xs flex items-center gap-0.5"
+                                          title={`✓ Ayah ${syncItem.ayahNumber} subtitle text & recitation accurately synced!`}
+                                        >
+                                          <span>Ayah {syncItem.ayahNumber} ✓</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Transition Indicator Badge */}
+                                  {clip.transition && (clip.transition.inType !== 'none' || clip.transition.outType !== 'none' || clip.transition.type !== 'none') && (
+                                    <span
+                                      className="px-1 py-0.2 rounded text-[6.5px] font-mono font-black bg-cyan-950/90 text-cyan-300 border border-cyan-500/60 shrink-0 shadow-xs uppercase flex items-center gap-0.5"
+                                      title={`Transition Effect: ${clip.transition.type || clip.transition.inType || 'Active'} (${clip.transition.duration || 1.0}s)`}
+                                    >
+                                      ✨ {clip.transition.type || clip.transition.inType || 'Trans'}
+                                    </span>
+                                  )}
+
+                                  {/* Audio Peak Indicator Badge */}
+                                  {clip.peakDb !== undefined && (
+                                    <span
+                                      className={`px-1 py-0.2 rounded text-[6.5px] font-mono font-black border shrink-0 shadow-xs ${
+                                        clip.peakDb > -0.5
+                                          ? 'bg-red-500/90 text-white border-red-300'
+                                          : clip.peakDb > -6
+                                          ? 'bg-amber-500/90 text-black border-amber-200'
+                                          : 'bg-emerald-500/90 text-black border-emerald-200'
+                                      }`}
+                                      title={`Audio Peak Level: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)} dBFS`}
+                                    >
+                                      Peak {clip.peakDb > 0 ? `+${clip.peakDb.toFixed(1)}` : clip.peakDb.toFixed(1)}dB
+                                    </span>
+                                  )}
+                                </div>
+                                <p className={`text-[7.5px] font-mono leading-none mt-0.5 ${isSelected ? 'text-amber-300/90' : 'text-gray-300'}`}>
+                                  {clip.duration.toFixed(2)}s • x{clip.playbackRate.toFixed(1)}
+                                  {clip.peakDb !== undefined && ` • Peak: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)}dB`}
+                                </p>
+                              </div>
+
+                              {/* Track type indicator tag & Selected Matrix Badge */}
+                              <div className="flex items-center gap-1 shrink-0 ml-1">
+                                {isSelected && (
+                                  <span className="px-1 py-0.2 rounded text-[7px] font-mono font-black bg-amber-400 text-black border border-amber-300 uppercase shadow-xs">
+                                    SEL
+                                  </span>
+                                )}
+                                <div className="px-1 py-0.5 rounded text-[7px] font-mono font-extrabold uppercase bg-black/60 backdrop-blur-xs text-white/90 border border-white/15 shrink-0 shadow-xs">
+                                  {clip.type}
+                                </div>
+                              </div>
                             </div>
-                            <p className={`text-[7.5px] font-mono leading-none mt-0.5 ${isSelected ? 'text-amber-300/90' : 'text-gray-300'}`}>
-                              {clip.duration.toFixed(2)}s • x{clip.playbackRate.toFixed(1)}
-                              {clip.peakDb !== undefined && ` • Peak: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)}dB`}
-                            </p>
-                          </div>
+                          );
+                        })()}
 
-                          {/* Track type indicator tag & Selected Matrix Badge */}
-                          <div className="flex items-center gap-1 shrink-0 ml-1">
-                            {isSelected && (
-                              <span className="px-1 py-0.2 rounded text-[7px] font-mono font-black bg-amber-400 text-black border border-amber-300 uppercase shadow-xs">
-                                SEL
-                              </span>
-                            )}
-                            <div className="px-1 py-0.5 rounded text-[7px] font-mono font-extrabold uppercase bg-black/60 backdrop-blur-xs text-white/90 border border-white/15 shrink-0 shadow-xs">
-                              {clip.type}
-                            </div>
-                          </div>
-                        </div>
 
                         {/* Drag Resize Handle Right */}
                         <div
@@ -2313,17 +2599,43 @@ export default function Timeline({
 
               {/* Auto-Segment Audio / Video Context Actions */}
               {contextMenu.clip.type === ClipType.AUDIO && onAutoSegmentAudio && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAutoSegmentAudio(contextMenu.clip!.id);
-                    setContextMenu(prev => ({ ...prev, isOpen: false }));
-                  }}
-                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-emerald-600 hover:text-white text-emerald-300 transition"
-                >
-                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Auto-Segment Audio by Speech Pauses</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(contextMenu.clip!.id, 'quran-ayah');
+                      setContextMenu(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-300 transition"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>🕌 Auto-Segment into Ayahs (Waqf)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(contextMenu.clip!.id, 'tartil');
+                      setContextMenu(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-300 transition text-[11px]"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>📖 Tartil Recitation Mode (0.6s+ Pause)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(contextMenu.clip!.id, 'hadr');
+                      setContextMenu(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-300 transition text-[11px]"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>⚡ Hadr Fast Recitation Mode (0.34s Pause)</span>
+                  </button>
+                </>
               )}
 
               {contextMenu.clip.type === ClipType.AUDIO && onAutoRemoveSilence && (
@@ -2337,6 +2649,24 @@ export default function Timeline({
                 >
                   <Scissors className="w-3.5 h-3.5 text-amber-400" />
                   <span>Auto-Trim Dead Air Silences</span>
+                </button>
+              )}
+
+              {/* Quran Tilawat Ayah Subtitle Auto-Fix Action */}
+              {contextMenu.clip.type === ClipType.AUDIO && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectorTargetClips([contextMenu.clip!.id]);
+                    const clipAyah = extractAyahNumberFromClip(contextMenu.clip!) || 1;
+                    setInspectorStartAyah(clipAyah);
+                    setShowQuranInspectorModal(true);
+                    setContextMenu(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-200 transition font-bold"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-400 fill-current" />
+                  <span>⚡ Fix & Align Ayah Subtitle Text (آیت ٹیکسٹ فکس)</span>
                 </button>
               )}
 
@@ -2508,6 +2838,261 @@ export default function Timeline({
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* QURAN TILAWAT & AYAH SUBTITLE ALIGNMENT INSPECTOR & AUTO-FIX MODAL       */}
+      {/* ========================================================================= */}
+      {showQuranInspectorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-[#12121c] border border-amber-500/40 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-[#252538] flex items-center justify-between bg-gradient-to-r from-amber-950/40 via-[#181826] to-[#12121c]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 text-lg shadow-inner">
+                  🕌
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Quran Tilawat Alignment Detector & Subtitle Auto-Fixer</span>
+                    <span className="text-xs text-amber-400 font-urdu">(آیت آٹو سنک و ٹیکسٹ فکسر)</span>
+                  </h3>
+                  <p className="text-[11px] text-gray-400">
+                    Real-time audio scan detects missing or desynced Arabic & translation subtitle clips and auto-generates them.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuranInspectorModal(false)}
+                className="p-1.5 rounded-lg bg-[#202030] hover:bg-[#2c2c42] text-gray-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Status Pill Bar */}
+            <div className="px-5 py-3 bg-[#171724] border-b border-[#252538] flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-gray-400">Total Recitation Parts:</span>
+                  <span className="font-mono font-bold text-white bg-[#222234] px-2 py-0.5 rounded border border-[#33334a]">
+                    {quranSyncReport.totalAudioSegments}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-gray-400">Synced:</span>
+                  <span className="font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/40">
+                    {quranSyncReport.syncedCount} ✓
+                  </span>
+                </div>
+                {quranSyncReport.missingTextCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-gray-400">Missing Subtitles:</span>
+                    <span className="font-mono font-bold text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-500/50 animate-pulse">
+                      {quranSyncReport.missingTextCount} ⚠️
+                    </span>
+                  </div>
+                )}
+                {quranSyncReport.outOfSyncCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-gray-400">Desynced:</span>
+                    <span className="font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/40">
+                      {quranSyncReport.outOfSyncCount} ⚠️
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {inspectorTargetClips.length > 0 && (
+                <div className="text-[11px] text-amber-300 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  Targeting {inspectorTargetClips.length} specific clip(s)
+                </div>
+              )}
+            </div>
+
+            {/* Config Controls */}
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3 border-b border-[#252538] bg-[#141420]">
+              {/* Surah Selector */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1 flex items-center justify-between">
+                  <span>Surah (سورۃ):</span>
+                  {quranSyncReport.detectedSurah && (
+                    <span className="text-[10px] text-amber-400 font-normal">Auto-detected</span>
+                  )}
+                </label>
+                <select
+                  value={inspectorSurah}
+                  onChange={(e) => setInspectorSurah(Number(e.target.value))}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-hidden"
+                >
+                  {SURAHS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Starting Ayah */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1 flex items-center justify-between">
+                  <span>Starting Ayah # (شروع آیت):</span>
+                  {quranSyncReport.detectedStartAyah && (
+                    <span className="text-[10px] text-amber-400 font-normal">Auto-detected</span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="286"
+                  value={inspectorStartAyah}
+                  onChange={(e) => setInspectorStartAyah(Math.max(1, Number(e.target.value)))}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-amber-400 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Translation Language */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1">
+                  Translation Track (ترجمہ):
+                </label>
+                <select
+                  value={inspectorTranslationId}
+                  onChange={(e) => setInspectorTranslationId(e.target.value)}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-hidden"
+                >
+                  {QURAN_TRANSLATION_OPTIONS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.flag} {t.language} ({t.translator})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Recitation Audio Segments List */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-2 bg-[#0e0e16] min-h-[160px] max-h-[300px]">
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>Detected Audio Clips on Timeline ({quranSyncReport.items.length})</span>
+                <span className="text-[10px] text-gray-500 font-normal">Click any clip to fix individually</span>
+              </div>
+
+              {quranSyncReport.items.length === 0 ? (
+                <div className="p-6 text-center text-gray-400 text-xs bg-[#161622] rounded-xl border border-dashed border-[#333346]">
+                  <p>No audio clips detected on the timeline yet.</p>
+                  <p className="text-[11px] text-gray-500 mt-1">Import or place Quran Tilawat recitation audio on the timeline to inspect alignment.</p>
+                </div>
+              ) : (
+                quranSyncReport.items.map((item, idx) => {
+                  const clipAyah = item.ayahNumber || (inspectorStartAyah + idx);
+                  return (
+                    <div
+                      key={`qsync-item-${item.audioClipId}-${item.ayahNumber ?? idx}-${idx}`}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition ${
+                        item.status === 'missing_text'
+                          ? 'bg-red-950/30 border-red-500/40 hover:border-red-500/70'
+                          : item.status === 'out_of_sync'
+                          ? 'bg-amber-950/30 border-amber-500/40 hover:border-amber-500/70'
+                          : 'bg-[#151522] border-[#252538] hover:border-emerald-500/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="w-6 h-6 rounded-md bg-[#222234] border border-[#35354e] flex items-center justify-center text-xs font-mono font-bold text-gray-300 shrink-0">
+                          {idx + 1}
+                        </div>
+                        <div className="truncate">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white truncate">
+                              {item.audioClipName}
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              Ayah {clipAyah}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono mt-0.5">
+                            <span>{formatTimeCode(item.audioStart)} → {formatTimeCode(item.audioEnd)}</span>
+                            <span>({(item.audioEnd - item.audioStart).toFixed(2)}s)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status and Action */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === 'missing_text' ? (
+                          <>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-950 text-red-300 border border-red-500/60 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                              <span>No Subtitle</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteFixText([item.audioClipId], inspectorSurah, clipAyah)}
+                              disabled={isFixingText}
+                              className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white font-bold text-[10.5px] rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Zap className="w-3 h-3 fill-current" />
+                              <span>Fix Ayah {clipAyah}</span>
+                            </button>
+                          </>
+                        ) : item.status === 'out_of_sync' ? (
+                          <>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-500/60">
+                              Shifted ({item.timeShiftSec}s)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteFixText([item.audioClipId], inspectorSurah, clipAyah)}
+                              disabled={isFixingText}
+                              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-black font-extrabold text-[10.5px] rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Zap className="w-3 h-3 fill-current" />
+                              <span>Re-align</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                            <span>✓ Synced</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="p-4 bg-[#141420] border-t border-[#252538] flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setShowQuranInspectorModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#222232] hover:bg-[#2d2d42] text-gray-300 font-semibold text-xs transition cursor-pointer"
+              >
+                Close (بند کریں)
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExecuteFixText()}
+                  disabled={isFixingText || quranSyncReport.items.length === 0}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 fill-current" />
+                  <span>
+                    {isFixingText
+                      ? 'Aligning Subtitles...'
+                      : quranSyncReport.missingTextCount > 0
+                      ? `⚡ Auto-Fix ${quranSyncReport.missingTextCount} Missing Ayah Subtitles`
+                      : '⚡ Re-Sync & Generate All Subtitles'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

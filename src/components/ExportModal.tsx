@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { formatTimeCode, getExportResolutionDimensions } from '../utils/editorUtils';
 import { Track } from '../types';
+import { AdMobService } from '../utils/admobService';
 
 export interface ExportConfig {
   filename: string;
@@ -415,18 +416,33 @@ export default function ExportModal({
                       {/* Resolution */}
                       <div className="grid grid-cols-12 items-center gap-2">
                         <span className="col-span-4 text-gray-400">Resolution</span>
-                        <div className="col-span-8">
+                        <div className="col-span-8 space-y-1.5">
                           <select
                             value={config.resolution}
                             onChange={(e) => setConfig({ ...config, resolution: e.target.value as any })}
                             className="w-full bg-[#15151a] border border-[#2f2f3e] focus:border-cyan-400 rounded px-2 py-1 text-xs text-white focus:outline-none cursor-pointer"
                           >
-                            <option value="4K">4K (3840 x 2160)</option>
-                            <option value="2K">2K (2560 x 1440)</option>
-                            <option value="1080p">1080p (1920 x 1080)</option>
+                            <option value="4K">4K (3840 x 2160) - Pro</option>
+                            <option value="2K">2K (2560 x 1440) - Pro</option>
+                            <option value="1080p">1080p (1920 x 1080) - HD</option>
                             <option value="720p">720p (1280 x 720)</option>
                             <option value="480p">480p (854 x 480)</option>
                           </select>
+
+                          {(config.resolution === '4K' || config.resolution === '2K') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                AdMobService.showRewarded(() => {
+                                  alert('Reward Verified: 4K / 2K Pro High Bitrate Export Unlocked!');
+                                });
+                              }}
+                              className="w-full py-1 px-2 rounded bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-[10px] font-bold flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer hover:bg-yellow-500/30"
+                            >
+                              <Sparkles className="w-3 h-3 text-yellow-400" />
+                              <span>Watch Quick Ad to Unlock 4K Ultra Bitrate</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 

@@ -9,6 +9,8 @@ interface AudioWaveformGraphProps {
   isSelected: boolean;
   volume?: number;
   showSilenceHighlights?: boolean;
+  showBeatMarkers?: boolean;
+  overlayMode?: boolean;
   onPeakCalculated?: (peakDb: number) => void;
   currentTime?: number;
   clipStart?: number;
@@ -28,6 +30,8 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
   isSelected,
   volume = 1.0,
   showSilenceHighlights = true,
+  showBeatMarkers = true,
+  overlayMode = false,
   onPeakCalculated,
   currentTime,
   clipStart = 0,
@@ -135,11 +139,17 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, renderWidth, renderHeight);
 
-    // 1. Deep dark purple container backdrop
+    // 1. Container backdrop (Solid dark purple for audio, translucent dark slate for video overlay)
     const backdropGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
-    backdropGradient.addColorStop(0, '#1c0d2e');
-    backdropGradient.addColorStop(0.5, '#150924');
-    backdropGradient.addColorStop(1, '#1c0d2e');
+    if (overlayMode) {
+      backdropGradient.addColorStop(0, 'rgba(10, 15, 28, 0.55)');
+      backdropGradient.addColorStop(0.5, 'rgba(15, 23, 42, 0.45)');
+      backdropGradient.addColorStop(1, 'rgba(10, 15, 28, 0.55)');
+    } else {
+      backdropGradient.addColorStop(0, '#1c0d2e');
+      backdropGradient.addColorStop(0.5, '#150924');
+      backdropGradient.addColorStop(1, '#1c0d2e');
+    }
     ctx.fillStyle = backdropGradient;
     ctx.fillRect(0, 0, renderWidth, renderHeight);
 
@@ -246,16 +256,29 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     ctx.stroke();
 
     // 5. Speech vs Silence Waveform Bar Gradients
-    // Speech: Lavender / Purple / Violet
     const speechGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
-    if (isSelected) {
-      speechGradient.addColorStop(0, '#f3e8ff');
-      speechGradient.addColorStop(0.5, '#d8b4fe');
-      speechGradient.addColorStop(1, '#c084fc');
+    if (overlayMode) {
+      // Vibrant Cyan/Teal/Emerald for Video Overlays
+      if (isSelected) {
+        speechGradient.addColorStop(0, '#e0f2fe');
+        speechGradient.addColorStop(0.5, '#38bdf8');
+        speechGradient.addColorStop(1, '#0284c7');
+      } else {
+        speechGradient.addColorStop(0, '#cff4fc');
+        speechGradient.addColorStop(0.5, 'rgba(34, 211, 238, 0.95)');
+        speechGradient.addColorStop(1, 'rgba(14, 116, 144, 0.85)');
+      }
     } else {
-      speechGradient.addColorStop(0, '#e9d5ff');
-      speechGradient.addColorStop(0.5, 'rgba(192, 132, 252, 0.9)');
-      speechGradient.addColorStop(1, 'rgba(168, 85, 247, 0.7)');
+      // Lavender / Purple / Violet for Audio Clips
+      if (isSelected) {
+        speechGradient.addColorStop(0, '#f3e8ff');
+        speechGradient.addColorStop(0.5, '#d8b4fe');
+        speechGradient.addColorStop(1, '#c084fc');
+      } else {
+        speechGradient.addColorStop(0, '#e9d5ff');
+        speechGradient.addColorStop(0.5, 'rgba(192, 132, 252, 0.9)');
+        speechGradient.addColorStop(1, 'rgba(168, 85, 247, 0.7)');
+      }
     }
 
     // Silence: High-Contrast Amber / Gold / Orange Highlight
@@ -272,7 +295,7 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
 
     const maxAmplitude = (renderHeight / 2) * 0.88;
 
-    // 6. Draw Main Waveform Bars
+    // 6. Draw Main Waveform Bars & Beat Transient Markers
     for (let i = 0; i < totalBars; i++) {
       const x = i * (barWidth + gap);
       const isSil = isSilenceFlags[i];
@@ -291,107 +314,48 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
         ctx.rect(x, topY, barWidth, h);
       }
       ctx.fill();
+
+      // 6.5 Beat / Transient Spike Dot Indicator
+      const prevPeak = i > 0 ? peaks[i - 1] : 0;
+      const isBeatTransient = showBeatMarkers && !isSil && amp > 0.42 && (amp > prevPeak * 1.2 + 0.08);
+      if (isBeatTransient && renderHeight >= 20) {
+        ctx.save();
+        ctx.fillStyle = overlayMode ? '#fbbf24' : '#22d3ee';
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = overlayMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(34, 211, 238, 0.9)';
+        ctx.beginPath();
+        ctx.arc(x + barWidth / 2, Math.max(2, topY - 2), 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
-    // 7. REAL-TIME FREQUENCY DATA VISUALIZATION BELOW AUDIO CLIP FOR VISUAL SCRUBBING FEEDBACK
-    if (currentTime !== undefined && clipDuration > 0) {
+    // 7. Render scrubbing laser cursor only if explicitly selected and manual scrub
+    if (isSelected && currentTime !== undefined && clipDuration > 0) {
       const clipOffset = currentTime - clipStart;
-      const isPlayheadInClip = clipOffset >= -0.05 && clipOffset <= clipDuration + 0.05;
+      const isPlayheadInClip = clipOffset >= 0 && clipOffset <= clipDuration;
 
       if (isPlayheadInClip) {
         const clampedOffset = Math.max(0, Math.min(clipDuration, clipOffset));
         const playheadRatio = clampedOffset / clipDuration;
         const playheadX = Math.round(playheadRatio * renderWidth);
 
-        // A. Calculate real-time 32-bin frequency spectrum & bands from AudioContext / PCM data
-        const freqAnalysis = channelData && channelData.length > 0
-          ? calculateFrequencySpectrumAtOffset(channelData, 44100, clampedOffset, 32)
-          : {
-              bins: new Float32Array([0.2, 0.4, 0.7, 0.85, 0.9, 0.75, 0.6, 0.5, 0.4, 0.35, 0.5, 0.65, 0.8, 0.7, 0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.1, 0.08, 0.05, 0.04, 0.03, 0.02, 0.02, 0.01, 0.01, 0.01, 0.01]),
-              bass: 0.72,
-              mid: 0.54,
-              treble: 0.28
-            };
-
-        // B. Render Real-Time Frequency Waveform Visualizer Band Below Clip Body
-        const freqHeight = Math.min(22, Math.floor(renderHeight * 0.42));
-        const freqTopY = renderHeight - freqHeight;
-
-        // Sub-panel backdrop for frequency spectrum display
-        ctx.fillStyle = 'rgba(10, 6, 22, 0.85)';
-        ctx.fillRect(0, freqTopY, renderWidth, freqHeight);
-
-        ctx.fillStyle = 'rgba(6, 182, 212, 0.2)';
-        ctx.fillRect(0, freqTopY, renderWidth, 1); // Top divider line
-
-        // Render Real-Time Frequency Equalizer Bars Below Clip
-        const freqBarCount = freqAnalysis.bins.length;
-        const freqBarWidth = Math.max(1, (renderWidth / freqBarCount) - 1);
-
-        for (let b = 0; b < freqBarCount; b++) {
-          const bx = b * (freqBarWidth + 1);
-          const binMag = freqAnalysis.bins[b] || 0.05;
-          const bh = Math.max(1, binMag * (freqHeight - 2));
-          const by = renderHeight - bh;
-
-          // Color spectrum gradient: Bass (Cyan) -> Mid (Violet) -> High (Pink)
-          const ratio = b / freqBarCount;
-          let barColor = 'rgba(6, 182, 212, 0.9)'; // Cyan
-          if (ratio > 0.35 && ratio < 0.75) {
-            barColor = 'rgba(139, 92, 246, 0.9)'; // Violet
-          } else if (ratio >= 0.75) {
-            barColor = 'rgba(236, 72, 153, 0.9)'; // Pink
-          }
-
-          ctx.fillStyle = barColor;
-          ctx.fillRect(bx, by, freqBarWidth, bh);
-        }
-
-        // C. Draw Playhead Scrubbing Laser Cursor Line across the Clip
+        // Draw Playhead Scrubbing Laser Cursor Line across the Clip
         ctx.save();
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 6;
         ctx.shadowColor = '#06b6d4';
         ctx.strokeStyle = '#06b6d4';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
 
         ctx.beginPath();
         ctx.moveTo(playheadX, 0);
         ctx.lineTo(playheadX, renderHeight);
         ctx.stroke();
-
-        // Top & Bottom glowing playhead indicator nodes
-        ctx.fillStyle = '#06b6d4';
-        ctx.beginPath();
-        ctx.arc(playheadX, 3, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(playheadX, renderHeight - 3, 2.5, 0, Math.PI * 2);
-        ctx.fill();
         ctx.restore();
-
-        // D. Visual Scrubbing Feedback HUD Overlay Text Label
-        if (renderWidth >= 70 && renderHeight >= 32) {
-          ctx.save();
-          ctx.font = '700 7.5px Monospace, system-ui, sans-serif';
-          const scrubTimeStr = `${clampedOffset.toFixed(2)}s`;
-          const bassPct = Math.round(freqAnalysis.bass * 100);
-          const midPct = Math.round(freqAnalysis.mid * 100);
-          const highPct = Math.round(freqAnalysis.treble * 100);
-
-          const hudLabel = `SCRUB: ${scrubTimeStr} | B:${bassPct}% M:${midPct}% H:${highPct}%`;
-          
-          ctx.fillStyle = 'rgba(6, 182, 212, 0.95)';
-          ctx.shadowBlur = 4;
-          ctx.shadowColor = 'rgba(0,0,0,0.8)';
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'top';
-          ctx.fillText(hudLabel, renderWidth - 3, 2);
-          ctx.restore();
-        }
       }
     }
 
-  }, [channelData, width, height, isSelected, volume, clipId, url, showSilenceHighlights, currentTime, clipStart, clipDuration, isPlaying]);
+  }, [channelData, width, height, isSelected, volume, clipId, url, showSilenceHighlights, showBeatMarkers, overlayMode]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none select-none rounded-md">

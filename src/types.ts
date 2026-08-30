@@ -93,6 +93,10 @@ export interface Clip {
     upscaler4k?: boolean;
     lightLeak?: boolean;
     bokeh?: boolean;
+    transition?: TransitionType | ClipTransition;
+    transitionIn?: TransitionType;
+    transitionOut?: TransitionType;
+    transitionDuration?: number;
   };
   text3D?: {
     metallicBorder?: boolean;

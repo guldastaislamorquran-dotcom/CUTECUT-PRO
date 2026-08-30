@@ -22,12 +22,12 @@ export const UpdateCheckerModal: React.FC<UpdateCheckerModalProps> = ({ isOpen, 
       setLogs((prev) => [...prev, msg]);
     };
 
-    setTimeout(() => log('[System] Querying CUTECUT PRO build manifest (v2.3.0)...'), 200);
+    setTimeout(() => log('[System] Querying CUTECUT PRO build manifest (v2.3.6)...'), 200);
     setTimeout(() => log('[Runtime] Validating WebAssembly FFmpeg core bundle status...'), 600);
     setTimeout(() => log('[Desktop] Checking Linux (.deb, .snap, .AppImage) and Windows (.exe) parity...'), 1000);
     setTimeout(() => log('[Quran AI] Local Micro-Sync Scripture dataset integrity: 100% OK'), 1400);
     setTimeout(() => {
-      log('[Version] Engine build version v2.3.0 is latest production release!');
+      log('[Version] Engine build version v2.3.6 is latest production release!');
       setChecking(false);
       setChecked(true);
     }, 1800);

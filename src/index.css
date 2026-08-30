@@ -52,3 +52,30 @@
   --font-outfit: "Outfit", sans-serif;
 }
 
+/* Mobile & Android Touch Optimizations */
+@layer utilities {
+  .touch-manipulation {
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  .touch-pan-x {
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+html, body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+

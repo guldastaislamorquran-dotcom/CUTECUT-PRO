@@ -1,4 +1,4 @@
-import { VideoFilters, Track, ClipType, Clip, Keyframe } from '../types';
+import { VideoFilters, Track, ClipType, Clip, Keyframe, ClipTransition, QuranTranslationOption } from '../types';
 
 /**
  * Clean default initial track slots structure
@@ -843,7 +843,7 @@ export interface VoiceActivityAnalysisOptions {
   minSilenceMs?: number;
   minSpeechMs?: number;
   paddingMs?: number;
-  noiseFloorSensitivity?: 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom';
+  noiseFloorSensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom';
   customThresholdDb?: number;
 }
 
@@ -854,34 +854,39 @@ export function analyzeVoiceActivityRMS(
 ): Array<{ start: number; end: number }> {
   if (!pcmData || pcmData.length === 0 || !sampleRate) return [];
 
-  const sensitivity = options.noiseFloorSensitivity || 'studio';
+  const sensitivity = options.noiseFloorSensitivity || 'quran-ayah';
   
-  // Sensitivity presets calibration
-  let defaultMinSilence = 220;
-  let defaultMinSpeech = 800;
-  let defaultPadding = 80;
-  let baselineFloorDb = -36;
+  // Sensitivity presets calibration with specialized Quranic Tajweed & Waqf pause detection
+  let defaultMinSilence = 480;
+  let defaultMinSpeech = 1100;
+  let defaultPadding = 120;
+  let baselineFloorDb = -33;
 
-  if (sensitivity === 'studio') {
-    defaultMinSilence = 180;
-    defaultMinSpeech = 650;
-    defaultPadding = 60;
-    baselineFloorDb = -40;
-  } else if (sensitivity === 'mosque') {
-    defaultMinSilence = 320;
-    defaultMinSpeech = 900;
-    defaultPadding = 100;
-    baselineFloorDb = -32;
-  } else if (sensitivity === 'tartil') {
-    defaultMinSilence = 380;
-    defaultMinSpeech = 1100;
+  if (sensitivity === 'quran-ayah') {
+    defaultMinSilence = 480; // Detects natural Waqf breathing pauses between Ayahs
+    defaultMinSpeech = 1100; // Ensures complete Ayah phrase capture
     defaultPadding = 120;
-    baselineFloorDb = -38;
-  } else if (sensitivity === 'hadr') {
-    defaultMinSilence = 150;
-    defaultMinSpeech = 500;
-    defaultPadding = 50;
+    baselineFloorDb = -33;
+  } else if (sensitivity === 'tartil') {
+    defaultMinSilence = 600; // Slow, measured recitation with long Madds and deep pauses
+    defaultMinSpeech = 1400;
+    defaultPadding = 150;
     baselineFloorDb = -35;
+  } else if (sensitivity === 'hadr') {
+    defaultMinSilence = 340; // Fast-paced recitation with brief pauses between verses
+    defaultMinSpeech = 750;
+    defaultPadding = 80;
+    baselineFloorDb = -34;
+  } else if (sensitivity === 'mosque') {
+    defaultMinSilence = 450; // Handles ambient acoustic reverb and echo in prayer halls
+    defaultMinSpeech = 1100;
+    defaultPadding = 130;
+    baselineFloorDb = -30;
+  } else if (sensitivity === 'studio') {
+    defaultMinSilence = 260; // Clean dry studio recording
+    defaultMinSpeech = 750;
+    defaultPadding = 70;
+    baselineFloorDb = -38;
   }
 
   const minSilenceMs = options.minSilenceMs ?? defaultMinSilence;
@@ -1581,28 +1586,66 @@ export function fitAcousticSegmentsToVerses(
   return segments;
 }
 
+export interface AutoSegmentAudioOptions {
+  labelPrefix?: string;
+  keepGaps?: boolean;
+  startAyahNumber?: number;
+  gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+  paddingMs?: number;
+}
+
 /**
- * Auto-Segments an Audio Clip into discrete timeline clips based on detected silence pauses
+ * Auto-Segments an Audio Clip into discrete timeline clips based on detected silence pauses.
+ * Supports preserving natural silence gaps (Waqf pauses) on the timeline or bridging seamlessly.
  */
 export function autoSegmentAudioClipsBySilence(
   sourceClip: Clip,
   speechSegments: Array<{ start: number; end: number }>,
-  options: { labelPrefix?: string; keepGaps?: boolean } = {}
+  options: AutoSegmentAudioOptions = {}
 ): Clip[] {
   if (!sourceClip || speechSegments.length === 0) return [sourceClip];
 
-  const prefix = options.labelPrefix || sourceClip.name || 'Segment';
+  let rawPrefix = options.labelPrefix || sourceClip.name || 'Ayah';
+  // Remove existing part numbers
+  rawPrefix = rawPrefix.replace(/\s*\[(Part|Ayah)\s*\d+\]/gi, '').replace(/\s*\(\d+(\.\d+)?s\)/gi, '').trim();
+
+  const isQuranAudio = /quran|surah|ayah|recitation|tilawat|fatihah|baqarah|mulk|rahman|yaseen/i.test(rawPrefix) || /quran|surah|ayah/i.test(sourceClip.name || '');
+  const startNum = options.startAyahNumber || 1;
+  const gapHandling = options.gapHandling || (options.keepGaps !== false ? 'preserve-gaps' : 'bridge-seamless');
   const newClips: Clip[] = [];
 
   speechSegments.forEach((seg, idx) => {
-    const segDuration = Math.max(0.5, seg.end - seg.start);
-    const clipStart = sourceClip.start + seg.start;
-    const sourceStart = (sourceClip.sourceStart || 0) + (seg.start * (sourceClip.playbackRate || 1.0));
+    const isLast = idx === speechSegments.length - 1;
+    let segStart = seg.start;
+    let segEnd = seg.end;
+
+    if (gapHandling === 'bridge-seamless' && !isLast) {
+      // Extend end timestamp up to the start of next speech segment
+      const nextSeg = speechSegments[idx + 1];
+      if (nextSeg && nextSeg.start > segStart) {
+        segEnd = nextSeg.start;
+      }
+    } else if (gapHandling === 'bridge-seamless' && isLast) {
+      // Extend last clip to original audio source end if available
+      const origTotalDur = sourceClip.duration || seg.end;
+      if (origTotalDur > segStart) {
+        segEnd = origTotalDur;
+      }
+    }
+
+    const segDuration = Math.max(0.35, segEnd - segStart);
+    const clipStart = sourceClip.start + segStart;
+    const sourceStart = (sourceClip.sourceStart || 0) + (segStart * (sourceClip.playbackRate || 1.0));
+    const ayahNum = startNum + idx;
+
+    const labelName = isQuranAudio
+      ? `${rawPrefix} [Ayah ${ayahNum}] (${segDuration.toFixed(1)}s)`
+      : `${rawPrefix} [Part ${idx + 1}] (${segDuration.toFixed(1)}s)`;
 
     newClips.push({
       ...sourceClip,
       id: `clip-audio-seg-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
-      name: `${prefix} [Part ${idx + 1}] (${segDuration.toFixed(1)}s)`,
+      name: labelName,
       start: Number(clipStart.toFixed(2)),
       duration: Number(segDuration.toFixed(2)),
       sourceStart: Number(sourceStart.toFixed(2)),
@@ -1885,11 +1928,20 @@ export function computeClipTransitionState(
   let scaleMultiplier = 1.0;
   let wipeProgress: number | null = null;
 
-  if (!clip.transition) {
+  const fxTrans = clip.videoEffects?.transition;
+  const hasFxTrans = clip.videoEffects?.transition || clip.videoEffects?.transitionIn || clip.videoEffects?.transitionOut;
+
+  if (!clip.transition && !hasFxTrans) {
     return { alphaMultiplier, offsetX, offsetY, scaleMultiplier, wipeProgress };
   }
 
-  const tr = clip.transition;
+  const tr: ClipTransition = clip.transition || {
+    type: typeof fxTrans === 'string' ? fxTrans : (typeof fxTrans === 'object' ? fxTrans?.type : 'none'),
+    duration: clip.videoEffects?.transitionDuration || (typeof fxTrans === 'object' ? fxTrans?.duration : 1.0),
+    inType: clip.videoEffects?.transitionIn || (typeof fxTrans === 'object' ? fxTrans?.inType : (typeof fxTrans === 'string' ? fxTrans : undefined)),
+    outType: clip.videoEffects?.transitionOut || (typeof fxTrans === 'object' ? fxTrans?.outType : (typeof fxTrans === 'string' ? fxTrans : undefined)),
+  };
+
   const inType = tr.inType || (tr.type && tr.type !== 'none' ? tr.type : 'none');
   const inDuration = tr.inDuration || tr.duration || 1.0;
   const outType = tr.outType || (tr.type && tr.type !== 'none' ? tr.type : 'none');
@@ -2053,6 +2105,691 @@ export async function fixWebmDuration(blob: Blob, durationSeconds: number): Prom
     return blob;
   }
 }
+
+/**
+ * Real-Time Quran Tilawat & Ayah Subtitle Sync Inspection Engine
+ */
+export const SURAH_AYAH_COUNTS: Record<number, number> = {
+  1: 7, 2: 286, 3: 200, 4: 176, 5: 120, 6: 165, 7: 206, 8: 75, 9: 129, 10: 109,
+  11: 123, 12: 111, 13: 43, 14: 52, 15: 99, 16: 128, 17: 111, 18: 110, 19: 98, 20: 135,
+  21: 112, 22: 78, 23: 118, 24: 64, 25: 77, 26: 227, 27: 93, 28: 88, 29: 69, 30: 60,
+  31: 34, 32: 30, 33: 73, 34: 54, 35: 45, 36: 83, 37: 182, 38: 88, 39: 75, 40: 85,
+  41: 54, 42: 53, 43: 89, 44: 59, 45: 37, 46: 35, 47: 38, 48: 29, 49: 18, 50: 45,
+  51: 60, 52: 49, 53: 62, 54: 55, 55: 78, 56: 96, 57: 29, 58: 22, 59: 24, 60: 13,
+  61: 14, 62: 11, 63: 11, 64: 18, 65: 12, 66: 12, 67: 30, 68: 52, 69: 52, 70: 44,
+  71: 28, 72: 28, 73: 20, 74: 56, 75: 40, 76: 31, 77: 50, 78: 40, 79: 46, 80: 42,
+  81: 29, 82: 19, 83: 36, 84: 25, 85: 22, 86: 17, 87: 19, 88: 26, 89: 30, 90: 20,
+  91: 15, 92: 21, 93: 11, 94: 8, 95: 8, 96: 19, 97: 5, 98: 8, 99: 8, 100: 11,
+  101: 11, 102: 8, 103: 3, 104: 9, 105: 5, 106: 4, 107: 7, 108: 3, 109: 6, 110: 3,
+  111: 5, 112: 4, 113: 5, 114: 6
+};
+
+export interface QuranSyncInspectionItem {
+  audioClipId: string;
+  audioClipName: string;
+  audioStart: number;
+  audioDuration: number;
+  audioEnd: number;
+  ayahNumber: number | null;
+  surahNumber: number;
+  status: 'synced' | 'missing_text' | 'out_of_sync' | 'missing_translation' | 'text_overlap';
+  statusLabel: string;
+  matchedTextClips: Clip[];
+  arabicText?: string;
+  translationText?: string;
+  timeShiftSec: number;
+}
+
+export interface QuranSyncInspectionReport {
+  isQuranAudioPresent: boolean;
+  totalAudioSegments: number;
+  syncedCount: number;
+  missingTextCount: number;
+  outOfSyncCount: number;
+  missingTranslationCount: number;
+  items: QuranSyncInspectionItem[];
+  detectedSurah: number | null;
+  detectedStartAyah: number | null;
+  isContinuousSingleTrack?: boolean;
+  totalSurahAyahs?: number;
+}
+
+/**
+ * Automatically inspects the timeline to detect Quran recitation audio segments
+ * and analyzes whether matching Arabic & Translation subtitles are properly set.
+ */
+export function inspectQuranAyahAlignment(tracks: Track[]): QuranSyncInspectionReport {
+  const audioTracks = tracks.filter(t => t.type === ClipType.AUDIO);
+  const textTracks = tracks.filter(t => t.type === ClipType.TEXT);
+
+  // Flatten all audio clips sorted by start time
+  const allAudioClips = audioTracks
+    .flatMap(t => t.clips)
+    .sort((a, b) => a.start - b.start);
+
+  // Flatten all text clips sorted by start time
+  const allTextClips = textTracks
+    .flatMap(t => t.clips)
+    .sort((a, b) => a.start - b.start);
+
+  // Determine if Quran Audio is present on timeline
+  let isQuranAudio = allAudioClips.some(c => {
+    const name = (c.name || '').toLowerCase();
+    return (
+      /ayah|surah|tilawat|quran|qari|alafasy|sudais|ghamidi|shuraim|minshawi|hussary|basit|waqf|bismillah|taawwuz|part\s*\d+|mulk|rahman|fatihah|yaseen|kahf|waqiah/i.test(name) ||
+      extractAyahNumberFromClip(c) !== null
+    );
+  });
+
+  // If text tracks have Quranic Arabic or Ayah markers, also consider audio as Tilawat
+  if (!isQuranAudio && allTextClips.some(c => /[\u0600-\u06FF]/.test(c.text || '') || /ayah|surah|mulk|rahman/i.test(c.name || ''))) {
+    isQuranAudio = allAudioClips.length > 0;
+  }
+
+  // If no audio clips at all, return empty report
+  if (allAudioClips.length === 0) {
+    return {
+      isQuranAudioPresent: false,
+      totalAudioSegments: 0,
+      syncedCount: 0,
+      missingTextCount: 0,
+      outOfSyncCount: 0,
+      missingTranslationCount: 0,
+      items: [],
+      detectedSurah: null,
+      detectedStartAyah: null,
+    };
+  }
+
+  let detectedSurah: number | null = null;
+  const detectedAyahsList: number[] = [];
+
+  // Known Surah name keywords to number mapping
+  const SURAH_NAME_MAP: Record<string, number> = {
+    'fatihah': 1, 'fatiha': 1, 'baqarah': 2, 'imran': 3, 'nisa': 4, 'maidah': 5,
+    'anam': 6, 'araf': 7, 'anfal': 8, 'tawbah': 9, 'yunus': 10, 'hud': 11,
+    'yusuf': 12, 'rad': 13, 'ibrahim': 14, 'hijr': 15, 'nahl': 16, 'isra': 17,
+    'kahf': 18, 'maryam': 19, 'taha': 20, 'anbiya': 21, 'hajj': 22, 'muminun': 23,
+    'nur': 24, 'furqan': 25, 'shuara': 26, 'naml': 27, 'qasas': 28, 'ankabut': 29,
+    'rum': 30, 'luqman': 31, 'sajdah': 32, 'ahzab': 33, 'saba': 34, 'fatir': 35,
+    'yasin': 36, 'yaseen': 36, 'saffat': 37, 'sad': 38, 'zumar': 39, 'ghafir': 40,
+    'fussilat': 41, 'shura': 42, 'zukhruf': 43, 'dukhan': 44, 'jathiyah': 45, 'ahqaf': 46,
+    'muhammad': 47, 'fath': 48, 'hujurat': 49, 'qaf': 50, 'dhariyat': 51, 'tur': 52,
+    'najm': 53, 'qamar': 54, 'rahman': 55, 'rehman': 55, 'waqiah': 56, 'hadid': 57,
+    'mujadila': 58, 'hashr': 59, 'mumtahanah': 60, 'saff': 61, 'jumuah': 62, 'munafiqun': 63,
+    'taghabun': 64, 'talaq': 65, 'tahrim': 66, 'mulk': 67, 'qalam': 68, 'haqqah': 69,
+    'maarij': 70, 'nuh': 71, 'jinn': 72, 'muzzammil': 73, 'muddaththir': 74, 'qiyamah': 75,
+    'insan': 76, 'mursalat': 77, 'naba': 78, 'naziat': 79, 'abasa': 80, 'takwir': 81,
+    'infitar': 82, 'mutaffifin': 83, 'inshiqaq': 84, 'buruj': 85, 'tariq': 86, 'ala': 87,
+    'ghashiyah': 88, 'fajr': 89, 'balad': 90, 'shams': 91, 'layl': 92, 'duha': 93,
+    'inshirah': 94, 'tin': 95, 'alaq': 96, 'qadr': 97, 'bayyinah': 98, 'zalzalah': 99,
+    'adiyat': 100, 'qariah': 101, 'takathur': 102, 'asr': 103, 'humazah': 104, 'fil': 105,
+    'quraysh': 106, 'maun': 107, 'kawthar': 108, 'kafirun': 109, 'nasr': 110, 'masad': 111,
+    'ikhlas': 112, 'falaq': 113, 'nas': 114
+  };
+
+  // Scan all clips to discover Surah number and Ayah numbers
+  for (const c of [...allAudioClips, ...allTextClips]) {
+    const raw = `${c.name || ''} ${c.text || ''}`.toLowerCase();
+    
+    // Check Surah keywords in name
+    if (!detectedSurah) {
+      for (const [sKey, sNum] of Object.entries(SURAH_NAME_MAP)) {
+        if (raw.includes(sKey)) {
+          detectedSurah = sNum;
+          break;
+        }
+      }
+    }
+
+    const surahMatch = raw.match(/surah\s*(\d+)|(?:^|\s)(\d+):(\d+)/i);
+    if (surahMatch) {
+      if (surahMatch[1] && !detectedSurah) detectedSurah = parseInt(surahMatch[1], 10);
+      else if (surahMatch[2] && !detectedSurah) detectedSurah = parseInt(surahMatch[2], 10);
+      if (surahMatch[3]) {
+        const aNum = parseInt(surahMatch[3], 10);
+        if (!isNaN(aNum) && aNum > 0) detectedAyahsList.push(aNum);
+      }
+    }
+
+    const extracted = extractAyahNumberFromClip(c);
+    if (extracted !== null) {
+      detectedAyahsList.push(extracted);
+    }
+  }
+
+  // The true starting ayah should be the minimum detected ayah, or 1
+  const detectedStartAyah = detectedAyahsList.length > 0 ? Math.min(...detectedAyahsList) : 1;
+  const activeSurah = detectedSurah || 1;
+  const totalSurahAyahs = SURAH_AYAH_COUNTS[activeSurah] || 7;
+
+  const isContinuousSingleTrack = allAudioClips.length === 1 && allAudioClips[0].duration >= 12;
+
+  const items: QuranSyncInspectionItem[] = [];
+  let syncedCount = 0;
+  let missingTextCount = 0;
+  let outOfSyncCount = 0;
+  let missingTranslationCount = 0;
+
+  // Case A: If timeline already has multiple text clips (or multiple audio clips), inspect them properly!
+  if (allAudioClips.length > 1 || (allAudioClips.length === 1 && allTextClips.length > 1)) {
+    // If we have distinct text clips spanning across the audio, list each Ayah from the text track
+    if (allTextClips.length > 1 && allAudioClips.length === 1) {
+      const singleAudio = allAudioClips[0];
+      const audioStart = singleAudio.start;
+      const audioEnd = singleAudio.start + singleAudio.duration;
+
+      // Group text clips by ayah or time slots
+      const ayahMap = new Map<number, Clip[]>();
+      allTextClips.forEach(tc => {
+        const aNum = extractAyahNumberFromClip(tc) || 1;
+        if (!ayahMap.has(aNum)) ayahMap.set(aNum, []);
+        ayahMap.get(aNum)!.push(tc);
+      });
+
+      const sortedAyahs = Array.from(ayahMap.keys()).sort((a, b) => a - b);
+      sortedAyahs.forEach((aNum) => {
+        const clips = ayahMap.get(aNum)!;
+        const arClip = clips.find(tc => /[\u0600-\u06FF]/.test(tc.text || '') || /^AR:/i.test(tc.name));
+        const trClip = clips.find(tc => !/[\u0600-\u06FF]/.test(tc.text || '') || /^(UR|EN|HI|TR):/i.test(tc.name));
+        const primary = arClip || clips[0];
+        const clipStart = primary.start;
+        const clipDur = primary.duration;
+        const clipEnd = clipStart + clipDur;
+
+        let status: 'synced' | 'missing_text' | 'out_of_sync' | 'missing_translation' | 'text_overlap' = 'synced';
+        let statusLabel = 'Synced ✓ / ہم آہنگ';
+        let timeShift = 0;
+
+        if (clipStart < audioStart - 0.5 || clipEnd > audioEnd + 0.5) {
+          status = 'out_of_sync';
+          statusLabel = 'Outside Audio Bounds';
+          outOfSyncCount++;
+        } else if (!trClip && textTracks.length >= 2) {
+          status = 'missing_translation';
+          statusLabel = 'Translation Missing';
+          missingTranslationCount++;
+        } else {
+          status = 'synced';
+          statusLabel = 'Synced ✓';
+          syncedCount++;
+        }
+
+        items.push({
+          audioClipId: singleAudio.id,
+          audioClipName: `Ayah ${aNum} (${primary.name || 'Scripture'})`,
+          audioStart: Number(clipStart.toFixed(2)),
+          audioDuration: Number(clipDur.toFixed(2)),
+          audioEnd: Number(clipEnd.toFixed(2)),
+          ayahNumber: aNum,
+          surahNumber: activeSurah,
+          status,
+          statusLabel,
+          matchedTextClips: clips,
+          arabicText: arClip?.text,
+          translationText: trClip?.text,
+          timeShiftSec: Number(timeShift.toFixed(2)),
+        });
+      });
+    } else {
+      // Multiple audio clips (segmented)
+      allAudioClips.forEach((audioClip, idx) => {
+        const audioStart = audioClip.start;
+        const audioDuration = audioClip.duration;
+        const audioEnd = audioClip.start + audioDuration;
+        const extractedAyah = extractAyahNumberFromClip(audioClip) || (detectedStartAyah + idx);
+
+        const matchedText = allTextClips.filter(tc => {
+          const tcEnd = tc.start + tc.duration;
+          const overlapStart = Math.max(audioStart - 0.25, tc.start);
+          const overlapEnd = Math.min(audioEnd + 0.25, tcEnd);
+          const overlapDuration = overlapEnd - overlapStart;
+          const hasTimeOverlap = overlapDuration > 0.4 || (Math.abs(audioStart - tc.start) < 0.6);
+          const clipAyah = extractAyahNumberFromClip(tc);
+
+          if (clipAyah !== null && extractedAyah !== null && clipAyah === extractedAyah) {
+            return true;
+          }
+          return hasTimeOverlap;
+        });
+
+        let status: 'synced' | 'missing_text' | 'out_of_sync' | 'missing_translation' | 'text_overlap' = 'synced';
+        let statusLabel = 'Synced ✓ / ہم آہنگ';
+        let timeShift = 0;
+        let arabicText: string | undefined;
+        let translationText: string | undefined;
+
+        if (matchedText.length === 0) {
+          status = 'missing_text';
+          statusLabel = 'Text Missing / سب ٹائٹل غائب';
+          missingTextCount++;
+        } else {
+          const arClip = matchedText.find(tc => /[\u0600-\u06FF]/.test(tc.text || '') || /^AR:/i.test(tc.name));
+          const trClip = matchedText.find(tc => !/[\u0600-\u06FF]/.test(tc.text || '') || /^(UR|EN|HI|TR):/i.test(tc.name));
+
+          if (arClip) arabicText = arClip.text;
+          if (trClip) translationText = trClip.text;
+
+          const primaryClip = arClip || matchedText[0];
+          const startOffset = Math.abs(primaryClip.start - audioStart);
+          const durDiff = Math.abs(primaryClip.duration - audioClip.duration);
+          timeShift = primaryClip.start - audioStart;
+
+          if (startOffset > 0.45 || durDiff > 0.85) {
+            status = 'out_of_sync';
+            statusLabel = `Shifted (${timeShift > 0 ? '+' : ''}${timeShift.toFixed(2)}s)`;
+            outOfSyncCount++;
+          } else if (!trClip && textTracks.length >= 2) {
+            status = 'missing_translation';
+            statusLabel = 'Translation Missing';
+            missingTranslationCount++;
+          } else {
+            status = 'synced';
+            statusLabel = 'Synced ✓';
+            syncedCount++;
+          }
+        }
+
+        items.push({
+          audioClipId: audioClip.id,
+          audioClipName: audioClip.name,
+          audioStart: Number(audioStart.toFixed(2)),
+          audioDuration: Number(audioDuration.toFixed(2)),
+          audioEnd: Number(audioEnd.toFixed(2)),
+          ayahNumber: extractedAyah,
+          surahNumber: activeSurah,
+          status,
+          statusLabel,
+          matchedTextClips: matchedText,
+          arabicText,
+          translationText,
+          timeShiftSec: Number(timeShift.toFixed(2)),
+        });
+      });
+    }
+  } else {
+    // Case B: Single continuous audio file without multi-text clips
+    const singleAudio = allAudioClips[0];
+    const audioStart = singleAudio.start;
+    const audioDuration = singleAudio.duration;
+    const audioEnd = audioStart + audioDuration;
+
+    const matchedText = allTextClips.filter(tc => {
+      const tcEnd = tc.start + tc.duration;
+      return Math.max(audioStart, tc.start) < Math.min(audioEnd, tcEnd);
+    });
+
+    const hasAnyText = matchedText.length > 0;
+    const status = hasAnyText ? 'synced' : 'missing_text';
+    if (!hasAnyText) missingTextCount++;
+    else syncedCount++;
+
+    items.push({
+      audioClipId: singleAudio.id,
+      audioClipName: `${singleAudio.name || 'Tilawat Audio'} (${totalSurahAyahs} Ayahs in Surah)`,
+      audioStart: Number(audioStart.toFixed(2)),
+      audioDuration: Number(audioDuration.toFixed(2)),
+      audioEnd: Number(audioEnd.toFixed(2)),
+      ayahNumber: detectedStartAyah,
+      surahNumber: activeSurah,
+      status,
+      statusLabel: hasAnyText ? 'Synced ✓' : `Needs Subtitles (1-${totalSurahAyahs})`,
+      matchedTextClips: matchedText,
+      arabicText: matchedText[0]?.text,
+      timeShiftSec: 0,
+    });
+  }
+
+  return {
+    isQuranAudioPresent: isQuranAudio,
+    totalAudioSegments: items.length || allAudioClips.length,
+    syncedCount,
+    missingTextCount,
+    outOfSyncCount,
+    missingTranslationCount,
+    items,
+    detectedSurah: activeSurah,
+    detectedStartAyah,
+    isContinuousSingleTrack,
+    totalSurahAyahs,
+  };
+}
+
+/**
+ * Generates or realigns text subtitle tracks directly aligned to segmented or continuous audio clips.
+ * If single continuous recitation audio is detected, it generates ALL verses of the Surah aligned across the audio!
+ */
+export async function generateAutoFixQuranTextClips(params: {
+  tracks: Track[];
+  surahNumber: number;
+  startAyahNumber: number;
+  endAyahNumber?: number;
+  translationOption?: QuranTranslationOption;
+  arabicStyle?: {
+    fontFamily?: string;
+    fontSize?: number;
+    textY?: number;
+    color?: string;
+    textStyle?: 'normal' | 'shadow' | 'outline' | 'neon' | 'gold-glow' | 'viral-reels';
+  };
+  translationStyle?: {
+    fontFamily?: string;
+    fontSize?: number;
+    textY?: number;
+    color?: string;
+    textStyle?: 'normal' | 'shadow' | 'outline' | 'neon' | 'gold-glow' | 'viral-reels';
+  };
+  targetClipIds?: string[];
+}): Promise<{
+  newTracks: Track[];
+  fixedCount: number;
+}> {
+  const {
+    tracks,
+    surahNumber,
+    startAyahNumber,
+    endAyahNumber,
+    translationOption,
+    arabicStyle,
+    translationStyle,
+    targetClipIds,
+  } = params;
+
+  const audioTracks = tracks.filter(t => t.type === ClipType.AUDIO);
+  const allAudioClips = audioTracks
+    .flatMap(t => t.clips)
+    .sort((a, b) => a.start - b.start);
+
+  if (allAudioClips.length === 0) {
+    return { newTracks: tracks, fixedCount: 0 };
+  }
+
+  // Filter clips to fix if specific targets were provided
+  const clipsToProcess = targetClipIds && targetClipIds.length > 0
+    ? allAudioClips.filter(c => targetClipIds.includes(c.id))
+    : allAudioClips;
+
+  const totalAyahsInSurah = SURAH_AYAH_COUNTS[surahNumber] || 30;
+  const effectiveEndAyah = endAyahNumber || totalAyahsInSurah;
+
+  // Ensure we have Text Track 1 (Arabic) and Text Track 2 (Translation)
+  let workingTracks = [...tracks];
+  let arTrackIndex = workingTracks.findIndex(t => t.type === ClipType.TEXT && /arabic|عربي/i.test(t.name));
+  let trTrackIndex = workingTracks.findIndex(t => t.type === ClipType.TEXT && /trans|اردو|english|translation/i.test(t.name));
+
+  if (arTrackIndex === -1) {
+    const genericTextTrackIdx = workingTracks.findIndex(t => t.type === ClipType.TEXT);
+    if (genericTextTrackIdx !== -1) {
+      arTrackIndex = genericTextTrackIdx;
+      workingTracks[arTrackIndex] = {
+        ...workingTracks[arTrackIndex],
+        name: 'Arabic Subtitles (عربی متن)',
+      };
+    } else {
+      const newArTrack: Track = {
+        id: `track-text-arabic-${Date.now()}`,
+        name: 'Arabic Subtitles (عربی متن)',
+        type: ClipType.TEXT,
+        muted: false,
+        hidden: false,
+        clips: [],
+      };
+      workingTracks.unshift(newArTrack);
+      arTrackIndex = 0;
+    }
+  }
+
+  if (trTrackIndex === -1 && translationOption && translationOption.id !== 'none') {
+    const newTrTrack: Track = {
+      id: `track-text-translation-${Date.now()}`,
+      name: `${translationOption.language} Translation (ترجمہ)`,
+      type: ClipType.TEXT,
+      muted: false,
+      hidden: false,
+      clips: [],
+    };
+    workingTracks.splice(arTrackIndex + 1, 0, newTrTrack);
+    trTrackIndex = arTrackIndex + 1;
+  }
+
+  const newArClips: Clip[] = [...workingTracks[arTrackIndex].clips];
+  const newTrClips: Clip[] = (trTrackIndex !== -1 && workingTracks[trTrackIndex])
+    ? [...workingTracks[trTrackIndex].clips]
+    : [];
+
+  let fixedCount = 0;
+
+  // SCENARIO 1: SINGLE CONTINUOUS AUDIO FILE (or user wants whole Surah 1-N generated across audio duration)
+  if (clipsToProcess.length === 1 && clipsToProcess[0].duration >= 10 && !targetClipIds?.length) {
+    const audioClip = clipsToProcess[0];
+    const totalDuration = audioClip.duration;
+    const baseStart = audioClip.start;
+
+    // Fetch and calculate timing across ALL verses in the Surah (e.g. Ayah 1 to 30)
+    const alignedVerses = await alignQuranLocalClient({
+      surah: surahNumber,
+      startAyah: startAyahNumber,
+      audioDuration: totalDuration,
+      ayahSymbolStyle: 'ornate-medallion',
+      ayahDigitType: 'arabic',
+      showAyahSymbol: true,
+    });
+
+    const { fetchSingleAyahTranslation } = await import('./quranTranslations');
+
+    // Remove existing clips that overlap with this audio range
+    const filteredAr = newArClips.filter(c => !(c.start >= baseStart - 0.2 && (c.start + c.duration) <= (baseStart + totalDuration + 0.5)));
+    const filteredTr = newTrClips.filter(c => !(c.start >= baseStart - 0.2 && (c.start + c.duration) <= (baseStart + totalDuration + 0.5)));
+    newArClips.length = 0;
+    newArClips.push(...filteredAr);
+    newTrClips.length = 0;
+    newTrClips.push(...filteredTr);
+
+    for (let vIdx = 0; vIdx < alignedVerses.length; vIdx++) {
+      const verse = alignedVerses[vIdx];
+      const currentAyah = startAyahNumber + vIdx;
+      if (currentAyah > effectiveEndAyah) break;
+
+      const verseKey = `${surahNumber}:${currentAyah}`;
+      const clipStart = Number((baseStart + verse.start).toFixed(2));
+      const clipDur = Number(Math.max(1.5, verse.end - verse.start).toFixed(2));
+
+      // Arabic text
+      let arabicText = verse.text_arabic;
+      if (!arabicText) {
+        arabicText = `سورة ${surahNumber} - آية ${currentAyah} ۝${currentAyah}`;
+      }
+
+      // Translation text
+      let translationContent = verse.text_english || '';
+      if (translationOption && translationOption.id !== 'none') {
+        try {
+          translationContent = await fetchSingleAyahTranslation(verseKey, translationOption);
+        } catch {
+          translationContent = verse.text_english || `Translation ${verseKey}`;
+        }
+      }
+
+      // Arabic Clip
+      const arClip: Clip = {
+        id: `clip-text-ar-${surahNumber}-${currentAyah}-${Date.now()}-${vIdx}`,
+        name: `AR: ${verseKey}`,
+        type: ClipType.TEXT,
+        trackId: workingTracks[arTrackIndex].id,
+        start: clipStart,
+        duration: clipDur,
+        sourceStart: 0,
+        sourceDuration: clipDur,
+        playbackRate: 1.0,
+        volume: 1.0,
+        text: arabicText,
+        fontFamily: arabicStyle?.fontFamily || 'Amiri, Lateef, serif',
+        fontSize: arabicStyle?.fontSize || 38,
+        textY: arabicStyle?.textY || 68,
+        textX: 50,
+        textAlignment: 'center',
+        color: arabicStyle?.color || '#ffd700',
+        textStyle: arabicStyle?.textStyle || 'gold-glow',
+        textStrokeWidth: 2,
+        textStrokeColor: '#000000',
+        textGlowIntensity: 12,
+        textGlowColor: 'rgba(255, 215, 0, 0.4)',
+      };
+      newArClips.push(arClip);
+
+      // Translation Clip
+      if (trTrackIndex !== -1 && workingTracks[trTrackIndex] && translationContent) {
+        const trClip: Clip = {
+          id: `clip-text-tr-${surahNumber}-${currentAyah}-${Date.now()}-${vIdx}`,
+          name: `${(translationOption?.languageCode || 'TR').toUpperCase()}: ${verseKey}`,
+          type: ClipType.TEXT,
+          trackId: workingTracks[trTrackIndex].id,
+          start: clipStart,
+          duration: clipDur,
+          sourceStart: 0,
+          sourceDuration: clipDur,
+          playbackRate: 1.0,
+          volume: 1.0,
+          text: translationContent,
+          fontFamily: translationStyle?.fontFamily || 'Noto Nastaliq Urdu, Poppins, sans-serif',
+          fontSize: translationStyle?.fontSize || 22,
+          textY: translationStyle?.textY || 84,
+          textX: 50,
+          textAlignment: 'center',
+          color: translationStyle?.color || '#ffffff',
+          textStyle: translationStyle?.textStyle || 'outline',
+          textStrokeWidth: 2,
+          textStrokeColor: '#000000',
+        };
+        newTrClips.push(trClip);
+      }
+
+      fixedCount++;
+    }
+  } else {
+    // SCENARIO 2: MULTIPLE SEGMENTED AUDIO CLIPS
+    const maxTime = Math.max(60, allAudioClips[allAudioClips.length - 1].start + allAudioClips[allAudioClips.length - 1].duration);
+    const alignedVerses = await alignQuranLocalClient({
+      surah: surahNumber,
+      startAyah: startAyahNumber,
+      audioDuration: maxTime,
+      ayahSymbolStyle: 'ornate-medallion',
+      ayahDigitType: 'arabic',
+      showAyahSymbol: true,
+    });
+
+    const { fetchSingleAyahTranslation } = await import('./quranTranslations');
+
+    for (let i = 0; i < clipsToProcess.length; i++) {
+      const audioClip = clipsToProcess[i];
+      const ayahIndex = (extractAyahNumberFromClip(audioClip) || (startAyahNumber + i));
+      const verseKey = `${surahNumber}:${ayahIndex}`;
+
+      const matchedVerse = alignedVerses.find(v => v.verse_key === verseKey) || alignedVerses[i % alignedVerses.length];
+      const arabicContent = matchedVerse?.text_arabic || `سورة ${surahNumber} - آية ${ayahIndex} ۝${ayahIndex}`;
+      
+      let translationContent = matchedVerse?.text_english || '';
+      if (translationOption && translationOption.id !== 'none') {
+        try {
+          translationContent = await fetchSingleAyahTranslation(verseKey, translationOption);
+        } catch {
+          translationContent = matchedVerse?.text_english || `Translation of verse ${verseKey}`;
+        }
+      }
+
+      // 1. Arabic Text Clip
+      const arClipId = `clip-text-ar-sync-${audioClip.id}-${Date.now()}`;
+      const generatedArClip: Clip = {
+        id: arClipId,
+        name: `AR: ${verseKey}`,
+        type: ClipType.TEXT,
+        trackId: workingTracks[arTrackIndex].id,
+        start: Number(audioClip.start.toFixed(2)),
+        duration: Number(audioClip.duration.toFixed(2)),
+        sourceStart: 0,
+        sourceDuration: Number(audioClip.duration.toFixed(2)),
+        playbackRate: 1.0,
+        volume: 1.0,
+        text: arabicContent,
+        fontFamily: arabicStyle?.fontFamily || 'Amiri, Lateef, serif',
+        fontSize: arabicStyle?.fontSize || 38,
+        textY: arabicStyle?.textY || 68,
+        textX: 50,
+        textAlignment: 'center',
+        color: arabicStyle?.color || '#ffd700',
+        textStyle: arabicStyle?.textStyle || 'gold-glow',
+        textStrokeWidth: 2,
+        textStrokeColor: '#000000',
+        textGlowIntensity: 12,
+        textGlowColor: 'rgba(255, 215, 0, 0.4)',
+      };
+
+      const filteredArClips = newArClips.filter(c => {
+        const overlap = Math.max(c.start, audioClip.start) < Math.min(c.start + c.duration, audioClip.start + audioClip.duration);
+        return !overlap && c.id !== audioClip.id;
+      });
+      filteredArClips.push(generatedArClip);
+      newArClips.length = 0;
+      newArClips.push(...filteredArClips);
+
+      // 2. Translation Text Clip
+      if (trTrackIndex !== -1 && workingTracks[trTrackIndex] && translationContent) {
+        const trClipId = `clip-text-tr-sync-${audioClip.id}-${Date.now()}`;
+        const generatedTrClip: Clip = {
+          id: trClipId,
+          name: `${(translationOption?.languageCode || 'TR').toUpperCase()}: ${verseKey}`,
+          type: ClipType.TEXT,
+          trackId: workingTracks[trTrackIndex].id,
+          start: Number(audioClip.start.toFixed(2)),
+          duration: Number(audioClip.duration.toFixed(2)),
+          sourceStart: 0,
+          sourceDuration: Number(audioClip.duration.toFixed(2)),
+          playbackRate: 1.0,
+          volume: 1.0,
+          text: translationContent,
+          fontFamily: translationStyle?.fontFamily || 'Noto Nastaliq Urdu, Poppins, sans-serif',
+          fontSize: translationStyle?.fontSize || 22,
+          textY: translationStyle?.textY || 84,
+          textX: 50,
+          textAlignment: 'center',
+          color: translationStyle?.color || '#ffffff',
+          textStyle: translationStyle?.textStyle || 'outline',
+          textStrokeWidth: 2,
+          textStrokeColor: '#000000',
+        };
+
+        const filteredTrClips = newTrClips.filter(c => {
+          const overlap = Math.max(c.start, audioClip.start) < Math.min(c.start + c.duration, audioClip.start + audioClip.duration);
+          return !overlap && c.id !== audioClip.id;
+        });
+        filteredTrClips.push(generatedTrClip);
+        newTrClips.length = 0;
+        newTrClips.push(...filteredTrClips);
+      }
+
+      fixedCount++;
+    }
+  }
+
+  // Update working tracks with new clips
+  workingTracks[arTrackIndex] = {
+    ...workingTracks[arTrackIndex],
+    clips: newArClips.sort((a, b) => a.start - b.start),
+  };
+
+  if (trTrackIndex !== -1 && workingTracks[trTrackIndex]) {
+    workingTracks[trTrackIndex] = {
+      ...workingTracks[trTrackIndex],
+      clips: newTrClips.sort((a, b) => a.start - b.start),
+    };
+  }
+
+  return {
+    newTracks: workingTracks,
+    fixedCount,
+  };
+}
+
 
 
 

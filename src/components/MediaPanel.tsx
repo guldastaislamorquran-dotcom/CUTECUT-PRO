@@ -259,7 +259,17 @@ interface MediaPanelProps {
   onUpdateClip?: (clipId: string, updates: Partial<Clip>) => void;
 
   // Auto-Segmentation & Acoustic Analysis Suite
-  onAutoSegmentAudio?: (clipId?: string, sensitivity?: 'studio' | 'mosque' | 'tartil' | 'hadr') => void;
+  onAutoSegmentAudio?: (
+    clipId?: string,
+    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom',
+    customOptions?: {
+      minSilenceMs?: number;
+      minSpeechMs?: number;
+      startAyahNumber?: number;
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      paddingMs?: number;
+    }
+  ) => void;
   onAutoSyncVideoToAyahs?: () => void;
   onAutoRemoveSilence?: (clipId?: string) => void;
   onAutoSegmentRhythm?: (clipId?: string, interval?: number) => void;
@@ -349,7 +359,11 @@ export default function MediaPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Acoustic Sensitivity State
-  const [audioSensitivity, setAudioSensitivity] = useState<'studio' | 'mosque' | 'tartil' | 'hadr'>('studio');
+  const [audioSensitivity, setAudioSensitivity] = useState<'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom'>('quran-ayah');
+  const [customMinSilenceMs, setCustomMinSilenceMs] = useState(480);
+  const [customStartAyah, setCustomStartAyah] = useState(1);
+  const [gapHandlingMode, setGapHandlingMode] = useState<'preserve-gaps' | 'bridge-seamless'>('preserve-gaps');
+  const [silencePaddingMs, setSilencePaddingMs] = useState(120);
   const [isSegmentingAudio, setIsSegmentingAudio] = useState(false);
   const [isSyncingVideo, setIsSyncingVideo] = useState(false);
 
@@ -1096,7 +1110,206 @@ export default function MediaPanel({
 
         {activeTab === 'audio' && (
           <div className="space-y-4">
-            <h3 className="text-xs font-semibold text-gray-400 tracking-wider">STOCK AUDIO TRACKS</h3>
+            {/* Quran Ayah & Recitation Auto-Segmenter Tool */}
+            <div className="bg-[#121218] border border-amber-500/40 rounded-xl p-3.5 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white tracking-wide">QURAN AYAH AUTO-SEGMENTER</h4>
+                    <p className="text-[10px] text-amber-400/80">Acoustic Tajweed Waqf & Pause Detection</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">
+                  v4.0 Pro
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-gray-300 font-semibold">Recitation Style & Sensitivity:</span>
+                  <span className="text-amber-400 font-mono text-[10px]">
+                    {audioSensitivity === 'quran-ayah' ? '🕌 Standard Ayah Waqf' :
+                     audioSensitivity === 'tartil' ? '📖 Tartil (Slow & Madd)' :
+                     audioSensitivity === 'hadr' ? '⚡ Hadr (Fast)' :
+                     audioSensitivity === 'mosque' ? '🏛️ Mosque / Reverb' :
+                     audioSensitivity === 'studio' ? '🎙️ Studio Speech' : '🎚️ Custom'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'quran-ayah', label: '🕌 Standard Ayah', desc: '480ms Waqf Gap' },
+                    { id: 'tartil', label: '📖 Slow Tartil', desc: '600ms Deep Pause' },
+                    { id: 'hadr', label: '⚡ Fast Hadr', desc: '340ms Short Pause' },
+                    { id: 'mosque', label: '🏛️ Mosque Reverb', desc: 'Echo Rejection' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setAudioSensitivity(preset.id as any)}
+                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
+                        audioSensitivity === preset.id
+                          ? 'bg-amber-500/20 border-amber-400 text-white font-bold'
+                          : 'bg-[#1a1a24] border-gray-800 text-gray-300 hover:border-gray-700'
+                      }`}
+                    >
+                      <p className="text-[11px] leading-tight">{preset.label}</p>
+                      <p className={`text-[9px] mt-0.5 ${audioSensitivity === preset.id ? 'text-amber-300' : 'text-gray-500'}`}>
+                        {preset.desc}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Optional Custom Silence Threshold Slider */}
+                <div className="bg-[#0e0e14] p-2.5 rounded-lg border border-gray-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-gray-400">Min Silence Gap:</span>
+                    <span className="text-amber-400 font-mono font-bold">{customMinSilenceMs} ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="200"
+                    max="1200"
+                    step="20"
+                    value={customMinSilenceMs}
+                    onChange={(e) => setCustomMinSilenceMs(parseInt(e.target.value, 10))}
+                    className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                  />
+                  <div className="flex justify-between text-[8px] text-gray-600 font-mono">
+                    <span>Fast (200ms)</span>
+                    <span>Standard (480ms)</span>
+                    <span>Long (1200ms)</span>
+                  </div>
+                </div>
+
+                {/* Silence Gap Handling Mode (وقف وسکوت) */}
+                <div className="bg-[#0e0e14] p-2.5 rounded-lg border border-gray-800 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-300 font-semibold flex items-center gap-1">
+                      <span>Silence Gap Behavior:</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-amber-400">
+                      {gapHandlingMode === 'preserve-gaps' ? '⏸️ Keep Silence Gaps' : '🔗 Continuous Audio'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setGapHandlingMode('preserve-gaps')}
+                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
+                        gapHandlingMode === 'preserve-gaps'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
+                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <p className="text-[10px] font-bold flex items-center gap-1">
+                        <span>⏸️ Leave Gaps</span>
+                      </p>
+                      <p className="text-[8px] text-gray-400 mt-0.5">
+                        Preserves silence spaces between clips for easy editing & visuals snap
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setGapHandlingMode('bridge-seamless')}
+                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
+                        gapHandlingMode === 'bridge-seamless'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
+                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <p className="text-[10px] font-bold flex items-center gap-1">
+                        <span>🔗 Seamless</span>
+                      </p>
+                      <p className="text-[8px] text-gray-400 mt-0.5">
+                        Bridges audio tail to next verse start without timeline gaps
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* Silence Padding Slider */}
+                  <div className="pt-1 border-t border-gray-800/80 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-gray-400">Silence Margin (Padding):</span>
+                      <span className="text-amber-400 font-mono font-bold">±{silencePaddingMs} ms</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="400"
+                      step="20"
+                      value={silencePaddingMs}
+                      onChange={(e) => setSilencePaddingMs(parseInt(e.target.value, 10))}
+                      className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                    />
+                    <div className="flex justify-between text-[8px] text-gray-600 font-mono">
+                      <span>Tight (0ms)</span>
+                      <span>Default (120ms)</span>
+                      <span>Spacious (400ms)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Starting Ayah Number input */}
+                <div className="flex items-center justify-between bg-[#0e0e14] p-2 rounded-lg border border-gray-800 text-[11px]">
+                  <span className="text-gray-300">First Ayah Number:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-500 font-mono">Start at:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="286"
+                      value={customStartAyah}
+                      onChange={(e) => setCustomStartAyah(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-14 bg-black border border-amber-500/40 rounded px-2 py-0.5 text-xs text-amber-300 font-mono text-center focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Auto-Segment Action Button */}
+                <button
+                  type="button"
+                  id="btn-trigger-auto-segment-audio"
+                  onClick={async () => {
+                    if (onAutoSegmentAudio) {
+                      setIsSegmentingAudio(true);
+                      try {
+                        await onAutoSegmentAudio(selectedClip?.id, audioSensitivity, {
+                          minSilenceMs: customMinSilenceMs,
+                          startAyahNumber: customStartAyah,
+                          gapHandling: gapHandlingMode,
+                          paddingMs: silencePaddingMs,
+                        });
+                      } finally {
+                        setIsSegmentingAudio(false);
+                      }
+                    }
+                  }}
+                  disabled={isSegmentingAudio}
+                  className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold rounded-lg text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                >
+                  {isSegmentingAudio ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Scanning Recitation & Segmenting Ayahs...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>⚡ Auto-Segment Audio into Ayahs on Timeline</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <h3 className="text-xs font-semibold text-gray-400 tracking-wider pt-2">STOCK AUDIO TRACKS</h3>
             <div className="grid grid-cols-1 gap-3">
               {STOCK_AUDIOS.map((audio) => (
                 <div

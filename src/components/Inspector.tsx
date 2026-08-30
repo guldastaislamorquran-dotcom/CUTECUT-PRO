@@ -43,6 +43,7 @@ export default function Inspector({
   const [transType, setTransType] = useState<TransitionType>('dissolve');
   const [transScope, setTransScope] = useState<'in' | 'out' | 'both'>('both');
   const [transDuration, setTransDuration] = useState<number>(1.0);
+  const [adjacentMode, setAdjacentMode] = useState<'joint-prev' | 'joint-next' | 'both-joints' | 'all-track-clips' | 'clip-only'>('both-joints');
 
   // Keyframe property state
   const currentClipOffset = selectedClip && currentTime !== undefined
@@ -66,6 +67,18 @@ export default function Inspector({
       setKfScale(selectedClip.transform?.scale ?? 100);
       setKfRotation(selectedClip.transform?.rotation ?? 0);
       setKfVolume(Math.round((selectedClip.volume ?? 1) * 100));
+
+      // Sync transition state from clip transition & videoEffects properties
+      const fxTrans = selectedClip.videoEffects?.transition;
+      const effectiveType = selectedClip.transition?.type ||
+        (typeof fxTrans === 'string' ? fxTrans : fxTrans?.type) ||
+        selectedClip.videoEffects?.transitionIn ||
+        'dissolve';
+      if (effectiveType && effectiveType !== 'none') {
+        setTransType(effectiveType as TransitionType);
+      }
+      const effectiveDuration = selectedClip.transition?.duration || selectedClip.videoEffects?.transitionDuration || 1.0;
+      setTransDuration(effectiveDuration);
     }
   }, [selectedClip?.id]);
 
@@ -1680,331 +1693,493 @@ export default function Inspector({
         )}
 
         {/* ------------------ TRANSITIONS CONTROLS ------------------ */}
-        {activeSubTab === 'transitions' && (
-          <div className="space-y-4">
-            {/* Multi-Clip Selection Matrix Status */}
-            {selectedClipIds && selectedClipIds.length > 1 && (
-              <div className="p-2.5 bg-gradient-to-r from-amber-950/90 via-yellow-950/90 to-amber-950/90 border border-amber-500/50 rounded-lg text-amber-200 text-xs font-bold flex items-center justify-between shadow-lg">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                  <span className="tracking-wide">MULTI-SELECTION: {selectedClipIds.length} CLIPS SELECTED</span>
+        {activeSubTab === 'transitions' && (() => {
+          const currentTrack = (tracks || []).find(t => t.clips.some(c => c.id === selectedClip.id));
+          const trackClips = currentTrack ? [...currentTrack.clips].sort((a, b) => a.start - b.start) : [];
+          const currentClipIndex = trackClips.findIndex(c => c.id === selectedClip.id);
+
+          const prevClip = currentClipIndex > 0 ? trackClips[currentClipIndex - 1] : null;
+          const nextClip = currentClipIndex >= 0 && currentClipIndex < trackClips.length - 1 ? trackClips[currentClipIndex + 1] : null;
+
+          const handleApplyTransition = () => {
+            const updatesMap = new Map<string, Partial<Clip>>();
+
+            const makeFxObj = (existingFx: any, inT?: TransitionType, outT?: TransitionType) => ({
+              ...(existingFx || {}),
+              transition: transType,
+              transitionIn: inT || 'none',
+              transitionOut: outT || 'none',
+              transitionDuration: transDuration,
+            });
+
+            const makeTransObj = (inT?: TransitionType, outT?: TransitionType): ClipTransition => ({
+              type: transType,
+              duration: transDuration,
+              inType: inT || 'none',
+              inDuration: transDuration,
+              outType: outT || 'none',
+              outDuration: transDuration,
+            });
+
+            if (adjacentMode === 'joint-prev' && prevClip) {
+              updatesMap.set(prevClip.id, {
+                transition: makeTransObj(prevClip.transition?.inType || 'none', transType),
+                videoEffects: makeFxObj(prevClip.videoEffects, prevClip.videoEffects?.transitionIn || 'none', transType),
+              });
+              updatesMap.set(selectedClip.id, {
+                transition: makeTransObj(transType, selectedClip.transition?.outType || 'none'),
+                videoEffects: makeFxObj(selectedClip.videoEffects, transType, selectedClip.videoEffects?.transitionOut || 'none'),
+              });
+            } else if (adjacentMode === 'joint-next' && nextClip) {
+              updatesMap.set(selectedClip.id, {
+                transition: makeTransObj(selectedClip.transition?.inType || 'none', transType),
+                videoEffects: makeFxObj(selectedClip.videoEffects, selectedClip.videoEffects?.transitionIn || 'none', transType),
+              });
+              updatesMap.set(nextClip.id, {
+                transition: makeTransObj(transType, nextClip.transition?.outType || 'none'),
+                videoEffects: makeFxObj(nextClip.videoEffects, transType, nextClip.videoEffects?.transitionOut || 'none'),
+              });
+            } else if (adjacentMode === 'both-joints') {
+              if (prevClip) {
+                updatesMap.set(prevClip.id, {
+                  transition: makeTransObj(prevClip.transition?.inType || 'none', transType),
+                  videoEffects: makeFxObj(prevClip.videoEffects, prevClip.videoEffects?.transitionIn || 'none', transType),
+                });
+              }
+              const inT = prevClip ? transType : (transScope === 'out' ? 'none' : transType);
+              const outT = nextClip ? transType : (transScope === 'in' ? 'none' : transType);
+              updatesMap.set(selectedClip.id, {
+                transition: makeTransObj(inT, outT),
+                videoEffects: makeFxObj(selectedClip.videoEffects, inT, outT),
+              });
+              if (nextClip) {
+                updatesMap.set(nextClip.id, {
+                  transition: makeTransObj(transType, nextClip.transition?.outType || 'none'),
+                  videoEffects: makeFxObj(nextClip.videoEffects, transType, nextClip.videoEffects?.transitionOut || 'none'),
+                });
+              }
+            } else if (adjacentMode === 'all-track-clips' && trackClips.length > 0) {
+              trackClips.forEach((c, idx) => {
+                const hasPrev = idx > 0;
+                const hasNext = idx < trackClips.length - 1;
+                const inT = hasPrev ? transType : 'none';
+                const outT = hasNext ? transType : 'none';
+
+                updatesMap.set(c.id, {
+                  transition: makeTransObj(inT, outT),
+                  videoEffects: makeFxObj(c.videoEffects, inT, outT),
+                });
+              });
+            } else {
+              const targetIds = (selectedClipIds && selectedClipIds.length > 0) ? selectedClipIds : [selectedClip.id];
+              const inT = transScope === 'out' ? 'none' : transType;
+              const outT = transScope === 'in' ? 'none' : transType;
+
+              targetIds.forEach(id => {
+                const targetClip = trackClips.find(c => c.id === id) || selectedClip;
+                updatesMap.set(id, {
+                  transition: makeTransObj(inT, outT),
+                  videoEffects: makeFxObj(targetClip.videoEffects, inT, outT),
+                });
+              });
+            }
+
+            const updatesList = Array.from(updatesMap.entries()).map(([id, updates]) => ({ id, updates }));
+            if (onBatchUpdateClips) {
+              onBatchUpdateClips(updatesList);
+            } else {
+              updatesList.forEach(u => onUpdateClip(u.id, u.updates));
+            }
+          };
+
+          const handleClearTransition = () => {
+            const targetIds = (selectedClipIds && selectedClipIds.length > 0) ? selectedClipIds : [selectedClip.id];
+            const resetTrans: ClipTransition = { type: 'none', inType: 'none', outType: 'none', duration: 1.0 };
+            
+            const updatesList = targetIds.map(id => {
+              const targetClip = trackClips.find(c => c.id === id) || selectedClip;
+              const currentFx = targetClip.videoEffects || {};
+              const { transition, transitionIn, transitionOut, transitionDuration, ...restFx } = currentFx;
+              return {
+                id,
+                updates: {
+                  transition: resetTrans,
+                  videoEffects: restFx,
+                }
+              };
+            });
+
+            if (onBatchUpdateClips) {
+              onBatchUpdateClips(updatesList);
+            } else {
+              updatesList.forEach(u => onUpdateClip(u.id, u.updates));
+            }
+          };
+
+          return (
+            <div className="space-y-4">
+              {/* Multi-Clip Selection Matrix Status */}
+              {selectedClipIds && selectedClipIds.length > 1 && (
+                <div className="p-2.5 bg-gradient-to-r from-amber-950/90 via-yellow-950/90 to-amber-950/90 border border-amber-500/50 rounded-lg text-amber-200 text-xs font-bold flex items-center justify-between shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                    <span className="tracking-wide">MULTI-SELECTION: {selectedClipIds.length} CLIPS SELECTED</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {onMergeClips && (
+                      <button
+                        onClick={onMergeClips}
+                        className="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow transition cursor-pointer"
+                        title="Merge selected adjacent text clips into one (Ctrl + M)"
+                      >
+                        <Merge className="w-3 h-3" />
+                        <span>MERGE</span>
+                      </button>
+                    )}
+                    <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded font-mono border border-amber-400/40">
+                      BATCH MODE
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {onMergeClips && (
-                    <button
-                      onClick={onMergeClips}
-                      className="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow transition"
-                      title="Merge selected adjacent text clips into one (Ctrl + M)"
-                    >
-                      <Merge className="w-3 h-3" />
-                      <span>MERGE</span>
-                    </button>
-                  )}
-                  <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded font-mono border border-amber-400/40">
-                    BATCH MODE
+              )}
+
+              {/* Current Clip Active Transition & videoEffects Status */}
+              <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                    <Blend className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>ACTIVE TRANSITION & VIDEO EFFECTS</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border uppercase ${
+                      selectedClip.videoEffects?.transition || (selectedClip.transition?.type && selectedClip.transition.type !== 'none')
+                        ? 'bg-cyan-950 text-cyan-300 border-cyan-500/50'
+                        : 'bg-gray-900 text-gray-500 border-gray-800'
+                    }`}>
+                      {String(selectedClip.videoEffects?.transition || selectedClip.transition?.type || selectedClip.transition?.inType || 'NONE').toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Track Context Info */}
+                <div className="text-[10px] text-gray-400 bg-[#141419] p-2 rounded border border-gray-800/80 flex justify-between items-center">
+                  <span className="font-semibold text-gray-300">Track Context:</span>
+                  <span className="font-mono text-cyan-400 font-bold">{currentTrack?.name || 'Track 1'} ({trackClips.length} Clips)</span>
+                </div>
+
+                {/* Live Animated Preview Card */}
+                <div className="relative w-full h-24 bg-[#0d0d12] border border-[#2a2a36] rounded-lg overflow-hidden flex items-center justify-center p-2 shadow-inner">
+                  <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:12px_12px]" />
+                  
+                  {/* Visual Simulation of Selected Transition Effect */}
+                  <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+                    <div className="absolute left-2 w-16 h-12 rounded bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center text-[9px] font-bold text-white shadow-md z-10">
+                      {prevClip ? prevClip.name.slice(0, 8) : 'CLIP A'}
+                    </div>
+                    <div className={`absolute right-2 w-16 h-12 rounded bg-gradient-to-tr from-cyan-600 to-teal-500 flex items-center justify-center text-[9px] font-bold text-white shadow-md z-20 transition-all duration-700 ${
+                      transType === 'fade' ? 'animate-pulse' :
+                      transType === 'slide-left' ? 'translate-x-1 animate-bounce' :
+                      transType === 'slide-right' ? '-translate-x-1 animate-bounce' :
+                      transType === 'slide-up' ? 'translate-y-1 animate-bounce' :
+                      transType === 'slide-down' ? '-translate-y-1 animate-bounce' :
+                      transType === 'zoom' ? 'scale-110 animate-pulse' :
+                      transType === 'dissolve' || transType === 'cross-dissolve' ? 'opacity-80 animate-pulse' :
+                      'opacity-100'
+                    }`}>
+                      {selectedClip.name ? selectedClip.name.slice(0, 8) : 'CLIP B'}
+                    </div>
+                    <div className="absolute bottom-1 right-2 text-[8px] font-mono text-cyan-400 bg-black/60 px-1 rounded">
+                      EFFECT: {transType.toUpperCase()} ({transDuration.toFixed(1)}s)
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Adjacent Clips on Same Track Section */}
+              <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>ADJACENT CLIPS ON TRACK</span>
+                  </span>
+                  <span className="text-[9px] text-gray-500 font-mono">
+                    {currentClipIndex >= 0 ? `Clip ${currentClipIndex + 1} of ${trackClips.length}` : 'Selected'}
                   </span>
                 </div>
-              </div>
-            )}
 
-            {/* Current Clip Active Transition Status */}
-            <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                  <Blend className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>ACTIVE TRANSITION EFFECT</span>
-                </span>
-                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border uppercase ${
-                  selectedClip.transition?.type && selectedClip.transition.type !== 'none'
-                    ? 'bg-cyan-950 text-cyan-300 border-cyan-500/50'
-                    : 'bg-gray-900 text-gray-500 border-gray-800'
-                }`}>
-                  {selectedClip.transition?.type || selectedClip.transition?.inType || 'NONE'}
-                </span>
-              </div>
-
-              {/* Live Animated Preview Card */}
-              <div className="relative w-full h-24 bg-[#0d0d12] border border-[#2a2a36] rounded-lg overflow-hidden flex items-center justify-center p-2 shadow-inner">
-                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:12px_12px]" />
-                
-                {/* Visual Simulation of Selected Transition Effect */}
-                <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-                  <div className="absolute left-2 w-16 h-12 rounded bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center text-[9px] font-bold text-white shadow-md z-10">
-                    CLIP A
-                  </div>
-                  <div className={`absolute right-2 w-16 h-12 rounded bg-gradient-to-tr from-cyan-600 to-teal-500 flex items-center justify-center text-[9px] font-bold text-white shadow-md z-20 transition-all duration-700 ${
-                    transType === 'fade' ? 'animate-pulse' :
-                    transType === 'slide-left' ? 'translate-x-1 animate-bounce' :
-                    transType === 'slide-right' ? '-translate-x-1 animate-bounce' :
-                    transType === 'slide-up' ? 'translate-y-1 animate-bounce' :
-                    transType === 'slide-down' ? '-translate-y-1 animate-bounce' :
-                    transType === 'zoom' ? 'scale-110 animate-pulse' :
-                    transType === 'dissolve' || transType === 'cross-dissolve' ? 'opacity-80 animate-pulse' :
-                    'opacity-100'
+                {/* Neighbor Clips Visual Diagram */}
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  {/* Prev Clip Card */}
+                  <div className={`p-2 rounded border text-left flex flex-col justify-between text-[10px] ${
+                    prevClip ? 'border-purple-500/40 bg-purple-950/20 text-purple-200' : 'border-gray-800 bg-[#16161c] text-gray-600'
                   }`}>
-                    CLIP B
+                    <div className="font-bold text-[9px] uppercase tracking-wider text-purple-400">Previous Clip</div>
+                    <div className="font-semibold truncate my-1" title={prevClip?.name}>
+                      {prevClip ? prevClip.name : 'None (Start)'}
+                    </div>
+                    <div className="text-[8px] font-mono text-gray-500">
+                      {prevClip ? `${prevClip.start.toFixed(1)}s - ${(prevClip.start + prevClip.duration).toFixed(1)}s` : '--'}
+                    </div>
                   </div>
-                  <div className="absolute bottom-1 right-2 text-[8px] font-mono text-cyan-400 bg-black/60 px-1 rounded">
-                    LIVE EFFECT: {transType.toUpperCase()} ({transDuration.toFixed(1)}s)
+
+                  {/* Current Selected Clip Card */}
+                  <div className="p-2 rounded border border-cyan-400/60 bg-cyan-950/30 text-left flex flex-col justify-between text-[10px] shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                    <div className="font-bold text-[9px] uppercase tracking-wider text-cyan-300">Selected Clip</div>
+                    <div className="font-bold text-cyan-200 truncate my-1" title={selectedClip.name}>
+                      {selectedClip.name}
+                    </div>
+                    <div className="text-[8px] font-mono text-cyan-400">
+                      {`${selectedClip.start.toFixed(1)}s - ${(selectedClip.start + selectedClip.duration).toFixed(1)}s`}
+                    </div>
+                  </div>
+
+                  {/* Next Clip Card */}
+                  <div className={`p-2 rounded border text-left flex flex-col justify-between text-[10px] ${
+                    nextClip ? 'border-teal-500/40 bg-teal-950/20 text-teal-200' : 'border-gray-800 bg-[#16161c] text-gray-600'
+                  }`}>
+                    <div className="font-bold text-[9px] uppercase tracking-wider text-teal-400">Next Clip</div>
+                    <div className="font-semibold truncate my-1" title={nextClip?.name}>
+                      {nextClip ? nextClip.name : 'None (End)'}
+                    </div>
+                    <div className="text-[8px] font-mono text-gray-500">
+                      {nextClip ? `${nextClip.start.toFixed(1)}s - ${(nextClip.start + nextClip.duration).toFixed(1)}s` : '--'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transition Application Scope Selector */}
+                <div className="space-y-1.5 pt-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                    TRANSITION TARGET BOUNDARY
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setAdjacentMode('both-joints')}
+                      className={`py-1.5 px-2 rounded border font-semibold text-left flex items-center justify-between transition cursor-pointer ${
+                        adjacentMode === 'both-joints'
+                          ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow'
+                          : 'bg-[#16161c] text-gray-300 border-gray-800 hover:border-gray-600'
+                      }`}
+                    >
+                      <span>Prev & Next Joints</span>
+                      {adjacentMode === 'both-joints' && <Check className="w-3 h-3 stroke-[3]" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!prevClip}
+                      onClick={() => setAdjacentMode('joint-prev')}
+                      className={`py-1.5 px-2 rounded border font-semibold text-left flex items-center justify-between transition cursor-pointer ${
+                        !prevClip ? 'opacity-40 cursor-not-allowed border-gray-800 bg-[#121217]' :
+                        adjacentMode === 'joint-prev'
+                          ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow'
+                          : 'bg-[#16161c] text-gray-300 border-gray-800 hover:border-gray-600'
+                      }`}
+                    >
+                      <span>Prev ↔ Selected</span>
+                      {adjacentMode === 'joint-prev' && <Check className="w-3 h-3 stroke-[3]" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!nextClip}
+                      onClick={() => setAdjacentMode('joint-next')}
+                      className={`py-1.5 px-2 rounded border font-semibold text-left flex items-center justify-between transition cursor-pointer ${
+                        !nextClip ? 'opacity-40 cursor-not-allowed border-gray-800 bg-[#121217]' :
+                        adjacentMode === 'joint-next'
+                          ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow'
+                          : 'bg-[#16161c] text-gray-300 border-gray-800 hover:border-gray-600'
+                      }`}
+                    >
+                      <span>Selected ↔ Next</span>
+                      {adjacentMode === 'joint-next' && <Check className="w-3 h-3 stroke-[3]" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdjacentMode('all-track-clips')}
+                      className={`py-1.5 px-2 rounded border font-semibold text-left flex items-center justify-between transition cursor-pointer ${
+                        adjacentMode === 'all-track-clips'
+                          ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow'
+                          : 'bg-[#16161c] text-gray-300 border-gray-800 hover:border-gray-600'
+                      }`}
+                    >
+                      <span>All Track Joints ({trackClips.length})</span>
+                      {adjacentMode === 'all-track-clips' && <Check className="w-3 h-3 stroke-[3]" />}
+                    </button>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Transition Preset Cards Grid */}
-            <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
-                SELECT TRANSITION STYLE
-              </span>
+              {/* Transition Preset Cards Grid */}
+              <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                  SELECT TRANSITION EFFECT
+                </span>
 
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  {
-                    id: 'dissolve',
-                    name: 'Cross Dissolve',
-                    desc: 'Smooth alpha cross blend',
-                    icon: Blend,
-                    color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/30'
-                  },
-                  {
-                    id: 'fade',
-                    name: 'Fade In / Out',
-                    desc: 'Classic black/opacity dissolve',
-                    icon: Zap,
-                    color: 'text-amber-400 border-amber-500/40 bg-amber-950/30'
-                  },
-                  {
-                    id: 'slide-left',
-                    name: 'Slide Left',
-                    desc: 'Horizontal entrance to left',
-                    icon: ArrowLeft,
-                    color: 'text-purple-400 border-purple-500/40 bg-purple-950/30'
-                  },
-                  {
-                    id: 'slide-right',
-                    name: 'Slide Right',
-                    desc: 'Horizontal entrance to right',
-                    icon: ArrowRight,
-                    color: 'text-indigo-400 border-indigo-500/40 bg-indigo-950/30'
-                  },
-                  {
-                    id: 'slide-up',
-                    name: 'Slide Up',
-                    desc: 'Vertical push upwards',
-                    icon: ArrowUp,
-                    color: 'text-emerald-400 border-emerald-500/40 bg-emerald-950/30'
-                  },
-                  {
-                    id: 'slide-down',
-                    name: 'Slide Down',
-                    desc: 'Vertical push downwards',
-                    icon: ArrowDown,
-                    color: 'text-teal-400 border-teal-500/40 bg-teal-950/30'
-                  },
-                  {
-                    id: 'zoom',
-                    name: 'Zoom Dissolve',
-                    desc: 'Dynamic scale & opacity boom',
-                    icon: Sparkles,
-                    color: 'text-pink-400 border-pink-500/40 bg-pink-950/30'
-                  },
-                  {
-                    id: 'wipe',
-                    name: 'Sweep Wipe',
-                    desc: 'Directional horizontal mask',
-                    icon: Layers,
-                    color: 'text-yellow-400 border-yellow-500/40 bg-yellow-950/30'
-                  },
-                ].map((preset) => {
-                  const isSelected = transType === preset.id;
-                  const IconComp = preset.icon;
-                  return (
-                    <button
-                      key={preset.id}
-                      onClick={() => setTransType(preset.id as TransitionType)}
-                      className={`p-2.5 rounded-lg border text-left transition-all relative flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-cyan-400 bg-[#282834] shadow-[0_0_12px_rgba(6,182,212,0.35)] scale-[1.02]'
-                          : 'border-gray-800 bg-[#16161c] hover:border-gray-600 hover:bg-[#1d1d26]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className={`p-1.5 rounded-md border ${preset.color}`}>
-                          <IconComp className="w-3.5 h-3.5" />
-                        </div>
-                        {isSelected && (
-                          <span className="p-0.5 rounded-full bg-cyan-500 text-black">
-                            <Check className="w-3 h-3 stroke-[3]" />
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <p className={`text-[11px] font-bold ${isSelected ? 'text-cyan-300' : 'text-gray-200'}`}>
-                          {preset.name}
-                        </p>
-                        <p className="text-[9px] text-gray-500 leading-tight line-clamp-1 mt-0.5">
-                          {preset.desc}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Transition Scope & Duration Controls */}
-            <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
-              {/* Scope Toggles */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-                  APPLY TRANSITION TO
-                </label>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-2 gap-2">
                   {[
-                    { id: 'in', label: 'In Only' },
-                    { id: 'out', label: 'Out Only' },
-                    { id: 'both', label: 'Both In & Out' },
-                  ].map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setTransScope(s.id as any)}
-                      className={`py-1.5 text-[10px] font-bold rounded border transition ${
-                        transScope === s.id
-                          ? 'bg-cyan-500 text-black border-cyan-400 shadow'
-                          : 'bg-[#16161c] text-gray-400 border-gray-800 hover:text-white'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                    {
+                      id: 'dissolve',
+                      name: 'Cross Dissolve',
+                      desc: 'Smooth alpha cross blend',
+                      icon: Blend,
+                      color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/30'
+                    },
+                    {
+                      id: 'fade',
+                      name: 'Fade In / Out',
+                      desc: 'Classic black/opacity dissolve',
+                      icon: Zap,
+                      color: 'text-amber-400 border-amber-500/40 bg-amber-950/30'
+                    },
+                    {
+                      id: 'slide-left',
+                      name: 'Slide Left',
+                      desc: 'Horizontal entrance to left',
+                      icon: ArrowLeft,
+                      color: 'text-purple-400 border-purple-500/40 bg-purple-950/30'
+                    },
+                    {
+                      id: 'slide-right',
+                      name: 'Slide Right',
+                      desc: 'Horizontal entrance to right',
+                      icon: ArrowRight,
+                      color: 'text-indigo-400 border-indigo-500/40 bg-indigo-950/30'
+                    },
+                    {
+                      id: 'slide-up',
+                      name: 'Slide Up',
+                      desc: 'Vertical push upwards',
+                      icon: ArrowUp,
+                      color: 'text-emerald-400 border-emerald-500/40 bg-emerald-950/30'
+                    },
+                    {
+                      id: 'slide-down',
+                      name: 'Slide Down',
+                      desc: 'Vertical push downwards',
+                      icon: ArrowDown,
+                      color: 'text-teal-400 border-teal-500/40 bg-teal-950/30'
+                    },
+                    {
+                      id: 'zoom',
+                      name: 'Zoom Dissolve',
+                      desc: 'Dynamic scale & opacity boom',
+                      icon: Sparkles,
+                      color: 'text-pink-400 border-pink-500/40 bg-pink-950/30'
+                    },
+                    {
+                      id: 'wipe',
+                      name: 'Sweep Wipe',
+                      desc: 'Directional horizontal mask',
+                      icon: Layers,
+                      color: 'text-yellow-400 border-yellow-500/40 bg-yellow-950/30'
+                    },
+                  ].map((preset) => {
+                    const isSelected = transType === preset.id;
+                    const IconComp = preset.icon;
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => setTransType(preset.id as TransitionType)}
+                        className={`p-2.5 rounded-lg border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
+                          isSelected
+                            ? 'border-cyan-400 bg-[#282834] shadow-[0_0_12px_rgba(6,182,212,0.35)] scale-[1.02]'
+                            : 'border-gray-800 bg-[#16161c] hover:border-gray-600 hover:bg-[#1d1d26]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <div className={`p-1.5 rounded-md border ${preset.color}`}>
+                            <IconComp className="w-3.5 h-3.5" />
+                          </div>
+                          {isSelected && (
+                            <span className="p-0.5 rounded-full bg-cyan-500 text-black">
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <p className={`text-[11px] font-bold ${isSelected ? 'text-cyan-300' : 'text-gray-200'}`}>
+                            {preset.name}
+                          </p>
+                          <p className="text-[9px] text-gray-500 leading-tight line-clamp-1 mt-0.5">
+                            {preset.desc}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Duration Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-gray-400">
-                  <span>Transition Duration</span>
-                  <span className="font-mono text-cyan-400 font-bold">{transDuration.toFixed(1)}s</span>
-                </div>
-                <input
-                  id="transition-duration-slider"
-                  type="range"
-                  min="0.1"
-                  max="3.0"
-                  step="0.1"
-                  value={transDuration}
-                  onChange={(e) => setTransDuration(parseFloat(e.target.value))}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                />
-                <div className="flex justify-between text-[8px] font-mono text-gray-600 px-0.5">
-                  <span>0.1s (Fast)</span>
-                  <span>1.0s (Standard)</span>
-                  <span>3.0s (Slow)</span>
+              {/* Transition Scope & Duration Controls */}
+              <div className="bg-[#202026] p-3 rounded-lg border border-gray-800 space-y-3">
+                {/* Duration Slider */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-gray-400">
+                    <span>Transition Duration</span>
+                    <span className="font-mono text-cyan-400 font-bold">{transDuration.toFixed(1)}s</span>
+                  </div>
+                  <input
+                    id="transition-duration-slider"
+                    type="range"
+                    min="0.1"
+                    max="3.0"
+                    step="0.1"
+                    value={transDuration}
+                    onChange={(e) => setTransDuration(parseFloat(e.target.value))}
+                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                  />
+                  <div className="flex justify-between text-[8px] font-mono text-gray-600 px-0.5">
+                    <button type="button" onClick={() => setTransDuration(0.5)} className="hover:text-cyan-400 cursor-pointer">0.5s Fast</button>
+                    <button type="button" onClick={() => setTransDuration(1.0)} className="hover:text-cyan-400 cursor-pointer">1.0s Standard</button>
+                    <button type="button" onClick={() => setTransDuration(2.0)} className="hover:text-cyan-400 cursor-pointer">2.0s Slow</button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Actions & Apply Buttons */}
-            <div className="space-y-2 pt-1">
-              <button
-                id="btn-apply-transition"
-                onClick={() => {
-                  const typeToUse = transType;
-                  const scopeToUse = transScope;
-                  const durationToUse = transDuration;
-
-                  const transObj: ClipTransition = {
-                    type: typeToUse,
-                    duration: durationToUse,
-                    inType: scopeToUse === 'out' ? 'none' : typeToUse,
-                    inDuration: durationToUse,
-                    outType: scopeToUse === 'in' ? 'none' : typeToUse,
-                    outDuration: durationToUse,
-                  };
-
-                  const targetIds = selectedClipIds.length > 0 ? selectedClipIds : [selectedClip.id];
-
-                  if (onBatchUpdateClips) {
-                    onBatchUpdateClips(targetIds.map(id => ({ id, updates: { transition: transObj } })));
-                  } else {
-                    targetIds.forEach(id => onUpdateClip(id, { transition: transObj }));
-                  }
-                }}
-                className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-extrabold text-xs shadow-lg shadow-cyan-950/50 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 fill-black" />
-                <span>APPLY {transType.toUpperCase()} TO {selectedClipIds.length > 1 ? `${selectedClipIds.length} SELECTED CLIPS` : 'SELECTED CLIP'}</span>
-              </button>
-
-              <button
-                id="btn-auto-dissolve-all"
-                onClick={() => {
-                  if (!tracks || tracks.length === 0) return;
-                  const updates: { id: string; updates: Partial<Clip> }[] = [];
-
-                  tracks.forEach(track => {
-                    const sortedClips = [...track.clips].sort((a, b) => a.start - b.start);
-                    sortedClips.forEach((c, idx) => {
-                      const prevClip = sortedClips[idx - 1];
-                      const nextClip = sortedClips[idx + 1];
-
-                      const isNearPrev = prevClip && Math.abs((prevClip.start + prevClip.duration) - c.start) < 0.2;
-                      const isNearNext = nextClip && Math.abs((c.start + c.duration) - nextClip.start) < 0.2;
-
-                      const transObj: ClipTransition = {
-                        type: 'dissolve',
-                        duration: 0.8,
-                        inType: isNearPrev ? 'dissolve' : 'fade',
-                        inDuration: 0.8,
-                        outType: isNearNext ? 'dissolve' : 'fade',
-                        outDuration: 0.8,
-                      };
-
-                      updates.push({ id: c.id, updates: { transition: transObj } });
-                    });
-                  });
-
-                  if (updates.length > 0) {
-                    if (onBatchUpdateClips) {
-                      onBatchUpdateClips(updates);
-                    } else {
-                      updates.forEach(u => onUpdateClip(u.id, u.updates));
-                    }
-                  }
-                }}
-                className="w-full py-2 rounded-lg bg-[#22222a] hover:bg-[#2c2c36] text-cyan-300 font-bold text-[11px] border border-cyan-500/30 transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Blend className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Auto-Apply Dissolves to All Timeline Clips</span>
-              </button>
-
-              {selectedClip.transition && selectedClip.transition.type && selectedClip.transition.type !== 'none' && (
+              {/* Actions & Apply Buttons */}
+              <div className="space-y-2 pt-1">
                 <button
-                  id="btn-remove-transition"
-                  onClick={() => {
-                    const targetIds = selectedClipIds.length > 0 ? selectedClipIds : [selectedClip.id];
-                    const resetTrans: ClipTransition = {
-                      type: 'none',
-                      inType: 'none',
-                      outType: 'none',
-                      duration: 1.0,
-                    };
-
-                    if (onBatchUpdateClips) {
-                      onBatchUpdateClips(targetIds.map(id => ({ id, updates: { transition: resetTrans } })));
-                    } else {
-                      targetIds.forEach(id => onUpdateClip(id, { transition: resetTrans }));
-                    }
-                  }}
-                  className="w-full py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 font-semibold text-[10px] border border-red-800/40 transition flex items-center justify-center gap-1 cursor-pointer"
+                  id="btn-apply-transition"
+                  onClick={handleApplyTransition}
+                  className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-extrabold text-xs shadow-lg shadow-cyan-950/50 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <Trash2 className="w-3 h-3 text-red-400" />
-                  <span>Remove Transition Effect</span>
+                  <Sparkles className="w-4 h-4 fill-black" />
+                  <span>APPLY {transType.toUpperCase()} TO ADJACENT CLIPS</span>
                 </button>
-              )}
+
+                <button
+                  id="btn-auto-dissolve-all"
+                  onClick={() => {
+                    setAdjacentMode('all-track-clips');
+                    setTransType('dissolve');
+                    setTransDuration(0.8);
+                    setTimeout(() => {
+                      handleApplyTransition();
+                    }, 0);
+                  }}
+                  className="w-full py-2 rounded-lg bg-[#22222a] hover:bg-[#2c2c36] text-cyan-300 font-bold text-[11px] border border-cyan-500/30 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Blend className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Auto-Apply Dissolve to All Track Clips</span>
+                </button>
+
+                {(selectedClip.transition?.type || selectedClip.videoEffects?.transition) && (
+                  <button
+                    id="btn-remove-transition"
+                    onClick={handleClearTransition}
+                    className="w-full py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 font-semibold text-[10px] border border-red-800/40 transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3 text-red-400" />
+                    <span>Remove Transition & Video Effects Transition</span>
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ------------------ TEXT CONTROLS ------------------ */}
         {isText && (

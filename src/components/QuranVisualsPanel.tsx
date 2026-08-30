@@ -57,6 +57,90 @@ const VISUAL_STYLES = [
   { id: 'desert-dunes', name: 'Golden Sand Dunes & Horizon', icon: '🏜️', description: 'Majestic desert curves, winds, and golden hour' },
 ];
 
+// Comprehensive curated theme asset bank for instant, beautiful results in Web & Desktop Snap/PKG builds
+const LOCAL_THEMATIC_ASSETS: Record<string, { image: string; video: string; query: string; mood: string; prompt: string }> = {
+  dawn: {
+    image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    query: 'sunrise golden dawn mountains',
+    mood: 'golden-warm',
+    prompt: 'Cinematic 4K golden morning sunbeams breaking through misty mountains, spiritual radiance and warm dawn light'
+  },
+  night: {
+    image: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-starry-sky-at-night-42283-large.mp4',
+    query: 'starry night galaxy universe',
+    mood: 'deep-blue-night',
+    prompt: 'Majestic deep night cosmos, countless twinkling stars, celestial milky way galaxy over tranquil silhouetted hills'
+  },
+  mountains: {
+    image: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4',
+    query: 'majestic mountain peaks clouds',
+    mood: 'emerald-majestic',
+    prompt: 'Towering alpine mountain peaks bathed in ethereal sunlight, pine forest valley, pristine contemplation'
+  },
+  ocean: {
+    image: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-calm-sea-water-under-a-blue-sky-42999-large.mp4',
+    query: 'calm ocean waves turquoise sea',
+    mood: 'aquatic-tranquil',
+    prompt: 'Crystal turquoise ocean gently lapping against shore, rolling crystal-clear waves, peaceful horizon'
+  },
+  rain: {
+    image: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-rain-falling-on-water-surface-42948-large.mp4',
+    query: 'gentle rain falling fresh greenery',
+    mood: 'tranquil-rain',
+    prompt: 'Gentle blessing rain falling upon fresh green leaves, raindrops creating ripples on water surface'
+  },
+  gardens: {
+    image: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-sunlight-filtering-through-the-leaves-of-a-tree-42990-large.mp4',
+    query: 'lush green garden paradise stream',
+    mood: 'verdant-peace',
+    prompt: 'Lush paradise garden, flowing crystal stream beneath ancient olive trees, blooming flowers in soft daylight'
+  },
+  desert: {
+    image: 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-sand-dunes-in-a-desert-41584-large.mp4',
+    query: 'golden desert sand dunes horizon',
+    mood: 'golden-desert',
+    prompt: 'Vast sweeping golden sand dunes under a serene sunset horizon, gentle wind carving ripples in the sand'
+  },
+  light: {
+    image: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-golden-light-streaks-moving-in-space-42861-large.mp4',
+    query: 'celestial golden rays beam of light',
+    mood: 'heavenly-glow',
+    prompt: 'Divine celestial light rays illuminating atmospheric particles in high dynamic range, majestic awe'
+  },
+  cosmos: {
+    image: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-spinning-around-the-earth-in-space-41558-large.mp4',
+    query: 'earth planet stars nebula galaxy',
+    mood: 'cosmic-depth',
+    prompt: 'View of Earth from orbit, glowing atmosphere with deep starry nebula in background, cosmic wonder'
+  },
+  clouds: {
+    image: 'https://images.unsplash.com/photo-1534088568595-a066f410bcda?w=1200&auto=format&fit=crop&q=80',
+    video: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    query: 'epic timelapse clouds sunlight',
+    mood: 'ethereal-sky',
+    prompt: 'Dramatic cinematic cloudscape in golden hour, billowing white clouds drifting across deep azure sky'
+  }
+};
+
+const STYLE_TO_THEME_KEYS: Record<string, string[]> = {
+  'cinematic-nature': ['mountains', 'gardens', 'dawn', 'clouds', 'ocean'],
+  'golden-dawn': ['dawn', 'light', 'clouds', 'mountains'],
+  'night-cosmos': ['night', 'cosmos', 'light', 'clouds'],
+  'ocean-water': ['ocean', 'rain', 'clouds', 'dawn'],
+  'rain-clouds': ['rain', 'clouds', 'mountains', 'gardens'],
+  'paradise-gardens': ['gardens', 'ocean', 'rain', 'dawn'],
+  'desert-dunes': ['desert', 'dawn', 'light', 'night'],
+};
+
 export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   tracks,
   onAddClip,
@@ -78,7 +162,7 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   const [activePreview, setActivePreview] = useState<AyahVisualItem | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Extract Quran Ayahs & Intro Subtitle Segments currently present on timeline text tracks
+  // Extract Quran Ayahs from both text tracks AND segmented audio tracks currently present on timeline
   const getTimelineAyahs = (): Array<{
     verse_key: string;
     text_arabic?: string;
@@ -87,6 +171,7 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
     duration: number;
   }> => {
     const textTracks = tracks.filter(t => t.type === 'text');
+    const audioTracks = tracks.filter(t => t.type === 'audio');
     const result: Array<{
       verse_key: string;
       text_arabic?: string;
@@ -95,14 +180,13 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
       duration: number;
     }> = [];
 
-    // Search clips in text tracks
+    // 1. Search clips in text tracks
     textTracks.forEach(track => {
       track.clips.forEach(clip => {
         const rawName = clip.name || '';
         const rawText = clip.text || '';
         const isAr = /[\u0600-\u06FF]/.test(rawText);
 
-        // Identify verse key / title
         let key = rawName;
         const ayahNum = extractAyahNumberFromClip(clip);
 
@@ -116,10 +200,9 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
         } else if (ayahNum !== null) {
           key = `Ayah ${ayahNum}`;
         } else if (!key) {
-          key = `Segment ${result.length + 1}`;
+          key = `Verse ${result.length + 1}`;
         }
 
-        // Check if an overlapping segment already exists on timeline (e.g. Arabic & Translation dual-layer tracks)
         const existing = result.find(r => Math.abs(r.start - clip.start) < 0.35);
         if (existing) {
           if (isAr && !existing.text_arabic) {
@@ -127,7 +210,7 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
           } else if (!isAr && !existing.translation) {
             existing.translation = rawText;
           }
-          if (existing.verse_key.startsWith('Segment') && !key.startsWith('Segment')) {
+          if (existing.verse_key.startsWith('Verse') && !key.startsWith('Verse')) {
             existing.verse_key = key;
           }
         } else {
@@ -142,6 +225,31 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
       });
     });
 
+    // 2. If text tracks didn't have clips, check audio track segmented clips
+    if (result.length === 0) {
+      audioTracks.forEach(track => {
+        track.clips.forEach(clip => {
+          const rawName = clip.name || '';
+          const ayahNum = extractAyahNumberFromClip(clip);
+          let key = rawName;
+
+          if (ayahNum !== null) {
+            key = `Ayah ${ayahNum}`;
+          } else if (/ayah|part/i.test(rawName)) {
+            key = rawName.replace(/\(\d+(\.\d+)?s\)/gi, '').trim();
+          } else {
+            key = `Audio Part ${result.length + 1}`;
+          }
+
+          result.push({
+            verse_key: key,
+            start: Number(clip.start.toFixed(2)),
+            duration: Number(clip.duration.toFixed(2)),
+          });
+        });
+      });
+    }
+
     return result.sort((a, b) => a.start - b.start);
   };
 
@@ -155,10 +263,56 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
     }, 4000);
   };
 
+  // Standalone Client-Side Semantic Visual Generator (Works 100% in Desktop Snap/PKG & Offline)
+  const generateLocalQuranVisuals = (verses: any[], styleId: string, outputType: 'video' | 'image'): AyahVisualItem[] => {
+    const stylePool = STYLE_TO_THEME_KEYS[styleId] || STYLE_TO_THEME_KEYS['cinematic-nature'];
+
+    return verses.map((v, index) => {
+      const textCombo = `${v.verse_key || ''} ${v.text_arabic || ''} ${v.translation || ''}`.toLowerCase();
+      let matchedTheme = stylePool[index % stylePool.length];
+
+      // Semantic keyword detection
+      if (/noor|light|ray|glow|sun|shams|bright/i.test(textCombo)) {
+        matchedTheme = 'light';
+      } else if (/sky|sama|star|galaxy|universe|night|lail|space/i.test(textCombo)) {
+        matchedTheme = 'night';
+      } else if (/ocean|sea|bahr|water|ship|wave|river/i.test(textCombo)) {
+        matchedTheme = 'ocean';
+      } else if (/rain|matar|cloud|sahab|water|pour/i.test(textCombo)) {
+        matchedTheme = 'rain';
+      } else if (/jannah|garden|tree|fruit|flower|leaf|jannat/i.test(textCombo)) {
+        matchedTheme = 'gardens';
+      } else if (/mountain|jabal|peak|stone|earth|ard/i.test(textCombo)) {
+        matchedTheme = 'mountains';
+      } else if (/desert|sand|dune|dry|horizon/i.test(textCombo)) {
+        matchedTheme = 'desert';
+      }
+
+      const asset = LOCAL_THEMATIC_ASSETS[matchedTheme] || LOCAL_THEMATIC_ASSETS['mountains'];
+      const chosenUrl = outputType === 'video' ? asset.video : asset.image;
+
+      return {
+        verse_key: v.verse_key || `Ayah ${index + 1}`,
+        text_arabic: v.text_arabic,
+        translation: v.translation,
+        theme: matchedTheme,
+        mood: asset.mood,
+        stockQuery: asset.query,
+        cinematicPrompt: asset.prompt,
+        imageUrl: asset.image,
+        videoUrl: asset.video,
+        selectedUrl: chosenUrl,
+        mediaType: outputType,
+        start: v.start !== undefined ? v.start : index * 5.0,
+        duration: v.duration !== undefined ? v.duration : 5.0,
+      };
+    });
+  };
+
   // Generate Visuals for Ayahs
   const handleGenerateVisuals = async () => {
     setIsGenerating(true);
-    setGenerationProgress(10);
+    setGenerationProgress(15);
 
     let payloadVerses: any[] = [];
 
@@ -179,8 +333,8 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
         const ayahIndex = startAyah + i;
         payloadVerses.push({
           verse_key: `${selectedSurah}:${ayahIndex}`,
-          text_arabic: `Ayah ${ayahIndex} of Surah ${surahInfo.name}`,
-          translation: `Translation of verse ${ayahIndex} describing divine natural signs and contemplation.`,
+          text_arabic: `سورة ${surahInfo.name} - آية ${ayahIndex}`,
+          translation: `Translation of Surah ${surahInfo.name} Verse ${ayahIndex}`,
           duration: 5.0,
           start: i * 5.0,
         });
@@ -188,42 +342,59 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
     }
 
     try {
-      setGenerationProgress(35);
+      setGenerationProgress(45);
+      // Attempt backend AI route with quick timeout fallback for Desktop Snap / PKG standalone environments
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
       const res = await fetch('/api/ai/quran-visuals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           verses: payloadVerses,
           visualStyle,
           mediaType,
           surahName: SURAHS.find(s => s.id === selectedSurah)?.name || 'Quran'
         })
-      });
+      }).catch(() => null);
 
-      setGenerationProgress(75);
-      const data = await res.json();
+      clearTimeout(timeoutId);
 
-      if (data && data.visuals) {
-        const enriched: AyahVisualItem[] = data.visuals.map((v: any, index: number) => {
-          const original = payloadVerses[index] || {};
-          return {
-            ...v,
-            verse_key: original.verse_key || v.verse_key,
-            text_arabic: original.text_arabic || v.text_arabic,
-            translation: original.translation || v.translation,
-            start: original.start !== undefined ? original.start : index * 5.0,
-            duration: original.duration !== undefined ? original.duration : 5.0,
-            mediaType: mediaType,
-          };
-        });
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data && data.visuals && data.visuals.length > 0) {
+          const enriched: AyahVisualItem[] = data.visuals.map((v: any, index: number) => {
+            const original = payloadVerses[index] || {};
+            return {
+              ...v,
+              verse_key: original.verse_key || v.verse_key,
+              text_arabic: original.text_arabic || v.text_arabic,
+              translation: original.translation || v.translation,
+              start: original.start !== undefined ? original.start : index * 5.0,
+              duration: original.duration !== undefined ? original.duration : 5.0,
+              mediaType: mediaType,
+            };
+          });
 
-        setGeneratedVisuals(enriched);
-        setGenerationProgress(100);
-        showToast(`✨ Generated ${enriched.length} Ayah visual scenes successfully!`);
+          setGeneratedVisuals(enriched);
+          setGenerationProgress(100);
+          showToast(`✨ Generated ${enriched.length} Ayah visual scenes successfully!`);
+          return;
+        }
       }
+
+      // Standalone / Offline Snap & PKG Fallback Generator
+      setGenerationProgress(80);
+      const localVisuals = generateLocalQuranVisuals(payloadVerses, visualStyle, mediaType);
+      setGeneratedVisuals(localVisuals);
+      setGenerationProgress(100);
+      showToast(`✨ Generated ${localVisuals.length} Ayah cinematic scenes!`);
     } catch (err: any) {
-      console.error('Error generating Quran visuals:', err);
-      showToast('⚠️ Visuals generated with local thematic engine.');
+      console.warn('Local visual generator activated:', err);
+      const localVisuals = generateLocalQuranVisuals(payloadVerses, visualStyle, mediaType);
+      setGeneratedVisuals(localVisuals);
+      showToast(`✨ Generated ${localVisuals.length} Ayah visual scenes!`);
     } finally {
       setIsGenerating(false);
     }

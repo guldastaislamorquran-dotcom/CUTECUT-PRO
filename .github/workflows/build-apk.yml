@@ -1,0 +1,76 @@
+name: Build CuteCut Pro Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js environment
+      - name: Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # 3. Setup Java JDK 17 (Required for modern Android Gradle build tools)
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 4. Setup Android SDK tools & Environment
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 5. Install NPM dependencies
+      - name: Install NPM Dependencies
+        run: npm ci || npm install
+
+      # 6. Build Web / Vite distribution bundle
+      - name: Build Web Application
+        run: npm run build
+
+      # 7. Initialize and Synchronize Capacitor Android project
+      - name: Sync Capacitor Android
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/admob
+          if [ ! -d "android" ]; then
+            echo "Adding Android platform..."
+            npx cap add android
+          fi
+          echo "Syncing web assets to Android platform..."
+          npx cap sync android
+
+      # 8. Grant execute permissions for Gradle wrapper
+      - name: Make Gradle Wrapper Executable
+        run: |
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew
+          fi
+
+      # 9. Build Android Debug APK with Gradle
+      - name: Build APK with Gradle
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+
+      # 10. Upload generated APK as GitHub Action Artifact
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CuteCut-Pro-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+          if-no-files-found: error

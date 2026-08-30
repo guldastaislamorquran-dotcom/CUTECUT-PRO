@@ -1,16 +1,15 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
 import { getFirestore, Firestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import firebaseConfigJson from '../../firebase-applet-config.json';
 import { VisualStylePreset } from '../types';
-
+// Static production-grade config to bypass potential JSON parse issues during local bundle/Vite builds
 const firebaseConfig = {
-  apiKey: firebaseConfigJson.apiKey || "AIzaSyB4lTCMFm5BATXF1Erceq66gFenLsVlsc8",
-  authDomain: firebaseConfigJson.authDomain || "enhanced-polygon-56shk.firebaseapp.com",
-  projectId: firebaseConfigJson.projectId || "enhanced-polygon-56shk",
-  storageBucket: firebaseConfigJson.storageBucket || "enhanced-polygon-56shk.firebasestorage.app",
-  messagingSenderId: firebaseConfigJson.messagingSenderId || "447393315446",
-  appId: firebaseConfigJson.appId || "1:447393315446:web:77eefd3f0e3da6781c7d57"
+  apiKey: "AIzaSyB4lTCMFm5BATXF1Erceq66gFenLsVlsc8",
+  authDomain: "enhanced-polygon-56shk.firebaseapp.com",
+  projectId: "enhanced-polygon-56shk",
+  storageBucket: "enhanced-polygon-56shk.firebasestorage.app",
+  messagingSenderId: "447393315446",
+  appId: "1:447393315446:web:77eefd3f0e3da6781c7d57"
 };
 
 // Initialize Firebase App safely (singleton)
@@ -24,9 +23,7 @@ googleProvider.setCustomParameters({
 });
 
 // Firestore Instance (supporting databaseId if specified in config)
-const databaseId = firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)'
-  ? firebaseConfigJson.firestoreDatabaseId
-  : undefined;
+const databaseId = "ai-studio-webvideoeditor-2e0654e6-452f-4ecb-8718-6414384b1d0c";
 
 export const db: Firestore = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 
