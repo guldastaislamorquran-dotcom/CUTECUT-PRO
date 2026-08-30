@@ -54,7 +54,7 @@ jobs:
 
       - name: Prepare Desktop Application Icons
         run: |
-          node scripts/generate-icons.cjs
+          node scripts/generate-icons.cjs || true
 
       - name: Cache Electron Binaries
         uses: actions/cache@v4

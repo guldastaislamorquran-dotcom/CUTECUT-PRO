@@ -165,6 +165,10 @@
     "@tailwindcss/oxide-linux-x64-gnu": "*",
     "@tailwindcss/oxide-win32-x64-msvc": "*",
     "@tailwindcss/oxide-darwin-x64": "*",
-    "@tailwindcss/oxide-darwin-arm64": "*"
+    "@tailwindcss/oxide-darwin-arm64": "*",
+    "@img/sharp-darwin-arm64": "*",
+    "@img/sharp-darwin-x64": "*",
+    "@img/sharp-win32-x64": "*",
+    "@img/sharp-linux-x64": "*"
   }
 }
