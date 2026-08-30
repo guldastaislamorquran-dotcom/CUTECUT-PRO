@@ -22,7 +22,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       # 3. Setup Java JDK 17 (Required for modern Android Gradle build tools)
       - name: Setup Java JDK 17
@@ -37,7 +36,7 @@ jobs:
 
       # 5. Install NPM dependencies
       - name: Install NPM Dependencies
-        run: npm ci || npm install
+        run: npm install --legacy-peer-deps --no-audit
 
       # 6. Build Web / Vite distribution bundle
       - name: Build Web Application
