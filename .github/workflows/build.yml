@@ -42,7 +42,9 @@ jobs:
           node-version: 22
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          npm install --include=optional --no-audit
+          npm rebuild esbuild rollup || true
 
       - name: Build Web Core Assets
         run: npm run build

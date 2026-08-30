@@ -149,5 +149,14 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
+  },
+  "overrides": {
+    "nanoid": "^3.3.8"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "*",
+    "@rollup/rollup-win32-x64-msvc": "*",
+    "@rollup/rollup-darwin-x64": "*",
+    "@rollup/rollup-darwin-arm64": "*"
   }
 }

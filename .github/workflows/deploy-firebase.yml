@@ -41,5 +41,5 @@ jobs:
             echo "Please add your token in Repository Settings -> Secrets and variables -> Actions -> New repository secret (Name: FIREBASE_TOKEN)"
             exit 1
           fi
-          echo "Deploying to Firebase project (enhanced-polygon-56shk)..."
-          npx firebase-tools deploy --token "$FIREBASE_TOKEN" --non-interactive
+          echo "Deploying to Firebase Hosting (and Firestore if enabled)..."
+          npx firebase-tools deploy --only hosting --token "$FIREBASE_TOKEN" --non-interactive || npx firebase-tools deploy --token "$FIREBASE_TOKEN" --non-interactive
