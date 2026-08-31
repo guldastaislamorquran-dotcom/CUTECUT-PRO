@@ -138,13 +138,15 @@ jobs:
 
       - name: Build Desktop Application
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f "src-tauri/Cargo.toml" ]; then
             echo "Building Tauri Rust desktop bundle..."
             npm run tauri:build -- --target ${{ matrix.platform.target }}
           else
             echo "Building Electron desktop bundle via electron-builder..."
-            npx electron-builder ${{ matrix.platform.electron-flag }}
+            npx electron-builder ${{ matrix.platform.electron-flag }} --publish never
           fi
 
       - name: Upload Desktop Build Artifacts
