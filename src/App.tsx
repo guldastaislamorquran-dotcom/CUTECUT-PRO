@@ -1217,7 +1217,7 @@ export default function App() {
   };
 
   // Quran Intro Mode: 'both' (⭐ Ta'awwuz + Bismillah) | 'taawwuz-only' | 'bismillah-only' | 'none'
-  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('none');
+  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('both');
 
   // Quran Breath & Waqf Segmentation Mode: 'full-ayah' (Full Ayah Display) | 'split-breaths' (Split Breath Phrases)
   const [quranBreathSegmentationMode, setQuranBreathSegmentationMode] = useState<'full-ayah' | 'split-breaths'>('split-breaths');
@@ -2534,20 +2534,7 @@ export default function App() {
   };
 
   const addNewClip = (clipData: Partial<Clip>) => {
-    // Find first track matching type, or append
     const targetType = clipData.type || ClipType.VIDEO;
-    let track = tracks.find(t => t.type === targetType);
-    
-    if (!track) {
-      // Create new track
-      track = {
-        id: `track-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        name: `${targetType.toUpperCase()} Track`,
-        type: targetType,
-        clips: []
-      };
-      setTracks(prev => [...prev, track!]);
-    }
 
     // Generate guaranteed unique clip ID with timestamp and random entropy
     const uniqueClipId = (clipData.id && !tracks.some(t => t.clips.some(c => c.id === clipData.id)))
@@ -2558,7 +2545,7 @@ export default function App() {
       id: uniqueClipId,
       name: clipData.name || 'Untitled Clip',
       type: targetType,
-      trackId: track.id,
+      trackId: '',
       start: clipData.start !== undefined ? clipData.start : currentTime,
       duration: clipData.duration || 5,
       sourceStart: clipData.sourceStart || 0,
@@ -2580,17 +2567,35 @@ export default function App() {
       filters: clipData.filters
     };
 
-    setTracks(prev => prev.map(t => {
-      if (t.id === track!.id) {
-        return {
-          ...t,
-          clips: [...t.clips, newClip].sort((a, b) => a.start - b.start)
+    setTracks(prev => {
+      let existingTrack = prev.find(t => t.type === targetType);
+      if (!existingTrack) {
+        const trackId = `track-${targetType.toLowerCase()}-${Date.now()}`;
+        const count = prev.filter(t => t.type === targetType).length + 1;
+        const newTrackName = `${targetType.toUpperCase()} Track ${count}`;
+        existingTrack = {
+          id: trackId,
+          name: newTrackName,
+          type: targetType,
+          clips: []
         };
+        const clipWithTrack = { ...newClip, trackId };
+        return [...prev, { ...existingTrack, clips: [clipWithTrack] }];
+      } else {
+        return prev.map(t => {
+          if (t.id === existingTrack!.id) {
+            const clipWithTrack = { ...newClip, trackId: t.id };
+            return {
+              ...t,
+              clips: [...t.clips, clipWithTrack].sort((a, b) => a.start - b.start)
+            };
+          }
+          return t;
+        });
       }
-      return t;
-    }));
+    });
 
-    setSelectedClipId(newClip.id);
+    setSelectedClipId(uniqueClipId);
   };
 
   // ------------------ CapCut Pro Timeline Handlers ------------------
@@ -3409,6 +3414,7 @@ export default function App() {
       // Web Audio API VAD RMS Voice Activity Analysis with True Speech Onset & Offset Boundaries
       let acousticSpeechSegments: Array<{ start: number; end: number }> = [];
       let totalAudioDuration = targetClip.duration || 44.0;
+      let decodedAudioData: { pcmData: Float32Array; sampleRate: number } | undefined = undefined;
 
       if (targetClip?.url) {
         try {
@@ -3423,14 +3429,15 @@ export default function App() {
               const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
               const pcmData = audioBuffer.getChannelData(0);
               const sampleRate = audioBuffer.sampleRate;
+              decodedAudioData = { pcmData, sampleRate };
               totalAudioDuration = Math.max(targetClip.duration || 0, audioBuffer.duration || 0);
               audioCtx.close();
 
-              // Analyze RMS voice activity with 600ms silence threshold to bridge normal word transitions and detect true breathing pauses (Waqf)
+              // Analyze RMS voice activity with adaptive thresholding to detect natural breathing pauses (Waqf)
               acousticSpeechSegments = analyzeVoiceActivityRMS(pcmData, sampleRate, {
-                minSilenceMs: 600,
-                minSpeechMs: 650,
-                paddingMs: 60
+                minSilenceMs: 380,
+                minSpeechMs: 280,
+                paddingMs: 80
               });
 
               addLog(`[RMS Voice Analyzer] Extracted ${acousticSpeechSegments.length} natural voice speech segments with breathing pause gaps across ${totalAudioDuration.toFixed(1)}s audio.`, 65);
@@ -3450,15 +3457,17 @@ export default function App() {
         const currentSurah = surahsToProcess[sIdx];
         const isFirstSurah = (sIdx === 0);
         const isNotTawbahThis = currentSurah !== 9;
-        const currentIntroMode = introMode || quranIntroMode || 'none';
+        const currentIntroMode = introMode || quranIntroMode || 'both';
+
+        const targetStartAyahNum = parseInt(String(startAyah), 10) || 1;
 
         // 1. Opening Verse Rules for Multi-Surah & Single Surah:
-        // - First Surah: Follows selected Intro Mode (e.g. Ta'awwuz + Bismillah, or Bismillah only)
+        // - First Surah / Single Ayah: Follows selected Intro Mode (e.g. Ta'awwuz + Bismillah, or Bismillah only)
         // - Subsequent Surahs in the audio: Automatically insert Bismillah (unless Surah At-Tawbah #9)
         if (isFirstSurah) {
-          const isStartFromFirstAyah = (selectionType === 'single' ? startAyah === 1 : true);
-          const shouldIncludeTaawwuz = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
-          const shouldIncludeBismillah = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
+          const isSurah1Ayah1Included = currentSurah === 1 && (targetStartAyahNum === 1 || selectionType !== 'single');
+          const shouldIncludeTaawwuz = isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
+          const shouldIncludeBismillah = isNotTawbahThis && !isSurah1Ayah1Included && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
 
           if (shouldIncludeTaawwuz) {
             allRawVerses.push({
@@ -3575,9 +3584,13 @@ export default function App() {
 
         if (sIdx === 0 && selectionType === 'single') {
           surahVerses = surahVerses.filter(v => {
-            const parts = v.verse_key.split(':');
-            const ayahNum = parseInt(parts[1]) || 1;
-            return ayahNum === startAyah;
+            if (v.isTaawwuz || v.isTasmiyah || v.verse_key === 'aux' || v.verse_key === 'bis' || v.verse_key?.includes(':0:')) {
+              return false; // Exclude intro headers when searching for target Ayah
+            }
+            const parts = (v.verse_key || '').split(':');
+            if (parts.length < 2) return false;
+            const ayahNum = parseInt(parts[1], 10);
+            return ayahNum === targetStartAyahNum;
           });
         }
 
@@ -3586,6 +3599,23 @@ export default function App() {
 
         allRawVerses.push(...surahVerses);
       }
+
+      // Deduplicate consecutive Bismillah header entries (e.g. 1:0:bismillah followed by another header) without touching real Ayahs
+      const cleanRawVerses: typeof allRawVerses = [];
+      for (let i = 0; i < allRawVerses.length; i++) {
+        const item = allRawVerses[i];
+        const isHeaderBis = item.isTasmiyah || item.verse_key?.endsWith(':0:bismillah') || item.verse_key === 'bis';
+        if (isHeaderBis && cleanRawVerses.length > 0) {
+          const prev = cleanRawVerses[cleanRawVerses.length - 1];
+          const prevIsHeaderBis = prev.isTasmiyah || prev.verse_key?.endsWith(':0:bismillah') || prev.verse_key === 'bis';
+          if (prevIsHeaderBis) {
+            continue; // Skip redundant Bismillah header
+          }
+        }
+        cleanRawVerses.push(item);
+      }
+      allRawVerses.length = 0;
+      allRawVerses.push(...cleanRawVerses);
 
       // TRUE FULL-DURATION ACOUSTIC SILENCE & BREATHING GAP TIMELINE ENGINE
       // Guarantees all segments are distributed across the FULL length of the audio up to the very last point
@@ -3605,6 +3635,24 @@ export default function App() {
         return Math.max(8, tajweedScore * 1.4 + fullAr.length * 0.4 + enLen * 0.2);
       });
       const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+
+      // Validate acoustic speech segments quality & coverage span
+      const firstAcousticStart = acousticSpeechSegments.length > 0 ? acousticSpeechSegments[0].start : 0;
+      const lastAcousticEndRaw = acousticSpeechSegments.length > 0 ? acousticSpeechSegments[acousticSpeechSegments.length - 1].end : 0;
+      const acousticSpan = lastAcousticEndRaw - firstAcousticStart;
+
+      // If VAD segments cover less than 35% of total audio duration OR start after 30% into the audio (when audio > 8s), VAD is partial
+      const isVadValid = acousticSpeechSegments.length >= 1 && (
+        totalAudioDuration <= 8.0 || (
+          acousticSpan >= totalAudioDuration * 0.35 &&
+          firstAcousticStart <= totalAudioDuration * 0.30
+        )
+      );
+
+      if (!isVadValid && acousticSpeechSegments.length > 0) {
+        addLog(`[VAD Engine] Detected partial acoustic segments (${acousticSpan.toFixed(1)}s span). Utilizing full-duration timeline synthesizer...`, 68);
+        acousticSpeechSegments = [];
+      }
 
       // Determine speech onset and end target spanning the full audio duration
       const speechOnset = acousticSpeechSegments.length > 0
@@ -3651,18 +3699,33 @@ export default function App() {
             );
           }
 
-          const vStart = Number(segs[0].start.toFixed(2));
-          const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
-
-          subtitles.push({
-            verse_key: singleVerse.verse_key,
-            text_arabic: arText,
-            text_english: singleVerse.text_english || '',
-            start: vStart,
-            end: Math.max(vStart + 0.8, vEnd),
-            isTaawwuz: singleVerse.isTaawwuz,
-            isTasmiyah: singleVerse.isTasmiyah
-          });
+          if (segs.length > 1) {
+            // Long Ayah read in multiple breaths: create clips for each breath segment so silence gaps are respected
+            segs.forEach((s, sIdx) => {
+              const subKey = `${singleVerse.verse_key} [${sIdx + 1}/${segs.length}]`;
+              subtitles.push({
+                verse_key: subKey,
+                text_arabic: arText,
+                text_english: singleVerse.text_english || '',
+                start: Number(s.start.toFixed(2)),
+                end: Number(Math.max(s.start + 0.8, s.end).toFixed(2)),
+                isTaawwuz: singleVerse.isTaawwuz,
+                isTasmiyah: singleVerse.isTasmiyah
+              });
+            });
+          } else {
+            const vStart = Number(segs[0].start.toFixed(2));
+            const vEnd = Number(segs[0].end.toFixed(2));
+            subtitles.push({
+              verse_key: singleVerse.verse_key,
+              text_arabic: arText,
+              text_english: singleVerse.text_english || '',
+              start: vStart,
+              end: Math.max(vStart + 0.8, vEnd),
+              isTaawwuz: singleVerse.isTaawwuz,
+              isTasmiyah: singleVerse.isTasmiyah
+            });
+          }
         }
       } else {
         // Multi-verse distribution:
@@ -3675,7 +3738,7 @@ export default function App() {
         const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
 
         if (acousticSpeechSegments.length >= 1) {
-          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights);
+          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights, decodedAudioData);
           
           for (let i = 0; i < totalVerses; i++) {
             const verse = allRawVerses[i];
@@ -3706,19 +3769,33 @@ export default function App() {
               );
               subtitles.push(...multiSubs);
             } else {
-              // Keep the complete Ayah intact across all internal breaths (Option 1 - Full Ayah Display)
-              const vStart = Number(segs[0].start.toFixed(2));
-              const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
-
-              subtitles.push({
-                verse_key: verse.verse_key,
-                text_arabic: arText,
-                text_english: verse.text_english || '',
-                start: vStart,
-                end: Math.max(vStart + 0.8, vEnd),
-                isTaawwuz: verse.isTaawwuz,
-                isTasmiyah: verse.isTasmiyah
-              });
+              if (segs.length > 1) {
+                // Long Ayah read in multiple breaths: create clips for each breath segment so silence gaps are respected
+                segs.forEach((s, sIdx) => {
+                  const subKey = `${verse.verse_key} [${sIdx + 1}/${segs.length}]`;
+                  subtitles.push({
+                    verse_key: subKey,
+                    text_arabic: arText,
+                    text_english: verse.text_english || '',
+                    start: Number(s.start.toFixed(2)),
+                    end: Number(Math.max(s.start + 0.8, s.end).toFixed(2)),
+                    isTaawwuz: verse.isTaawwuz,
+                    isTasmiyah: verse.isTasmiyah
+                  });
+                });
+              } else {
+                const vStart = Number(segs[0].start.toFixed(2));
+                const vEnd = Number(segs[0].end.toFixed(2));
+                subtitles.push({
+                  verse_key: verse.verse_key,
+                  text_arabic: arText,
+                  text_english: verse.text_english || '',
+                  start: vStart,
+                  end: Math.max(vStart + 0.8, vEnd),
+                  isTaawwuz: verse.isTaawwuz,
+                  isTasmiyah: verse.isTasmiyah
+                });
+              }
             }
           }
         } else {
@@ -4961,7 +5038,7 @@ export default function App() {
   }
 
   return (
-    <div id="video-editor-workspace" className="h-screen bg-[#0e0e11] text-gray-200 flex flex-col font-sans overflow-hidden">
+    <div id="video-editor-workspace" className="h-screen bg-[#060608] text-gray-200 flex flex-col font-sans overflow-hidden">
       
       {/* Top Header */}
       <header className="h-14 bg-[#121217] border-b border-[#242430] flex items-center justify-between px-5 z-10 select-none shadow-md">
@@ -5352,11 +5429,11 @@ export default function App() {
         {/* Media Side-Panel Splitter Bar */}
         <div
           id="splitter-media"
-          className="w-1.5 hover:w-2 bg-[#1f1f24] hover:bg-cyan-500/50 cursor-col-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
+          className="w-1 bg-[#060608] hover:bg-cyan-500/30 cursor-col-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
           onMouseDown={(e) => startResizing(e, 'media')}
           title="Drag to resize Media Panel"
         >
-          <div className="absolute inset-y-0 left-[2px] w-px bg-gray-800 group-hover:bg-cyan-400 pointer-events-none" />
+          <div className="absolute inset-y-0 left-0 right-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
         </div>
 
         {/* Live center frame / Canvas Viewport */}
@@ -5387,11 +5464,11 @@ export default function App() {
         {/* Center-Inspector Splitter Bar */}
         <div
           id="splitter-inspector"
-          className="w-1.5 hover:w-2 bg-[#1f1f24] hover:bg-cyan-500/50 cursor-col-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
+          className="w-1 bg-[#060608] hover:bg-cyan-500/30 cursor-col-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
           onMouseDown={(e) => startResizing(e, 'inspector')}
           title="Drag to resize Inspector Panel"
         >
-          <div className="absolute inset-y-0 left-[2px] w-px bg-gray-800 group-hover:bg-cyan-400 pointer-events-none" />
+          <div className="absolute inset-y-0 left-0 right-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
         </div>
 
         {/* Right context Inspector panel */}
@@ -5413,11 +5490,11 @@ export default function App() {
       {/* Dashboard-Timeline Splitter Bar */}
       <div
         id="splitter-timeline"
-        className="h-1.5 hover:h-2 bg-[#1f1f24] hover:bg-cyan-500/50 cursor-row-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
+        className="h-1 bg-[#060608] hover:bg-cyan-500/30 cursor-row-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
         onMouseDown={(e) => startResizing(e, 'timeline')}
         title="Drag to resize Timeline Height"
       >
-        <div className="absolute inset-x-0 top-[2px] h-px bg-gray-800 group-hover:bg-cyan-400 pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 bottom-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
       </div>
 
       {/* Bottom multi-track Timeline panel */}

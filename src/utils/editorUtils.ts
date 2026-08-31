@@ -10,28 +10,9 @@ export const DEFAULT_TRACK_SLOTS = {
 };
 
 /**
- * Clean default initial timeline tracks with zero initial clips
+ * Clean default initial timeline tracks (empty by default - dynamic creation on file drop)
  */
-export const DEFAULT_INITIAL_TRACKS: Track[] = [
-  {
-    id: 'track-text-1',
-    name: 'Text Overlay Track',
-    type: ClipType.TEXT,
-    clips: []
-  },
-  {
-    id: 'track-video-1',
-    name: 'Video Track (Base)',
-    type: ClipType.VIDEO,
-    clips: []
-  },
-  {
-    id: 'track-audio-1',
-    name: 'Audio Track (BGM)',
-    type: ClipType.AUDIO,
-    clips: []
-  }
-];
+export const DEFAULT_INITIAL_TRACKS: Track[] = [];
 
 /**
  * Applies pixel-level canvas filters for real-time playbacks
@@ -456,6 +437,8 @@ export interface QuranVerseItem {
   text_arabic?: string;
   translation?: string;
   text_english?: string;
+  isTaawwuz?: boolean;
+  isTasmiyah?: boolean;
 }
 
 export interface AlignedSubtitleSegment {
@@ -485,29 +468,30 @@ export function runVoiceAlignmentPipeline(
 
   const allVerses: QuranVerseItem[] = [];
 
+  const firstKey = verses[0]?.verse_key || '';
+  const firstText = verses[0]?.text_uthmani || verses[0]?.text_arabic || '';
+  const isFirstVerseBismillah = firstKey === '1:1' || firstKey.endsWith(':0:bismillah') || firstText.replace(/\s+/g, '').includes('بسماللهالرحمنالرحيم');
+
   const introMode = options?.introMode || (options?.hasIntro ? 'both' : 'none');
-  if (introMode === 'both') {
+  const includeTaawwuz = introMode === 'both' || introMode === 'taawwuz-only';
+  const includeBismillah = (introMode === 'both' || introMode === 'bismillah-only') && !isFirstVerseBismillah;
+
+  const sNum = firstKey.includes(':') ? firstKey.split(':')[0] : '1';
+
+  if (includeTaawwuz) {
     allVerses.push({
-      verse_key: 'aux',
+      verse_key: `${sNum}:0:taawwuz`,
       text_arabic: 'أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ',
-      text_english: 'I seek refuge in Allah from Satan, the expelled.'
+      text_english: 'I seek refuge in Allah from Satan, the expelled.',
+      isTaawwuz: true
     });
+  }
+  if (includeBismillah) {
     allVerses.push({
-      verse_key: 'bis',
+      verse_key: `${sNum}:0:bismillah`,
       text_arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
-      text_english: 'In the name of Allah, the Entirely Merciful, the Especially Merciful.'
-    });
-  } else if (introMode === 'taawwuz-only') {
-    allVerses.push({
-      verse_key: 'aux',
-      text_arabic: 'أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ',
-      text_english: 'I seek refuge in Allah from Satan, the expelled.'
-    });
-  } else if (introMode === 'bismillah-only') {
-    allVerses.push({
-      verse_key: 'bis',
-      text_arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
-      text_english: 'In the name of Allah, the Entirely Merciful, the Especially Merciful.'
+      text_english: 'In the name of Allah, the Entirely Merciful, the Especially Merciful.',
+      isTasmiyah: true
     });
   }
 
@@ -792,7 +776,7 @@ export async function alignQuranLocalClient(params: {
     }
   }
 
-  const hasIntro = startAyahNum === 1 && surahNum !== 9;
+  const hasIntro = surahNum !== 9;
 
   return runVoiceAlignmentPipeline(versesContext, {
     startOffset: 0.2,
@@ -817,17 +801,19 @@ export function generateWaveformPeaks(seedStr: string, count: number): number[] 
     hash |= 0;
   }
 
-  for (let i = 0; i < count; i++) {
+  const barCount = Math.max(1, count);
+  for (let i = 0; i < barCount; i++) {
     const pseudoRandom = Math.abs(Math.sin(hash + i * 0.15) * 10000) % 1;
-    // Create voice cadence effect: periodic quiet pauses between spoken phrases
-    const cadenceFactor = Math.sin((i / count) * Math.PI * 6);
-    const isSilence = cadenceFactor < -0.65 || (i % 18 === 0) || (i % 19 === 0);
+    // Periodic natural speech cadence & phrasing wave across full duration
+    const phrasePos = (i / barCount) * Math.PI * 12;
+    const phraseEnergy = Math.abs(Math.sin(phrasePos));
+    const isShortPause = phraseEnergy < 0.1 && (i % 24 === 0);
 
-    if (isSilence) {
-      peaks.push(0.04 + pseudoRandom * 0.08); // Quiet noise floor
+    if (isShortPause) {
+      peaks.push(0.06 + pseudoRandom * 0.08); // Quiet pause floor
     } else {
-      const amp = 0.25 + pseudoRandom * 0.7 + Math.abs(cadenceFactor) * 0.3;
-      peaks.push(Math.min(1.0, Math.max(0.08, amp)));
+      const amp = 0.3 + pseudoRandom * 0.55 + phraseEnergy * 0.25;
+      peaks.push(Math.min(1.0, Math.max(0.12, amp)));
     }
   }
 
@@ -857,36 +843,36 @@ export function analyzeVoiceActivityRMS(
   const sensitivity = options.noiseFloorSensitivity || 'quran-ayah';
   
   // Sensitivity presets calibration with specialized Quranic Tajweed & Waqf pause detection
-  let defaultMinSilence = 480;
-  let defaultMinSpeech = 1100;
-  let defaultPadding = 120;
-  let baselineFloorDb = -33;
+  let defaultMinSilence = 380;
+  let defaultMinSpeech = 300;
+  let defaultPadding = 100;
+  let baselineFloorDb = -36;
 
   if (sensitivity === 'quran-ayah') {
-    defaultMinSilence = 480; // Detects natural Waqf breathing pauses between Ayahs
-    defaultMinSpeech = 1100; // Ensures complete Ayah phrase capture
-    defaultPadding = 120;
-    baselineFloorDb = -33;
+    defaultMinSilence = 380; // Detects natural Waqf breathing pauses between Ayahs
+    defaultMinSpeech = 300; // Ensures complete Ayah phrase capture without discarding short phrases
+    defaultPadding = 100;
+    baselineFloorDb = -36;
   } else if (sensitivity === 'tartil') {
-    defaultMinSilence = 600; // Slow, measured recitation with long Madds and deep pauses
-    defaultMinSpeech = 1400;
-    defaultPadding = 150;
-    baselineFloorDb = -35;
-  } else if (sensitivity === 'hadr') {
-    defaultMinSilence = 340; // Fast-paced recitation with brief pauses between verses
-    defaultMinSpeech = 750;
-    defaultPadding = 80;
-    baselineFloorDb = -34;
-  } else if (sensitivity === 'mosque') {
-    defaultMinSilence = 450; // Handles ambient acoustic reverb and echo in prayer halls
-    defaultMinSpeech = 1100;
-    defaultPadding = 130;
-    baselineFloorDb = -30;
-  } else if (sensitivity === 'studio') {
-    defaultMinSilence = 260; // Clean dry studio recording
-    defaultMinSpeech = 750;
-    defaultPadding = 70;
+    defaultMinSilence = 450; // Slow, measured recitation with long Madds and deep pauses
+    defaultMinSpeech = 350;
+    defaultPadding = 120;
     baselineFloorDb = -38;
+  } else if (sensitivity === 'hadr') {
+    defaultMinSilence = 280; // Fast-paced recitation with brief pauses between verses
+    defaultMinSpeech = 250;
+    defaultPadding = 70;
+    baselineFloorDb = -36;
+  } else if (sensitivity === 'mosque') {
+    defaultMinSilence = 400; // Handles ambient acoustic reverb and echo in prayer halls
+    defaultMinSpeech = 350;
+    defaultPadding = 120;
+    baselineFloorDb = -32;
+  } else if (sensitivity === 'studio') {
+    defaultMinSilence = 220; // Clean dry studio recording
+    defaultMinSpeech = 220;
+    defaultPadding = 60;
+    baselineFloorDb = -40;
   }
 
   const minSilenceMs = options.minSilenceMs ?? defaultMinSilence;
@@ -918,21 +904,18 @@ export function analyzeVoiceActivityRMS(
     }
   }
 
-  // 2. Compute dynamic noise floor from 10th percentile energy
+  // 2. Compute dynamic noise floor and peak speech energy
   sampleEnergies.sort((a, b) => a - b);
   const p10Idx = Math.floor(sampleEnergies.length * 0.12);
   const p90Idx = Math.floor(sampleEnergies.length * 0.88);
-  const noiseFloorRms = sampleEnergies[p10Idx] || 0.005;
-  const peakSpeechRms = sampleEnergies[p90Idx] || 0.15;
+  const noiseFloorRms = sampleEnergies[p10Idx] || 0.002;
+  const peakSpeechRms = sampleEnergies[p90Idx] || 0.10;
 
   let computedThreshold = options.customThresholdDb 
     ? Math.pow(10, options.customThresholdDb / 20)
-    : Math.max(Math.pow(10, baselineFloorDb / 20), noiseFloorRms * 2.2);
+    : noiseFloorRms + (peakSpeechRms - noiseFloorRms) * 0.18;
 
-  // Guard: if dynamic range is narrow, fallback to relative margin
-  if (peakSpeechRms > noiseFloorRms * 1.5) {
-    computedThreshold = Math.min(computedThreshold, (noiseFloorRms + peakSpeechRms) * 0.28);
-  }
+  computedThreshold = Math.max(0.001, Math.min(computedThreshold, peakSpeechRms * 0.45));
 
   const frameSpeech = new Array<boolean>(totalFrames);
   for (let f = 0; f < totalFrames; f++) {
@@ -1324,6 +1307,49 @@ export function splitTranslationByClauses(
 }
 
 /**
+ * Scans PCM audio data around a target timestamp to locate the local minimum RMS energy (acoustic dip / word boundary).
+ */
+export function findAcousticEnergyDip(
+  pcmData: Float32Array,
+  sampleRate: number,
+  targetSec: number,
+  searchRadiusSec: number = 0.40
+): number {
+  if (!pcmData || pcmData.length === 0 || !sampleRate) return targetSec;
+
+  const centerSample = Math.floor(targetSec * sampleRate);
+  const radiusSamples = Math.floor(searchRadiusSec * sampleRate);
+  const minSample = Math.max(0, centerSample - radiusSamples);
+  const maxSample = Math.min(pcmData.length - 1, centerSample + radiusSamples);
+
+  const windowSize = Math.floor(sampleRate * 0.02); // 20ms frame
+  const step = Math.floor(sampleRate * 0.01); // 10ms hop
+
+  let minScore = Infinity;
+  let minTime = targetSec;
+
+  for (let s = minSample; s <= maxSample - windowSize; s += step) {
+    let sumSq = 0;
+    for (let i = 0; i < windowSize; i += 2) {
+      const v = pcmData[s + i];
+      sumSq += v * v;
+    }
+    const rms = Math.sqrt((sumSq * 2) / windowSize);
+
+    const timeSec = s / sampleRate;
+    const distPenalty = Math.abs(timeSec - targetSec) * 0.008;
+    const score = rms + distPenalty;
+
+    if (score < minScore) {
+      minScore = score;
+      minTime = timeSec;
+    }
+  }
+
+  return minTime;
+}
+
+/**
  * Assigns acoustic speech segments (including internal breathing pauses / Waqf breaks)
  * to verses based on verse weights, strictly respecting acoustic speech boundaries
  * so text clips drop during recitation and clear during silence/pauses.
@@ -1331,7 +1357,8 @@ export function splitTranslationByClauses(
 export function assignAcousticSegmentsToVerses(
   segments: Array<{ start: number; end: number }>,
   versesCount: number,
-  weights: number[]
+  weights: number[],
+  audioData?: { pcmData: Float32Array; sampleRate: number }
 ): Array<Array<{ start: number; end: number }>> {
   if (!segments || segments.length === 0 || versesCount <= 0) return [];
 
@@ -1345,8 +1372,6 @@ export function assignAcousticSegmentsToVerses(
 
   if (S === V) {
     // Exact 1-to-1 match between acoustic speech segments and verses!
-    // Segment 0 -> Verse 0, Segment 1 -> Verse 1, Segment 2 -> Verse 2...
-    // Guarantees zero 1-Ayah offset!
     for (let i = 0; i < V; i++) {
       result[i] = [{
         start: Number(segments[i].start.toFixed(2)),
@@ -1358,7 +1383,6 @@ export function assignAcousticSegmentsToVerses(
 
   if (S > V) {
     // More acoustic speech segments than verses (some long verses have internal breath pauses).
-    // Target cumulative speech duration for each verse end:
     const targetCumDur: number[] = [];
     let cumW = 0;
     for (let v = 0; v < V; v++) {
@@ -1406,7 +1430,7 @@ export function assignAcousticSegmentsToVerses(
       }
     }
   } else {
-    // S < V: Fewer acoustic segments than verses (multiple short verses in 1 breath)
+    // S < V: Fewer acoustic segments than verses (multiple short verses inside acoustic speech segment(s))
     const targetCumDur: number[] = [];
     let cumW = 0;
     for (let v = 0; v < V; v++) {
@@ -1414,20 +1438,19 @@ export function assignAcousticSegmentsToVerses(
       targetCumDur.push((cumW / totalWeight) * totalSpeechDur);
     }
 
-    const verseToSegIdx: number[] = [];
-    let cumSegSpeech = 0;
-    let sIdx = 0;
-
+    const verseToSegIdx: number[] = new Array(V);
     for (let v = 0; v < V; v++) {
       const target = targetCumDur[v];
-      while (
-        sIdx < S - 1 &&
-        Math.abs((cumSegSpeech + segDurations[sIdx]) - target) > Math.abs(cumSegSpeech - target)
-      ) {
-        cumSegSpeech += segDurations[sIdx];
-        sIdx++;
+      let assignedSeg = S - 1;
+      let cumSpeech = 0;
+      for (let s = 0; s < S; s++) {
+        cumSpeech += segDurations[s];
+        if (target <= cumSpeech || s === S - 1) {
+          assignedSeg = s;
+          break;
+        }
       }
-      verseToSegIdx.push(sIdx);
+      verseToSegIdx[v] = assignedSeg;
     }
 
     for (let v = 1; v < V; v++) {
@@ -1450,17 +1473,29 @@ export function assignAcousticSegmentsToVerses(
 
       versesInSeg.forEach((v, idx) => {
         const w = weights[v] || 1;
-        const vDur = idx === versesInSeg.length - 1
+        const isLastInSeg = (idx === versesInSeg.length - 1);
+        const vDur = isLastInSeg
           ? (seg.end - cursor)
           : ((seg.end - seg.start) * (w / segTotalW));
 
+        let rawSplitPoint = cursor + vDur;
+        if (!isLastInSeg && audioData && audioData.pcmData) {
+          rawSplitPoint = findAcousticEnergyDip(
+            audioData.pcmData,
+            audioData.sampleRate,
+            rawSplitPoint,
+            0.40
+          );
+        }
+
+        const interVerseGap = isLastInSeg ? 0 : 0.10;
         const vStart = Number(cursor.toFixed(2));
-        const vEnd = Number(Math.min(seg.end, cursor + vDur).toFixed(2));
+        const vEnd = Number(Math.min(seg.end, Math.max(cursor + 0.3, rawSplitPoint - interVerseGap)).toFixed(2));
 
         if (vEnd > vStart) {
           result[v].push({ start: vStart, end: vEnd });
         }
-        cursor = vEnd;
+        cursor = isLastInSeg ? seg.end : rawSplitPoint;
       });
     }
 
@@ -1473,8 +1508,6 @@ export function assignAcousticSegmentsToVerses(
   }
 
   // Post-processing: For each verse, merge internal acoustic sub-segments if internal silence gap is < 0.65s (micro-breath during continuous recitation of full Ayah)
-  // This guarantees that an Ayah recited continuously in ONE breath is NEVER split into fraction clips (jo full ayah parhe gai hu use taqsim na kare).
-  // Only genuine Waqf pause gaps (>= 0.65s) cause an Ayah to split into distinct phrase clips.
   for (let v = 0; v < V; v++) {
     const vSegs = result[v];
     if (!vSegs || vSegs.length <= 1) continue;

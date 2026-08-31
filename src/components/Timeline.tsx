@@ -1276,7 +1276,7 @@ export default function Timeline({
   return (
     <div
       id="timeline-engine"
-      className="bg-[#121216] border-t border-[#2a2a30] flex flex-col select-none relative"
+      className="bg-[#121216] border border-[#202028] rounded-xl flex flex-col select-none relative overflow-hidden shadow-lg mx-1 mb-1"
       style={{ height: height !== undefined ? `${height}px` : undefined }}
     >
       
@@ -1989,67 +1989,81 @@ export default function Timeline({
             )}
           </div>
           <div ref={headersScrollRef} onScroll={handleVerticalScroll} className="flex-1 flex flex-col p-1.5 gap-2 overflow-y-auto custom-scrollbar">
-            {sortedTracks.map((track, trackIdx) => (
-              <div
-                key={track.id ? `${track.id}-${trackIdx}` : `track-${trackIdx}`}
-                onContextMenu={(e) => handleContextMenu(e, null, track)}
-                className={`h-14 min-h-[56px] border border-[#2a2a35] rounded-lg flex items-center justify-between px-2 bg-[#16161d] shadow-sm transition-all ${track.locked ? 'opacity-60' : ''}`}
-              >
-                <div className="flex items-center gap-1.5 overflow-hidden">
-                  {getTrackIcon(track.type)}
-                  <span className="text-[10px] text-gray-300 font-medium truncate max-w-[70px] sm:max-w-[90px]" title={track.name}>
-                    {track.name}
-                  </span>
-                </div>
-
-                {/* Track Status & Controls (Mute, Lock, Hide, Delete) */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  {/* Mute Track */}
-                  {onToggleTrackMute && (
-                    <button
-                      onClick={() => onToggleTrackMute(track.id)}
-                      className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                      title={track.muted ? 'Unmute Track' : 'Mute Track'}
-                    >
-                      {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                    </button>
-                  )}
-
-                  {/* Lock Track */}
-                  {onToggleTrackLock && (
-                    <button
-                      onClick={() => onToggleTrackLock(track.id)}
-                      className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                      title={track.locked ? 'Unlock Track' : 'Lock Track'}
-                    >
-                      {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                    </button>
-                  )}
-
-                  {/* Hide Track */}
-                  {onToggleTrackHidden && (
-                    <button
-                      onClick={() => onToggleTrackHidden(track.id)}
-                      className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                      title={track.hidden ? 'Show Track' : 'Hide Track'}
-                    >
-                      {track.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    </button>
-                  )}
-
-                  {/* Delete Track */}
-                  {onDeleteTrack && sortedTracks.length > 1 && (
-                    <button
-                      onClick={() => onDeleteTrack(track.id)}
-                      className="p-1 rounded text-gray-600 hover:text-red-400 transition"
-                      title="Delete Track"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
+            {sortedTracks.length === 0 ? (
+              <div className="h-24 border border-dashed border-[#2a2a35] rounded-lg flex flex-col items-center justify-center text-center p-2 text-gray-500 text-[10px]">
+                <span>No tracks</span>
+                <span className="text-[9px] text-gray-600 mt-0.5">Drop files to create</span>
               </div>
-            ))}
+            ) : (
+              sortedTracks.map((track, trackIdx) => (
+                <div
+                  key={track.id ? `${track.id}-${trackIdx}` : `track-${trackIdx}`}
+                  onContextMenu={(e) => handleContextMenu(e, null, track)}
+                  className={`h-20 min-h-[80px] border border-[#2a2a35] rounded-lg flex items-center justify-between px-2.5 bg-[#16161d] shadow-sm transition-all ${track.locked ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="p-1.5 rounded-md bg-[#20202d] text-cyan-400">
+                      {getTrackIcon(track.type)}
+                    </div>
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="text-[11px] text-gray-200 font-semibold truncate max-w-[65px] sm:max-w-[85px]" title={track.name}>
+                        {track.name}
+                      </span>
+                      <span className="text-[9px] text-gray-400 uppercase font-mono tracking-wider">
+                        {track.type}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Track Status & Controls (Mute, Lock, Hide, Delete) */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {/* Mute Track */}
+                    {onToggleTrackMute && (
+                      <button
+                        onClick={() => onToggleTrackMute(track.id)}
+                        className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                        title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                      >
+                        {track.muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+
+                    {/* Lock Track */}
+                    {onToggleTrackLock && (
+                      <button
+                        onClick={() => onToggleTrackLock(track.id)}
+                        className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                        title={track.locked ? 'Unlock Track' : 'Lock Track'}
+                      >
+                        {track.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+
+                    {/* Hide Track */}
+                    {onToggleTrackHidden && (
+                      <button
+                        onClick={() => onToggleTrackHidden(track.id)}
+                        className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                        title={track.hidden ? 'Show Track' : 'Hide Track'}
+                      >
+                        {track.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+
+                    {/* Delete Track */}
+                    {onDeleteTrack && (
+                      <button
+                        onClick={() => onDeleteTrack(track.id)}
+                        className="p-1 rounded text-gray-600 hover:text-red-400 transition"
+                        title="Delete Track"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -2063,6 +2077,75 @@ export default function Timeline({
             className="h-full relative min-w-full"
             onMouseDown={handleGridMouseDown}
             onContextMenu={(e) => handleContextMenu(e, null, null)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!onAddClip) return;
+
+              const rect = tracksContainerRef.current?.getBoundingClientRect();
+              const scrollLeft = tracksContainerRef.current?.scrollLeft || 0;
+              const dropX = rect ? e.clientX - rect.left + scrollLeft : 0;
+              const dropTime = Math.max(0, Math.round((dropX / zoom) * 10) / 10);
+
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                Array.from(e.dataTransfer.files).forEach((file: File) => {
+                  const isVideo = file.type.startsWith('video/');
+                  const isAudio = file.type.startsWith('audio/');
+                  const isImage = file.type.startsWith('image/');
+                  const url = URL.createObjectURL(file);
+                  const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
+
+                  if (isVideo || isAudio) {
+                    const tempEl = document.createElement(isVideo ? 'video' : 'audio');
+                    tempEl.src = url;
+                    tempEl.onloadedmetadata = () => {
+                      const dur = tempEl.duration || 10;
+                      onAddClip({
+                        name: file.name,
+                        type: clipType,
+                        url,
+                        start: dropTime,
+                        duration: dur,
+                        sourceDuration: dur,
+                      });
+                    };
+                  } else {
+                    onAddClip({
+                      name: file.name,
+                      type: clipType,
+                      url,
+                      start: dropTime,
+                      duration: 5,
+                    });
+                  }
+                });
+                return;
+              }
+
+              const rawData = e.dataTransfer.getData('application/json') || e.dataTransfer.getData('text/plain');
+              if (rawData) {
+                try {
+                  const asset = JSON.parse(rawData);
+                  if (asset.url) {
+                    const isVideo = asset.type === 'video' || asset.url.endsWith('.mp4');
+                    const isAudio = asset.type === 'audio' || asset.url.endsWith('.mp3');
+                    const isImage = asset.type === 'image';
+                    const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
+
+                    onAddClip({
+                      name: asset.title || asset.name || 'Media Clip',
+                      type: clipType,
+                      url: asset.url,
+                      start: dropTime,
+                      duration: asset.duration || 5,
+                    });
+                  }
+                } catch {}
+              }
+            }}
           >
             
             {/* Timeline Ruler */}
@@ -2079,12 +2162,65 @@ export default function Timeline({
 
             {/* Visual Grid rows */}
             <div ref={gridScrollRef} onScroll={handleVerticalScroll} className="absolute top-8 bottom-0 left-0 right-0 flex flex-col p-1.5 gap-2 overflow-y-auto custom-scrollbar min-w-full w-full">
-              {sortedTracks.map((track, trackIdx) => (
+              {sortedTracks.length === 0 ? (
                 <div
-                  key={track.id ? `grid-${track.id}-${trackIdx}` : `grid-track-${trackIdx}`}
-                  onContextMenu={(e) => handleContextMenu(e, null, track)}
-                  className={`h-14 min-h-[56px] border border-[#22222c] rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'video/*,audio/*,image/*';
+                    input.onchange = (ev: any) => {
+                      const files = ev.target.files;
+                      if (!files || files.length === 0 || !onAddClip) return;
+                      const file = files[0];
+                      const isVideo = file.type.startsWith('video/');
+                      const isAudio = file.type.startsWith('audio/');
+                      const isImage = file.type.startsWith('image/');
+                      const url = URL.createObjectURL(file);
+                      const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
+
+                      if (isVideo || isAudio) {
+                        const tempEl = document.createElement(isVideo ? 'video' : 'audio');
+                        tempEl.src = url;
+                        tempEl.onloadedmetadata = () => {
+                          const dur = tempEl.duration || 10;
+                          onAddClip({
+                            name: file.name,
+                            type: clipType,
+                            url,
+                            start: 0,
+                            duration: dur,
+                            sourceDuration: dur,
+                          });
+                        };
+                      } else {
+                        onAddClip({
+                          name: file.name,
+                          type: clipType,
+                          url,
+                          start: 0,
+                          duration: 5,
+                        });
+                      }
+                    };
+                    input.click();
+                  }}
+                  className="h-32 border-2 border-dashed border-[#2d2d3c] hover:border-cyan-500/60 rounded-xl flex flex-col items-center justify-center p-6 text-center bg-[#13131b]/60 hover:bg-[#181824]/80 transition-all cursor-pointer group select-none m-2"
                 >
+                  <div className="w-10 h-10 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-2 text-cyan-400 group-hover:scale-110 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-gray-200">Drag & drop files here to add media</span>
+                  <span className="text-[10px] text-gray-400 mt-1 max-w-sm">
+                    Tracks will be created automatically for Video, Audio & Text
+                  </span>
+                </div>
+              ) : (
+                sortedTracks.map((track, trackIdx) => (
+                  <div
+                    key={track.id ? `grid-${track.id}-${trackIdx}` : `grid-track-${trackIdx}`}
+                    onContextMenu={(e) => handleContextMenu(e, null, track)}
+                    className={`h-20 min-h-[80px] border border-[#22222c] rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
+                  >
                   {/* Subtle Grid backdrop lines */}
                   <div className="absolute inset-0 bg-grid-pattern opacity-5" />
 
@@ -2149,8 +2285,8 @@ export default function Timeline({
                           />
                         )}
 
-                        {/* Real-time Audio Waveform Graph Visualizer (Only rendered when visible in viewport window) */}
-                        {isClipVisible && (clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url)) && (
+                        {/* Real-time Audio Waveform Graph Visualizer (Only rendered for AUDIO clips) */}
+                        {isClipVisible && clip.type === ClipType.AUDIO && (
                           <AudioWaveformGraph
                             clipId={clip.id}
                             url={clip.url}
@@ -2159,10 +2295,12 @@ export default function Timeline({
                             volume={clip.volume}
                             showSilenceHighlights={showSilenceGuide}
                             showBeatMarkers={true}
-                            overlayMode={clip.type === ClipType.VIDEO}
+                            overlayMode={false}
                             currentTime={currentTime}
                             clipStart={clip.start}
                             clipDuration={clip.duration}
+                            clipOffset={clip.offset || 0}
+                            mediaDuration={clip.mediaDuration}
                             isPlaying={isPlaying}
                           />
                         )}
@@ -2244,7 +2382,8 @@ export default function Timeline({
                     );
                   })}
                 </div>
-              ))}
+              )))
+            }
 
               {/* Multi-Selection Bounding Box & Interactive Group Move Drag-Handle */}
               {multiSelectionBounds && (

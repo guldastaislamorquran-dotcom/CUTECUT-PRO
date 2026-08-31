@@ -312,7 +312,7 @@ export default function Inspector({
   return (
     <div
       id="inspector-panel"
-      className="bg-[#18181c] border-l border-[#2a2a30] h-full flex flex-col select-none"
+      className="bg-[#121216] border border-[#202028] rounded-xl flex flex-col h-full select-none overflow-hidden shadow-lg m-1 ml-0"
       style={{ width: width !== undefined ? `${width}px` : undefined }}
     >
       {/* Header Info */}
