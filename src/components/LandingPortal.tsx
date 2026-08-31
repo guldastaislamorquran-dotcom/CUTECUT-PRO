@@ -394,18 +394,19 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
               </div>
             </a>
 
-            {/* Snapcraft Store */}
+            {/* Linux Snap Package */}
             <a
-              href="https://snapcraft.io/cutecut-pro"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/cutecut-pro_2.3.6_amd64.snap"
+              download="cutecut-pro_2.3.6_amd64.snap"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-orange-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
-              title="Install from Snap Store (Snapcraft)"
+              title="Download Snap Package (.snap)"
             >
               <Package className="w-4 h-4 text-orange-400 group-hover:scale-110 transition shrink-0" />
               <div className="text-left min-w-0">
-                <div className="text-xs font-bold leading-tight truncate">Snapcraft</div>
-                <div className="text-[10px] text-gray-400 font-mono">Snap Store</div>
+                <div className="text-xs font-bold leading-tight truncate">Snap Package</div>
+                <div className="text-[10px] text-gray-400 font-mono">.snap 64-bit</div>
               </div>
             </a>
 
