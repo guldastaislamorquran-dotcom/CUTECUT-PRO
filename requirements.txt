@@ -1,0 +1,2 @@
+# CuteCut Pro Python Core Dependencies
+# Add any required python packages here (e.g. ffmpeg-python, numpy)
