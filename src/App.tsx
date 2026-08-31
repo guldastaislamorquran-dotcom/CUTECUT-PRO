@@ -4678,14 +4678,38 @@ export default function App() {
 
   if (currentView === 'portal') {
     return (
-      <LandingPortal
-        user={currentUser}
-        onOpenEditor={() => setCurrentView('editor')}
-        onOpenAuth={() => setShowAuthModal(true)}
-        onOpenProjectModal={() => setShowSaveModal(true)}
-        onLoadTemplate={handleLoadTemplate}
-        recentProjects={[]}
-      />
+      <>
+        <LandingPortal
+          user={currentUser}
+          onOpenEditor={() => setCurrentView('editor')}
+          onOpenAuth={() => setShowAuthModal(true)}
+          onOpenProjectModal={() => setShowSaveModal(true)}
+          onLoadTemplate={handleLoadTemplate}
+          recentProjects={[]}
+        />
+        {/* Auth Modal */}
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          user={currentUser}
+          onLogin={handleLoginUser}
+          onLogout={handleLogoutUser}
+        />
+        {/* Project Save & Style Presets Modal */}
+        <ProjectSaveModal
+          isOpen={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          currentTracks={tracks}
+          currentDuration={duration}
+          currentZoom={zoom}
+          currentAspectRatio={aspectRatio}
+          watermark={watermark}
+          userProfile={currentUser}
+          selectedClip={getSelectedClip()}
+          onLoadProject={handleLoadSavedProject}
+          onApplyStylePreset={handleApplyStylePreset}
+        />
+      </>
     );
   }
 
