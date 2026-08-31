@@ -9,12 +9,13 @@ import AuthModal, { UserProfile } from './components/AuthModal';
 import ProjectSaveModal, { SavedProjectSession } from './components/ProjectSaveModal';
 import UpdateCheckerModal from './components/UpdateCheckerModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
+import { GeminiAIIntelligenceModal } from './components/GeminiAIIntelligenceModal';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import ExportModal, { ExportConfig } from './components/ExportModal';
 import LandingPortal from './components/LandingPortal';
 import { MobileCapCutLayout } from './components/MobileCapCutLayout';
 import { AdMobService } from './utils/admobService';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, inspectQuranAyahAlignment, generateAutoFixQuranTextClips } from './utils/editorUtils';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, getTajweedPhoneticWeight } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -265,6 +266,7 @@ export default function App() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [showGeminiIntelligenceModal, setShowGeminiIntelligenceModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showAISegmentationModal, setShowAISegmentationModal] = useState(false);
 
@@ -2501,10 +2503,27 @@ export default function App() {
   };
 
   const updateClipTimes = (clipId: string, start: number, duration: number) => {
-    setTracks(prev => prev.map(t => ({
-      ...t,
-      clips: t.clips.map(c => c.id === clipId ? { ...c, start, duration } : c)
-    })));
+    setTracks(prev => {
+      // Find linked counterpart clip for Two-Track Anchor Lock (Quran Arabic & Translation sync)
+      let linkedId: string | undefined;
+      for (const t of prev) {
+        const c = t.clips.find(clip => clip.id === clipId);
+        if (c?.linkedClipId) {
+          linkedId = c.linkedClipId;
+          break;
+        }
+      }
+
+      return prev.map(t => ({
+        ...t,
+        clips: t.clips.map(c => {
+          if (c.id === clipId || (linkedId && c.id === linkedId)) {
+            return { ...c, start, duration };
+          }
+          return c;
+        })
+      }));
+    });
   };
 
   const updateClipProperties = (clipId: string, updates: Partial<Clip>) => {
@@ -2957,36 +2976,6 @@ export default function App() {
       }
       return track;
     }));
-  };
-
-  // ------------------ (C2) QURAN TILAWAT ALIGNMENT DETECTOR & SUBTITLE AUTO-FIXER ------------------
-  const handleAutoFixQuranText = async (params: {
-    surahNumber?: number;
-    startAyahNumber?: number;
-    translationOption?: any;
-    targetClipIds?: string[];
-  }) => {
-    try {
-      const report = inspectQuranAyahAlignment(tracks);
-      const surahToUse = params.surahNumber || report.detectedSurah || 1;
-      const startAyahToUse = params.startAyahNumber || report.detectedStartAyah || 1;
-      const transOptionToUse = params.translationOption || getTranslationOptionById(quranTranslation);
-
-      const { newTracks, fixedCount } = await generateAutoFixQuranTextClips({
-        tracks,
-        surahNumber: surahToUse,
-        startAyahNumber: startAyahToUse,
-        translationOption: transOptionToUse,
-        targetClipIds: params.targetClipIds,
-      });
-
-      if (fixedCount > 0) {
-        setTracks(newTracks);
-      }
-    } catch (err: any) {
-      console.error('handleAutoFixQuranText error:', err);
-      alert(`Quran subtitle auto-fix notice: ${err?.message || 'Could not align text'}`);
-    }
   };
 
   // ------------------ (D) AI AUTO CAPTION PARSER ------------------
@@ -3605,14 +3594,15 @@ export default function App() {
       const startTimes: number[] = new Array(totalVerses);
       const endTimes: number[] = new Array(totalVerses);
 
-      // Compute weight for each verse segment based on character/word ratio
+      // Compute weight for each verse segment based on Tajweed phonetics, Madd, and syllable count
       const weights: number[] = allRawVerses.map(v => {
-        const fullArLen = (v.text_arabic || '').length;
+        const fullAr = v.text_arabic || '';
         const enLen = (v.text_english || '').length;
-        const words = (v.text_arabic || '').split(/\s+/).filter(Boolean).length || 1;
+        const words = fullAr.split(/\s+/).filter(Boolean);
+        const tajweedScore = words.reduce((acc, w) => acc + getTajweedPhoneticWeight(w), 0);
         if (v.isTaawwuz) return 14;
         if (v.isTasmiyah) return 12;
-        return Math.max(8, words * 2.8 + fullArLen * 0.9 + enLen * 0.3);
+        return Math.max(8, tajweedScore * 1.4 + fullAr.length * 0.4 + enLen * 0.2);
       });
       const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
@@ -3793,15 +3783,28 @@ export default function App() {
       const enY = quranEnglishY;
       const enUpper = quranEnglishUppercase;
 
-      // Generate Arabic Clips
+      // Generate Paired IDs for Two-Track Anchor Lock (Quran Arabic + Translation synchronization)
+      const hasTranslation = transOpt.id !== 'none';
+      const pairedIds = subtitles.map((_: any, idx: number) => {
+        const rand = Math.random().toString(36).substring(2, 7);
+        const timestamp = Date.now();
+        return {
+          arId: `clip-quran-ar-${timestamp}-${idx}-${rand}`,
+          transId: `clip-quran-trans-${timestamp}-${idx}-${rand}`
+        };
+      });
+
+      // Generate Arabic Clips (Two-Track Anchor Lock enabled)
       const arabicClips: Clip[] = subtitles.map((sub: any, idx: number) => {
         const clipStart = targetClip!.start + sub.start;
         const clipDuration = Math.max(0.8, sub.end - sub.start);
         const textAr = sub.text_arabic || '';
         const matchScore = calculateTasmeeaMatchRatio(textAr, textAr) || 99.2;
+        const { arId, transId } = pairedIds[idx];
 
         return {
-          id: `clip-quran-ar-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+          id: arId,
+          linkedClipId: hasTranslation ? transId : undefined,
           name: sub.isTaawwuz ? `AR: Ta'awwuz` : sub.isTasmiyah ? `AR: Tasmiyah` : `AR: ${sub.verse_key}`,
           type: ClipType.TEXT,
           trackId: trackArId,
@@ -3826,15 +3829,17 @@ export default function App() {
         };
       });
 
-      // Generate Translation Clips
-      const translationClips: Clip[] = (transOpt.id === 'none') ? [] : subtitles.map((sub: any, idx: number) => {
+      // Generate Translation Clips (Two-Track Anchor Lock enabled)
+      const translationClips: Clip[] = !hasTranslation ? [] : subtitles.map((sub: any, idx: number) => {
         const clipStart = targetClip!.start + sub.start;
         const clipDuration = Math.max(0.8, sub.end - sub.start);
         const prefix = transOpt.languageCode.toUpperCase();
         const textEn = sub.text_english || '';
+        const { arId, transId } = pairedIds[idx];
 
         return {
-          id: `clip-quran-trans-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+          id: transId,
+          linkedClipId: arId,
           name: sub.isTaawwuz ? `${prefix}: Ta'awwuz` : sub.isTasmiyah ? `${prefix}: Tasmiyah` : `${prefix}: ${sub.verse_key}`,
           type: ClipType.TEXT,
           trackId: trackEnId,
@@ -4775,7 +4780,6 @@ export default function App() {
               onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
               onAutoRemoveSilence={handleAutoRemoveSilence}
               onAutoSegmentRhythm={handleAutoSegmentRhythm}
-              onAutoFixQuranText={handleAutoFixQuranText}
             />
           )}
           renderMediaPanel={() => (
@@ -5001,15 +5005,9 @@ export default function App() {
           {/* Gemini AI Intelligence Button */}
           <button
             id="btn-gemini-ai-intelligence"
-            onClick={() => {
-              const tabBtn = document.getElementById('tab-thinking');
-              if (tabBtn) {
-                tabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                tabBtn.click();
-              }
-            }}
+            onClick={() => setShowGeminiIntelligenceModal(true)}
             className="flex items-center gap-1.5 px-3 h-9 bg-[#1d1828] hover:bg-[#272038] border border-purple-500/40 hover:border-purple-400 text-purple-300 text-xs font-semibold rounded-lg transition shadow-sm active:scale-95 cursor-pointer"
-            title="Open Gemini AI Intelligence Pipeline & High Thinking Director"
+            title="Open Gemini AI Intelligence Studio & High Thinking Director"
           >
             <Brain className="w-3.5 h-3.5 text-purple-400" />
             <span>Gemini AI Intelligence</span>
@@ -5445,7 +5443,6 @@ export default function App() {
         onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
         onAutoRemoveSilence={handleAutoRemoveSilence}
         onAutoSegmentRhythm={handleAutoSegmentRhythm}
-        onAutoFixQuranText={handleAutoFixQuranText}
       />
 
       {/* ------------------ (E) EXPORT MODULE PANEL (MODAL OVERLAY WINDOW) ------------------ */}
@@ -5502,6 +5499,16 @@ export default function App() {
         isOpen={showVoiceModal}
         onClose={() => setShowVoiceModal(false)}
         onExecuteAction={handleExecuteVoiceAction}
+      />
+
+      {/* Gemini AI Intelligence Studio Modal (gemini-3.7-flash High Thinking) */}
+      <GeminiAIIntelligenceModal
+        isOpen={showGeminiIntelligenceModal}
+        onClose={() => setShowGeminiIntelligenceModal(false)}
+        onAddClip={addNewClip}
+        onExecuteAction={handleExecuteVoiceAction}
+        currentTime={currentTime}
+        aspectRatio={aspectRatio}
       />
 
       {/* Keyboard Shortcuts Help Modal */}

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { generateWaveformPeaks, normalizeMediaUrl, calculateAudioPeakDb, calculateFrequencySpectrumAtOffset } from '../utils/editorUtils';
+import { getSystemSpecs } from '../utils/systemPerformance';
 
 interface AudioWaveformGraphProps {
   clipId: string;
@@ -129,7 +130,13 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
 
     const renderWidth = Math.max(10, Math.floor(width));
     const renderHeight = height || canvas.parentElement?.clientHeight || 48;
-    const dpr = window.devicePixelRatio || 1;
+    
+    // Adapt DPR and sampling step based on system hardware performance tier
+    const specs = getSystemSpecs();
+    let dprCap = 1.0;
+    if (specs.tier === 'ultra') dprCap = Math.min(window.devicePixelRatio || 1, 2.0);
+    else if (specs.tier === 'high') dprCap = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = dprCap;
 
     canvas.width = renderWidth * dpr;
     canvas.height = renderHeight * dpr;
@@ -155,9 +162,10 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
 
     // 2. Compute Peak Amplitudes & RMS Silence Flags (downsampled per bar)
     const volFactor = Math.min(2.0, Math.max(0.1, volume));
-    const barWidth = 2;
-    const gap = 1;
-    const totalBars = Math.max(8, Math.floor(renderWidth / (barWidth + gap)));
+    const barWidth = specs.tier === 'power_saver' ? 3 : 2;
+    const gap = specs.tier === 'power_saver' ? 2 : 1;
+    const maxAllowedBars = specs.recommendedMaxWaveformPoints || 3000;
+    const totalBars = Math.max(8, Math.min(maxAllowedBars, Math.floor(renderWidth / (barWidth + gap))));
 
     let peaks: number[] = [];
     let isSilenceFlags: boolean[] = [];

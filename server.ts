@@ -352,11 +352,13 @@ async function startServer() {
 
         const isSplitBreaths = breathMode === 'split-breaths';
         const breathRuleText = isSplitBreaths
-          ? `3. MULTI-BREATH & WAQF HANDLING (SPLIT BREATH PHRASES MODE):
-             - Reciters frequently recite a long or medium Ayah across 2, 3, 4, or 5 separate breaths (stopping at Waqf marks, pausing to inhale, and resuming).
+          ? `3. MULTI-BREATH & WAQF HANDLING (SPLIT BREATH PHRASES & AI TRANSLATION TRIMMING MODE):
+             - Reciters frequently recite a long or medium Ayah across 2, 3, 4, or 5 separate breaths (stopping at Waqf marks: ۙ, ۗ, ۚ, ۖ, ۜ, pausing to inhale, and resuming).
              - If a verse is recited across multiple breaths or has a clear breathing pause (>0.5s), output separate subtitle segments for EACH individual breath phrase!
-             - For each breath phrase, output only the exact words recited during that breath, with its precise start and end times.
-             - Label the verse_key clearly (e.g. "2:255 [1/3]", "2:255 [2/3]", "2:255 [3/3]" or "2:255").
+             - For each breath phrase:
+               a) 'text_arabic': Output ONLY the exact Arabic words recited during that breath.
+               b) 'text_english': Output ONLY the corresponding trimmed translation clause that matches the Arabic phrase recited in that breath (AI Translation Trimming). DO NOT repeat the entire Ayah translation for a short split phrase!
+               c) 'verse_key': Label clearly (e.g. "2:255 [1/3]", "2:255 [2/3]", "2:255 [3/3]" or "2:255").
              - CRITICAL: If an Ayah is recited in a SINGLE breath without stopping, do NOT cut or split it! Keep it as 1 complete segment.`
           : `3. COMPLETE AYAH SPAN & WAQF/PAUSE HANDLING (FULL AYAH DISPLAY MODE):
              - Each recited Ayah MUST be output as one complete, unbroken verse segment containing the full Arabic text and full translation with its exact verse_key (e.g., "55:33", "1:1", "2:255").
@@ -365,14 +367,18 @@ async function startServer() {
              - Do NOT chop or fragment an Ayah into half-sentences - keep the complete Ayah text intact across all its internal breaths!`;
 
         const promptText = `
-          You are an expert Quranic audio-to-text alignment and voice transcription model.
-          Analyze the attached recitation media (audio or video) track with absolute precision.
+          You are an expert Quranic audio-to-text alignment, Tajweed acoustic analyzer, and voice transcription model (QuranCaption Engine).
+          Analyze the attached recitation media (audio or video) track with absolute millisecond precision.
           Your task is to scan and align the spoken recitation voice in the media with the corresponding Quranic text segments provided in this list:
           ${JSON.stringify(versesContext)}
 
-          ALIGNMENT & TIMING RULES:
-          1. VOICE DETECTOR: Detect the exact millisecond/second when the reciter starts and stops speaking each phrase. Do NOT estimate; listen to the vocal boundaries to determine when each word begins and ends.
-          2. AUZUBILLAH & BISMILLAH RECITATION:
+          ALIGNMENT & TIMING RULES (QuranCaption Architecture):
+          1. VOICE DETECTOR: Detect the exact millisecond/second when the reciter starts and stops speaking each phrase. Listen to the vocal boundaries to determine when each word begins and ends.
+          2. TAJWEED ACOUSTIC WEIGHTING:
+             - Prolonged Madd letters (4 to 6 Harakats with ~ or ٰ) take 2x to 4x longer duration.
+             - Tashdeed (ّ) and Ghunnah (نّ, مّ) held consonants take extra duration.
+             - Reflect this natural Tajweed prolongation in your timestamp boundaries.
+          3. AUZUBILLAH & BISMILLAH RECITATION:
              Listen carefully at the very beginning of the audio track:
              - If "Auzubillah" (A'udhu billahi minash-shaitanir-rajim) is recited, identify its exact start time (e.g. 0.5s) and end time (e.g. 4.2s). In the output subtitles, you MUST place this segment:
                {"start": <start_sec>, "end": <end_sec>, "verse_key": "aux", "text_arabic": "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ", "text_english": "I seek refuge in Allah from Satan, the expelled."}

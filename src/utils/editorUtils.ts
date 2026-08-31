@@ -527,9 +527,9 @@ export function runVoiceAlignmentPipeline(
       arabicText = attachAyahSymbolToText(arabicText, verseNum, symStyle, digitType, symPos);
     }
     const englishText = v.translation || v.text_english || '';
-    const wordCount = (arabicText || '').split(/\s+/).filter(Boolean).length || 1;
-    const charCount = arabicText.length + englishText.length;
-    const weight = v.verse_key === 'aux' ? 14 : v.verse_key === 'bis' ? 12 : Math.max(6, wordCount * 2.5 + charCount * 0.4);
+    const words = (arabicText || '').split(/\s+/).filter(Boolean);
+    const tajweedWeight = words.reduce((acc, w) => acc + getTajweedPhoneticWeight(w), 0);
+    const weight = v.verse_key === 'aux' ? 14 : v.verse_key === 'bis' ? 12 : Math.max(6, tajweedWeight * 1.35 + englishText.length * 0.15);
 
     return {
       verse_key: v.verse_key,
@@ -1099,8 +1099,56 @@ export function findBestTasmeeaWindowMatch(candidateText: string, fullQuranRefer
 }
 
 /**
- * Splits a full sentence / text into phrase chunks based on duration weights of speech segments.
- * Preserves clean word boundaries and respects Quranic Waqf punctuation marks and Tajweed Madd duration.
+ * Calculates acoustic phonetic duration of a Quranic Arabic word according to Tajweed rules.
+ * Honors Madd (2-6 harakats), Shaddah, Ghunnah, and multi-syllable word weights.
+ */
+export function getTajweedPhoneticWeight(word: string): number {
+  if (!word) return 1;
+  const clean = word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
+  let weight = Math.max(1, clean.length * 1.0);
+
+  // 1. Madd prolongation (Madd Lazim, Muttasil, Munfasil: 4 to 6 Harakats)
+  if (/[\u0653]/.test(word)) {
+    weight += 4.5; // Heavy Maddah (~ e.g. جَآءَ, الضَّآلِّينَ)
+  }
+  if (/[\u0622]/.test(word)) {
+    weight += 3.0; // Alif Maddah (آ e.g. آمَنُوا)
+  }
+  if (/[\u0670\u0656]/.test(word)) {
+    weight += 2.0; // Dagger Alif / Subscript Alif (ٰ e.g. الرَّحْمَٰنِ)
+  }
+  if (/[\u06E5\u06E6]/.test(word)) {
+    weight += 2.0; // Small Waw / Small Ya for Silah (ۥ ۦ)
+  }
+
+  // 2. Shaddah / Tashdeed (Doubled consonant)
+  if (/[\u0651]/.test(word)) {
+    weight += 2.2; // Tashdeed (ّ)
+  }
+
+  // 3. Ghunnah (Noon/Meem Mushaddadah - 2 Harakats nasal sound)
+  if (/(نّ|مّ|نَّ|مَّ|نِّ|مِّ|نُّ|مُّ|نً|مً|نٍ|مٍ|نٌ|مٌ)/.test(word)) {
+    weight += 3.0; // Heavy Ghunnah
+  }
+
+  // 4. Tanween (ً ٍ ٌ)
+  if (/[\u064B\u064C\u064D]/.test(word)) {
+    weight += 1.2;
+  }
+
+  // 5. Multi-syllabic heavy Quranic words
+  if (clean.length >= 8) {
+    weight += 4.5; // e.g. فَأَسْقَيْنَاكُمُوهُ, أَنُلْزِمُكُمُوهَا, فَسَيَكْفِيكَهُمُ
+  } else if (clean.length >= 6) {
+    weight += 2.5; // e.g. الْمُسْتَغْفِرِينَ, الْمُفْلِحُونَ
+  }
+
+  return weight;
+}
+
+/**
+ * Splits full Arabic text into natural phrase chunks based on duration weights of speech segments.
+ * Strictly respects Quranic Waqf marks (ۙ, ۗ, ۚ, ۖ, ۜ), avoiding split on short prepositions.
  */
 export function splitTextIntoPhrases(fullText: string, inputDurations: number[]): string[] {
   if (!fullText || !fullText.trim()) return inputDurations.map(() => '');
@@ -1124,26 +1172,10 @@ export function splitTextIntoPhrases(fullText: string, inputDurations: number[])
   const result: string[] = [];
   let currentWordIndex = 0;
 
-  const getSpeechCharLen = (w: string) => {
-    const clean = w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
-    let len = Math.max(1, clean.length);
-    // Add acoustic weight for Madd marks (\u0653) & long vowels
-    if (/[\u0653\u0670]/.test(w)) len += 2.5;
-    if (/[\u0622]/.test(w)) len += 2.0;
-
-    // Detect long Arabic words (6+ or 8+ characters) & attached pronouns (e.g., كموه, ناه, هم)
-    if (clean.length >= 8) {
-      len += 4.0; // Heavy multi-syllables (e.g., فَأَسْقَيْنَاكُمُوهُ, أَنُلْزِمُكُمُوهَا)
-    } else if (clean.length >= 6) {
-      len += 2.0; // Multi-syllable compound words (e.g., الْمُسْتَغْفِرِينَ)
-    }
-    return len;
-  };
-
-  // Helper to check if a word is a short Arabic grammatical particle/preposition
+  // Short Arabic grammatical particle/preposition check
   const isShortParticle = (w: string) => {
     const clean = w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
-    return /^(و|ف|ب|ل|من|عن|في|على|إلى|ان|أن|إن|قد|هل|ما|لا|يا)$/.test(clean);
+    return /^(و|ف|ب|ل|من|عن|في|على|إلى|ان|أن|إن|قد|هل|ما|لا|يا|ثم|إذ|إذا|بل|أم)$/.test(clean);
   };
 
   for (let i = 0; i < durations.length; i++) {
@@ -1153,7 +1185,7 @@ export function splitTextIntoPhrases(fullText: string, inputDurations: number[])
       const remainingSegments = durations.length - i;
       const remainingDur = durations.slice(i).reduce((a, b) => a + b, 0) || 1;
       const remainingWords = words.slice(currentWordIndex);
-      const remainingWordLengths = remainingWords.map(getSpeechCharLen);
+      const remainingWordLengths = remainingWords.map(getTajweedPhoneticWeight);
       const totalRemainingChars = remainingWordLengths.reduce((a, b) => a + b, 0) || 1;
 
       const targetCharShare = totalRemainingChars * (durations[i] / remainingDur);
@@ -1169,22 +1201,28 @@ export function splitTextIntoPhrases(fullText: string, inputDurations: number[])
         const lastWord = remainingWords[c - 1] || '';
         const nextWord = remainingWords[c] || '';
 
-        // Waqf punctuation bonus
-        const hasWaqfSymbol = /[\u06D6-\u06DC\u06E9-\u06ED,;\.\؟\?!]|[جۘۚطصصلےقلیف]/.test(lastWord);
-        if (hasWaqfSymbol) {
+        // Quranic Waqf punctuation marks (QuranCaption Rule 1):
+        // ۙ (Waqf Lazim), ۗ (Qala - Waqf Awla), ۚ (Jim - Ja'iz), ۖ (Sala - Wasl Awla), ۜ (Saktah), ۛ (Mu'anaqah)
+        const hasPrimaryWaqf = /[\u06D6\u06D7\u06D8\u06D9\u06DA\u06DB\u06DC\u06E9\u06EA\u06EB\u06EC\u06ED]|[ۙۗۚۖۜۛۘ]/.test(lastWord);
+        if (hasPrimaryWaqf) {
+          diff -= 30.0; // Supreme preference for Quranic Waqf marks!
+        }
+
+        // Secondary Waqf letters (ج, قلی, صلی, ط, ز, ص, م)
+        const hasSecondaryWaqf = /[جۘۚطصصلےقلیف]/.test(lastWord);
+        if (hasSecondaryWaqf) {
           diff -= 15.0;
         }
 
-        // Arabic grammatical integrity rule:
-        // Prevent ending a phrase on an isolated short particle (e.g., "في" or "من") when followed by a long word
+        // Penalty for ending phrase on a dangling short preposition/particle
         if (isShortParticle(lastWord) && nextWord) {
-          diff += 8.0; // Penalty for dangling prepositions
+          diff += 12.0;
         }
 
         // Bonus for ending a phrase on a long cohesive word or complete clause
         const lastCleanLen = lastWord.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').length;
         if (lastCleanLen >= 6) {
-          diff -= 3.0; // Cohesive word boundary preference
+          diff -= 3.5;
         }
 
         if (diff < minDiff) {
@@ -1200,6 +1238,85 @@ export function splitTextIntoPhrases(fullText: string, inputDurations: number[])
   }
 
   while (result.length < inputDurations.length) {
+    result.push('');
+  }
+
+  return result;
+}
+
+/**
+ * Intelligent Translation Clause Trimmer (QuranCaption Rule 2).
+ * Splits a full verse translation into semantically complete, natural clauses matching
+ * the breath segments of the recited Arabic Ayah, avoiding awkward cuts in the middle of sentences.
+ */
+export function splitTranslationByClauses(
+  translation: string,
+  durations: number[]
+): string[] {
+  if (!translation || !translation.trim()) return durations.map(() => '');
+  const cleanTrans = translation.trim();
+  const words = cleanTrans.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return durations.map(() => '');
+  if (words.length === 1 || durations.length <= 1) return [cleanTrans];
+
+  const totalDur = durations.reduce((a, b) => a + b, 0) || 1;
+  const numSegs = durations.length;
+  const result: string[] = [];
+  let wordOffset = 0;
+
+  // Clause boundary markers and punctuation in Urdu, English, Hindi, Arabic
+  const isPunctuationBreak = (w: string) => /[,;\:\.\!\?\—\-\|\،\؛\۔]$/.test(w);
+  const isConnectorWord = (w: string) => {
+    const lower = w.toLowerCase().replace(/[,;\:\.\!\?\—\-\|\،\؛\۔]/g, '');
+    // Urdu / Hindi connectors
+    if (/^(اور|کہ|لیکن|تو|پھر|جس|جو|تاکہ|جبکہ|حالانکہ|پس|بےشک|جب|سو|اورپھر|اورجب|کیونکہ|اوروہ)$/.test(lower)) return true;
+    if (/^(और|कि|लेकिन|तो|फिर|जो|ताकि|जब|बेशक|क्योंकि|औरवह)$/.test(lower)) return true;
+    // English connectors
+    if (/^(and|but|so|that|who|whom|whose|which|when|where|while|though|although|indeed|verily|then|therefore|because|for|neither|nor|except|unless)$/.test(lower)) return true;
+    return false;
+  };
+
+  for (let sIdx = 0; sIdx < numSegs; sIdx++) {
+    if (sIdx === numSegs - 1) {
+      result.push(words.slice(wordOffset).join(' '));
+    } else {
+      const remainingSegs = numSegs - sIdx;
+      const remainingDur = durations.slice(sIdx).reduce((a, b) => a + b, 0) || 1;
+      const remainingWords = words.slice(wordOffset);
+      const targetWordCount = Math.max(1, Math.round(remainingWords.length * (durations[sIdx] / remainingDur)));
+
+      const maxSearch = Math.max(1, remainingWords.length - (remainingSegs - 1));
+      let bestCount = targetWordCount;
+      let minDiff = Infinity;
+
+      for (let count = 1; count <= maxSearch; count++) {
+        let diff = Math.abs(count - targetWordCount);
+        const lastWord = remainingWords[count - 1] || '';
+        const nextWord = remainingWords[count] || '';
+
+        // Punctuation break bonus (strongest natural clause boundary)
+        if (isPunctuationBreak(lastWord)) {
+          diff -= 5.0;
+        }
+
+        // Connector word boundary bonus (starts next clause)
+        if (isConnectorWord(nextWord)) {
+          diff -= 3.0;
+        }
+
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestCount = count;
+        }
+      }
+
+      const endIdx = Math.min(words.length, wordOffset + bestCount);
+      result.push(words.slice(wordOffset, endIdx).join(' '));
+      wordOffset = endIdx;
+    }
+  }
+
+  while (result.length < numSegs) {
     result.push('');
   }
 
@@ -1448,27 +1565,9 @@ export function splitVerseAcrossBreaths(
   const segDurations = segs.map(s => Math.max(0.5, s.end - s.start));
   const arPhrases = splitTextIntoPhrases(verse.text_arabic || '', segDurations);
 
-  // Split translation words proportionally across segments
-  const enWords = (verse.text_english || '').trim().split(/\s+/).filter(Boolean);
-  const totalSpeech = segDurations.reduce((a, b) => a + b, 0) || 1;
-  const enPhrases: string[] = [];
-
-  let enWordCursor = 0;
-  for (let sIdx = 0; sIdx < segs.length; sIdx++) {
-    const isLast = (sIdx === segs.length - 1);
-    if (isLast) {
-      enPhrases.push(enWords.slice(enWordCursor).join(' '));
-    } else {
-      const durRatio = segDurations[sIdx] / totalSpeech;
-      let count = Math.max(1, Math.round(enWords.length * durRatio));
-      const remainingSegments = segs.length - 1 - sIdx;
-      if (enWordCursor + count + remainingSegments > enWords.length) {
-        count = Math.max(1, enWords.length - enWordCursor - remainingSegments);
-      }
-      enPhrases.push(enWords.slice(enWordCursor, enWordCursor + count).join(' '));
-      enWordCursor += count;
-    }
-  }
+  // Intelligent Translation Trimming (QuranCaption Rule 2):
+  // Split translation into semantically coherent clauses matching the Arabic breath phrases
+  const enPhrases = splitTranslationByClauses(verse.text_english || '', segDurations);
 
   const result: Array<{
     verse_key: string;

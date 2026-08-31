@@ -70,6 +70,7 @@ export interface Clip {
   textStrokeColor?: string;
   confidenceScore?: number; // Tasmeea alignment confidence match ratio (0-100%)
   textAnimation?: TextAnimationConfig;
+  linkedClipId?: string; // Two-Track Anchor Lock: Links Arabic clip and Translation clip together on timeline
 
   // Video adjustments and filters
   transform?: {
