@@ -340,6 +340,18 @@ export default function Timeline({
   const timelineFileInputRef = useRef<HTMLInputElement>(null);
 
   const processDroppedFiles = useCallback((files: FileList | File[]) => {
+    // Calculate total audio duration currently on the timeline
+    const audioTrackList = tracks.filter(t => (t.type as string) === 'audio');
+    let totalAudioDur = 0;
+    audioTrackList.forEach(t => {
+      t.clips.forEach(c => {
+        const end = c.start + c.duration;
+        if (end > totalAudioDur) {
+          totalAudioDur = end;
+        }
+      });
+    });
+
     Array.from(files).forEach((file) => {
       const url = URL.createObjectURL(file);
       const isVideo = file.type.startsWith('video/');
@@ -355,20 +367,26 @@ export default function Timeline({
           name: file.name,
           type: ClipType.IMAGE,
           url,
-          duration: 5.0,
-          sourceDuration: 5.0,
+          start: 0, // start at the beginning for perfect background alignment
+          duration: totalAudioDur > 0 ? totalAudioDur : 5.0,
+          sourceDuration: totalAudioDur > 0 ? totalAudioDur : 5.0,
         });
       } else {
         const el = document.createElement(isVideo ? 'video' : 'audio');
         el.src = url;
         el.onloadedmetadata = () => {
           const dur = el.duration && !isNaN(el.duration) && el.duration > 0 ? parseFloat(el.duration.toFixed(2)) : 5.0;
+          
+          // If a background video is dropped, stretch its timeline duration to span the complete recitation length if available
+          const finalDur = (isVideo && totalAudioDur > 0) ? totalAudioDur : dur;
+
           onAddClip?.({
             name: file.name,
             type: targetType,
             url,
-            duration: dur,
-            sourceDuration: dur,
+            start: isAudio ? (currentTime || 0) : 0, // audio goes at current cursor, but background video starts at 0 to cover the recitation
+            duration: finalDur,
+            sourceDuration: isVideo ? dur : finalDur,
           });
         };
         el.onerror = () => {
@@ -376,13 +394,14 @@ export default function Timeline({
             name: file.name,
             type: targetType,
             url,
-            duration: 5.0,
-            sourceDuration: 5.0,
+            start: isAudio ? (currentTime || 0) : 0,
+            duration: totalAudioDur > 0 ? totalAudioDur : 5.0,
+            sourceDuration: totalAudioDur > 0 ? totalAudioDur : 5.0,
           });
         };
       }
     });
-  }, [onAddClip]);
+  }, [onAddClip, tracks, currentTime]);
 
   const handleTimelineDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -2167,30 +2186,6 @@ export default function Timeline({
                   <p className="text-[10px] text-gray-500 max-w-sm mt-1">
                     Supports Video (MP4, WebM), Audio (MP3, WAV), and Images (PNG, JPG). Tracks are created automatically on drop.
                   </p>
-                  <div className="flex items-center gap-2 mt-3.5">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        timelineFileInputRef.current?.click();
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-[11px] font-bold shadow-md shadow-cyan-500/20 transition flex items-center gap-1.5"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Import Media</span>
-                    </button>
-                    {onAddTrack && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAddTrack(ClipType.VIDEO);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-[#22222d] hover:bg-[#2b2b3b] text-gray-300 text-[11px] font-semibold border border-white/10 transition flex items-center gap-1"
-                      >
-                        <Layers className="w-3.5 h-3.5 text-gray-400" />
-                        <span>Add Video Track</span>
-                      </button>
-                    )}
-                  </div>
                 </div>
               ) : (
                 sortedTracks.map((track, trackIdx) => (

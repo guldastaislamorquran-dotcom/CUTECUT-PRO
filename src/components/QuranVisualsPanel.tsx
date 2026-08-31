@@ -435,16 +435,44 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   const handleAutoPlaceAllOnTimeline = () => {
     if (generatedVisuals.length === 0) return;
 
-    // Determine target segments from timeline if available
-    const segments = (sourceMode === 'timeline' && timelineAyahs.length > 0)
-      ? timelineAyahs
-      : generatedVisuals.map((g, i) => ({
-          verse_key: g.verse_key,
-          start: g.start !== undefined ? g.start : i * 5.0,
-          duration: g.duration !== undefined ? g.duration : 5.0,
-          text_arabic: g.text_arabic,
-          translation: g.translation,
-        }));
+    // Calculate total audio duration currently on the timeline
+    const audioTrackList = tracks.filter(t => t.type === 'audio');
+    let totalAudioDur = 0;
+    audioTrackList.forEach(t => {
+      t.clips.forEach(c => {
+        const end = c.start + c.duration;
+        if (end > totalAudioDur) {
+          totalAudioDur = end;
+        }
+      });
+    });
+
+    // Determine target segments from timeline
+    let segments: Array<{ verse_key: string; start: number; duration: number; text_arabic?: string; translation?: string }> = [];
+
+    if (sourceMode === 'timeline' && timelineAyahs.length === generatedVisuals.length) {
+      // 1-to-1 perfect match with the timeline subtitle segments
+      segments = timelineAyahs;
+    } else if (sourceMode === 'timeline' && totalAudioDur > 0) {
+      // Evenly distribute all generated scenes across the complete duration of the recitation audio
+      const segmentDur = totalAudioDur / generatedVisuals.length;
+      segments = generatedVisuals.map((g, i) => ({
+        verse_key: g.verse_key || `Ayah ${i + 1}`,
+        start: Number((i * segmentDur).toFixed(2)),
+        duration: Number(segmentDur.toFixed(2)),
+        text_arabic: g.text_arabic,
+        translation: g.translation,
+      }));
+    } else {
+      // Manual incremental layout
+      segments = generatedVisuals.map((g, i) => ({
+        verse_key: g.verse_key,
+        start: g.start !== undefined ? g.start : Number((i * 5.0).toFixed(2)),
+        duration: g.duration !== undefined ? g.duration : 5.0,
+        text_arabic: g.text_arabic,
+        translation: g.translation,
+      }));
+    }
 
     let runningMarker = 0;
 
@@ -731,7 +759,7 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
                 Timeline Sync Alignment
               </span>
               <span className="text-[10px] text-emerald-400 font-bold">
-                {timelineAyahs.length > 0 ? `${timelineAyahs.length} Tracks Detected` : 'Surah Mode'}
+                {timelineAyahs.length > 0 ? `${timelineAyahs.length} Ayahs Detected` : 'Surah Mode'}
               </span>
             </div>
 

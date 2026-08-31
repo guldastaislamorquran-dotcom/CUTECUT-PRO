@@ -838,36 +838,36 @@ export function analyzeVoiceActivityRMS(
   const sensitivity = options.noiseFloorSensitivity || 'quran-ayah';
   
   // Sensitivity presets calibration with specialized Quranic Tajweed & Waqf pause detection
-  let defaultMinSilence = 480;
-  let defaultMinSpeech = 1100;
-  let defaultPadding = 120;
-  let baselineFloorDb = -33;
+  let defaultMinSilence = 250;
+  let defaultMinSpeech = 800;
+  let defaultPadding = 100;
+  let baselineFloorDb = -29;
 
   if (sensitivity === 'quran-ayah') {
-    defaultMinSilence = 480; // Detects natural Waqf breathing pauses between Ayahs
-    defaultMinSpeech = 1100; // Ensures complete Ayah phrase capture
-    defaultPadding = 120;
-    baselineFloorDb = -33;
+    defaultMinSilence = 250; // Lowed from 480ms to detect short, quick Waqf breathing pauses between Ayahs
+    defaultMinSpeech = 800;  // Capture shorter phrases
+    defaultPadding = 100;
+    baselineFloorDb = -29;   // Raised from -33 to tolerate background hiss/breathing inhalation noises
   } else if (sensitivity === 'tartil') {
-    defaultMinSilence = 600; // Slow, measured recitation with long Madds and deep pauses
-    defaultMinSpeech = 1400;
-    defaultPadding = 150;
-    baselineFloorDb = -35;
+    defaultMinSilence = 350; // Slow, measured recitation but responsive to standard pause lengths
+    defaultMinSpeech = 1000;
+    defaultPadding = 120;
+    baselineFloorDb = -31;
   } else if (sensitivity === 'hadr') {
-    defaultMinSilence = 340; // Fast-paced recitation with brief pauses between verses
-    defaultMinSpeech = 750;
-    defaultPadding = 80;
-    baselineFloorDb = -34;
+    defaultMinSilence = 180; // Highly sensitive for rapid-fire or quick-breath recitations
+    defaultMinSpeech = 500;
+    defaultPadding = 60;
+    baselineFloorDb = -28;
   } else if (sensitivity === 'mosque') {
-    defaultMinSilence = 450; // Handles ambient acoustic reverb and echo in prayer halls
-    defaultMinSpeech = 1100;
-    defaultPadding = 130;
-    baselineFloorDb = -30;
+    defaultMinSilence = 300; // Tolerant of reverb decay and echoes in mosques
+    defaultMinSpeech = 900;
+    defaultPadding = 110;
+    baselineFloorDb = -27;
   } else if (sensitivity === 'studio') {
-    defaultMinSilence = 260; // Clean dry studio recording
-    defaultMinSpeech = 750;
-    defaultPadding = 70;
-    baselineFloorDb = -38;
+    defaultMinSilence = 150; // Ultra-precise for clean dry studio recordings
+    defaultMinSpeech = 600;
+    defaultPadding = 60;
+    baselineFloorDb = -34;
   }
 
   const minSilenceMs = options.minSilenceMs ?? defaultMinSilence;
@@ -1466,7 +1466,7 @@ export function assignAcousticSegmentsToVerses(
     for (let i = 1; i < vSegs.length; i++) {
       const nextSeg = vSegs[i];
       const gap = nextSeg.start - current.end;
-      if (gap < 0.65) {
+      if (gap < 0.40) {
         current.end = Math.max(current.end, nextSeg.end);
       } else {
         mergedVSegs.push({

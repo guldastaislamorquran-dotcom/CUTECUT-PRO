@@ -17,6 +17,7 @@ interface AuthModalProps {
   user: UserProfile | null;
   onLogin: (user: UserProfile) => void;
   onLogout: () => void;
+  initialErrorMessage?: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -25,13 +26,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   user,
   onLogin,
   onLogout,
+  initialErrorMessage = '',
 }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [statusMsg, setStatusMsg] = useState('');
+  const [statusMsg, setStatusMsg] = useState(initialErrorMessage);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialErrorMessage) {
+      setStatusMsg(initialErrorMessage);
+    }
+  }, [initialErrorMessage]);
 
   if (!isOpen) return null;
 
@@ -42,11 +50,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    // Generate a deterministic and perfectly formatted Firestore-safe user ID from the email
+    const emailKey = email.toLowerCase().trim().replace(/[^a-z0-9]/gi, '_');
+    const deterministicUid = `usr_${emailKey}`;
+
     const newUser: UserProfile = {
       name: name || email.split('@')[0] || 'CuteCut Creator',
-      email: email,
+      email: email.trim(),
       tier: 'PRO',
-      uid: `local-${Date.now()}`
+      uid: deterministicUid
     };
 
     onLogin(newUser);
@@ -72,7 +84,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.warn('[Firebase Google Sign-In Error]', err);
-      setStatusMsg('Google sign-in was canceled or failed.');
+      // Custom help message explaining the browser/iframe popup block.
+      setStatusMsg(
+        '⚠️ Browser security ne Google login block kar diya hai (Iframe block). Fikar na karein! Niche apna email/password likhein ya directly "Quick Sign In" button daba kar login karlein, ye 100% chalega!'
+      );
     } finally {
       setIsGoogleLoading(false);
     }

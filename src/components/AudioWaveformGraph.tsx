@@ -162,8 +162,8 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     let peaks: number[] = [];
     let isSilenceFlags: boolean[] = [];
 
-    const noiseFloorDb = -35;
-    const rmsThreshold = Math.pow(10, noiseFloorDb / 20); // ~0.01778 RMS threshold
+    const noiseFloorDb = -28;
+    const rmsThreshold = Math.pow(10, noiseFloorDb / 20); // ~0.0398 RMS threshold for better real-world tolerance
 
     if (channelData && channelData.length > 0) {
       const samplesPerBar = Math.floor(channelData.length / totalBars);
@@ -182,15 +182,15 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
         }
         const rms = count > 0 ? Math.sqrt(sumSq / count) : 0;
         peaks.push(Math.min(1.0, maxVal * volFactor));
-        // Silence condition: RMS energy below noise floor or peak negligible
-        isSilenceFlags.push(rms < rmsThreshold || maxVal < 0.02);
+        // Silence condition: RMS energy below noise floor or peak negligible (tolerating inhalation)
+        isSilenceFlags.push(rms < rmsThreshold || maxVal < 0.045);
       }
     } else {
       const rawPeaks = generateWaveformPeaks(`${clipId}-${url || 'audio'}`, totalBars);
       for (let i = 0; i < totalBars; i++) {
         const p = rawPeaks[i];
         peaks.push(Math.min(1.0, p * volFactor));
-        isSilenceFlags.push(p < 0.15);
+        isSilenceFlags.push(p < 0.18);
       }
     }
 
@@ -231,9 +231,9 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
             ctx.fillRect(xStart, renderHeight - 1.5, xWidth, 1.5);
 
             // Render crisp "PAUSE" text node placement guide label if silence region is wide enough
-            if (xWidth >= 24 && renderHeight >= 28) {
+            if (xWidth >= 16 && renderHeight >= 28) {
               ctx.save();
-              ctx.font = '700 8px Inter, system-ui, sans-serif';
+              ctx.font = '700 7px Inter, system-ui, sans-serif';
               ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
               ctx.textAlign = 'center';
               ctx.textBaseline = 'top';

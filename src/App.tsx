@@ -263,6 +263,7 @@ export default function App() {
 
   // New Features: Modals & Identity state
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalError, setAuthModalError] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
@@ -504,9 +505,15 @@ export default function App() {
           uid: u.uid,
         };
         handleLoginUser(profile);
+        setAuthModalError('');
       }
     } catch (err: any) {
       console.warn('[Firebase Google Sign-In Error]', err);
+      // Because we are inside an iframe preview, popups are blocked by browser security. Show a helpful bilingual workaround.
+      setAuthModalError(
+        '⚠️ Browser security ne Google login block kar diya hai (Iframe block). Fikar na karein! Niche apna email/password likhein ya directly "Quick Sign In" button daba kar login karlein, ye 100% chalega!'
+      );
+      setShowAuthModal(true);
     } finally {
       setIsAuthLoading(false);
     }
@@ -4945,6 +4952,7 @@ export default function App() {
           user={currentUser}
           onLogin={handleLoginUser}
           onLogout={handleLogoutUser}
+          initialErrorMessage={authModalError}
         />
 
         {/* Project Save & Style Presets Modal */}
@@ -5517,6 +5525,7 @@ export default function App() {
         user={currentUser}
         onLogin={handleLoginUser}
         onLogout={handleLogoutUser}
+        initialErrorMessage={authModalError}
       />
 
       {/* Project Save & Style Presets Modal */}
