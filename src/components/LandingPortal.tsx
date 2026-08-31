@@ -326,14 +326,14 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
         <div className="flex flex-col items-center justify-center gap-3 mb-14 w-full max-w-5xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
             <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Download Desktop Native Apps (v2.3.6)</span>
+            <span>Download Desktop Native Apps (v2.3.7)</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 w-full">
             {/* Windows Download */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO.Setup.2.3.6.exe"
-              download="CUTECUT.PRO.Setup.2.3.6.exe"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO.Setup.2.3.7.exe"
+              download="CUTECUT.PRO.Setup.2.3.7.exe"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-cyan-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -348,8 +348,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* macOS Download */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO-2.3.6-arm64.dmg"
-              download="CUTECUT.PRO-2.3.6-arm64.dmg"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO-2.3.7-arm64.dmg"
+              download="CUTECUT.PRO-2.3.7-arm64.dmg"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-gray-200/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -364,8 +364,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* Linux AppImage */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO-2.3.6.AppImage"
-              download="CUTECUT.PRO-2.3.6.AppImage"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO-2.3.7.AppImage"
+              download="CUTECUT.PRO-2.3.7.AppImage"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-emerald-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -380,8 +380,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* Linux DEB */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/cutecut-pro_2.3.6_amd64.deb"
-              download="cutecut-pro_2.3.6_amd64.deb"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/cutecut-pro_2.3.7_amd64.deb"
+              download="cutecut-pro_2.3.7_amd64.deb"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-blue-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -394,19 +394,18 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
               </div>
             </a>
 
-            {/* Linux Snap Package */}
+            {/* Snapcraft Store */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/cutecut-pro_2.3.6_amd64.snap"
-              download="cutecut-pro_2.3.6_amd64.snap"
+              href="https://snapcraft.io/cutecut-pro"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-orange-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
-              title="Download Snap Package (.snap)"
+              title="Install from Snap Store (Snapcraft)"
             >
               <Package className="w-4 h-4 text-orange-400 group-hover:scale-110 transition shrink-0" />
               <div className="text-left min-w-0">
-                <div className="text-xs font-bold leading-tight truncate">Snap Package</div>
-                <div className="text-[10px] text-gray-400 font-mono">.snap 64-bit</div>
+                <div className="text-xs font-bold leading-tight truncate">Snapcraft</div>
+                <div className="text-[10px] text-gray-400 font-mono">Snap Store</div>
               </div>
             </a>
 

@@ -11,243 +11,123 @@ interface VideoFilmstripVisualProps {
 
 // Global persistent cache for thumbnail snapshots across all clips and re-renders
 const globalThumbnailCache = new Map<string, string>();
+const pendingExtractions = new Set<string>();
 
-type Listener = (cacheKey: string, dataUrl: string) => void;
-const frameListeners = new Map<string, Set<Listener>>();
-
-function subscribeToFrame(cacheKey: string, listener: Listener): () => void {
+// Helper to safely extract a frame snapshot from a video URL with global caching
+function extractVideoFrame(
+  url: string,
+  targetTime: number,
+  crossOrigin: string | undefined,
+  onExtracted: (timeKey: string, dataUrl: string) => void
+) {
+  const roundedTime = Math.round(targetTime * 10) / 10;
+  const cacheKey = `${url}_${roundedTime}`;
+  
   if (globalThumbnailCache.has(cacheKey)) {
-    listener(cacheKey, globalThumbnailCache.get(cacheKey)!);
-    return () => {};
-  }
-  if (!frameListeners.has(cacheKey)) {
-    frameListeners.set(cacheKey, new Set());
-  }
-  frameListeners.get(cacheKey)!.add(listener);
-
-  return () => {
-    const set = frameListeners.get(cacheKey);
-    if (set) {
-      set.delete(listener);
-      if (set.size === 0) frameListeners.delete(cacheKey);
-    }
-  };
-}
-
-function notifyFrameExtracted(cacheKey: string, dataUrl: string) {
-  globalThumbnailCache.set(cacheKey, dataUrl);
-  const set = frameListeners.get(cacheKey);
-  if (set) {
-    set.forEach((cb) => cb(cacheKey, dataUrl));
-    frameListeners.delete(cacheKey);
-  }
-}
-
-interface ExtractionRequest {
-  targetTime: number;
-  cacheKey: string;
-}
-
-// Managed video thumbnail extractor per video URL to avoid browser video decoder limits
-class VideoUrlExtractor {
-  private url: string;
-  private crossOrigin?: string;
-  private video: HTMLVideoElement | null = null;
-  private canvas: HTMLCanvasElement | null = null;
-  private queue: ExtractionRequest[] = [];
-  private isProcessing = false;
-  private isLoaded = false;
-  private loadFailed = false;
-  private idleTimer: any = null;
-
-  constructor(url: string, crossOrigin?: string) {
-    this.url = url;
-    this.crossOrigin = crossOrigin;
+    onExtracted(cacheKey, globalThumbnailCache.get(cacheKey)!);
+    return;
   }
 
-  public requestFrame(targetTime: number, cacheKey: string) {
-    if (globalThumbnailCache.has(cacheKey)) return;
-    if (this.queue.some((q) => q.cacheKey === cacheKey)) return;
-
-    this.queue.push({ targetTime, cacheKey });
-    this.scheduleProcessing();
+  const posterKey = `${url}_poster`;
+  if (globalThumbnailCache.has(posterKey) && targetTime === 0) {
+    onExtracted(posterKey, globalThumbnailCache.get(posterKey)!);
+    return;
   }
 
-  private scheduleProcessing() {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
-
-    if (this.isProcessing || this.loadFailed) return;
-
-    if (!this.video) {
-      this.initVideo();
-    } else if (this.isLoaded) {
-      this.processNext();
-    }
+  if (pendingExtractions.has(cacheKey)) {
+    return;
   }
+  pendingExtractions.add(cacheKey);
 
-  private initVideo() {
-    this.isProcessing = true;
-    const video = document.createElement('video');
-    this.video = video;
-    this.canvas = document.createElement('canvas');
-    // High-DPI 320x180 canvas resolution for crisp CapCut style thumbnails
-    this.canvas.width = 320;
-    this.canvas.height = 180;
+  const video = document.createElement('video');
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 180;
+  const ctx = canvas.getContext('2d', { willReadFrequently: false });
 
-    if (this.crossOrigin) {
-      video.crossOrigin = this.crossOrigin;
-    }
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'auto';
+  if (crossOrigin) {
+    video.crossOrigin = crossOrigin;
+  }
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
 
-    let timeoutId = setTimeout(() => {
-      this.handleError('Load timeout');
-    }, 8000);
+  let hasCleanedUp = false;
+  let timeoutId: any = null;
 
-    const onLoaded = () => {
-      clearTimeout(timeoutId);
-      this.isLoaded = true;
-      this.processNext();
-    };
-
-    const onError = () => {
-      clearTimeout(timeoutId);
-      if (video.crossOrigin) {
-        // Retry without crossOrigin if CORS failed
-        video.removeAttribute('crossorigin');
-        this.crossOrigin = undefined;
-        video.src = this.url;
-        try {
-          video.load();
-        } catch {
-          this.handleError('Load error without CORS');
-        }
-      } else {
-        this.handleError('Load error');
-      }
-    };
-
-    video.addEventListener('loadeddata', onLoaded, { once: true });
-    video.addEventListener('error', onError, { once: true });
-
-    video.src = this.url;
+  const cleanup = () => {
+    if (hasCleanedUp) return;
+    hasCleanedUp = true;
+    pendingExtractions.delete(cacheKey);
+    if (timeoutId) clearTimeout(timeoutId);
+    video.removeEventListener('loadeddata', handleLoaded);
+    video.removeEventListener('seeked', handleSeeked);
+    video.removeEventListener('error', handleError);
+    video.pause();
+    video.removeAttribute('src');
     try {
       video.load();
     } catch {
-      this.handleError('Load sync exception');
+      // ignore
     }
-  }
+  };
 
-  private handleError(reason: string) {
-    this.loadFailed = true;
-    this.isProcessing = false;
-    this.destroyVideo();
-  }
-
-  private destroyVideo() {
-    if (this.video) {
-      this.video.pause();
-      this.video.removeAttribute('src');
-      try {
-        this.video.load();
-      } catch {}
-      this.video = null;
-    }
-    this.canvas = null;
-  }
-
-  private processNext() {
-    if (this.queue.length === 0) {
-      this.isProcessing = false;
-      this.idleTimer = setTimeout(() => {
-        this.destroyVideo();
-      }, 15000);
-      return;
-    }
-
-    this.isProcessing = true;
-    const task = this.queue.shift()!;
-
-    if (globalThumbnailCache.has(task.cacheKey)) {
-      this.processNext();
-      return;
-    }
-
-    if (!this.video || !this.isLoaded) {
-      this.isProcessing = false;
-      return;
-    }
-
-    const video = this.video;
-    const canvas = this.canvas!;
-    const ctx = canvas.getContext('2d', { willReadFrequently: false });
-
-    let seekTimeout = setTimeout(() => {
-      this.processNext();
-    }, 3000);
-
-    const onSeeked = () => {
-      clearTimeout(seekTimeout);
-      video.removeEventListener('seeked', onSeeked);
-
-      if (ctx) {
-        try {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          notifyFrameExtracted(task.cacheKey, dataUrl);
-
-          const posterKey = `${this.url}_poster`;
-          if (!globalThumbnailCache.has(posterKey)) {
-            notifyFrameExtracted(posterKey, dataUrl);
-          }
-        } catch {
-          // Ignore tainted canvas errors gracefully
-        }
-      }
-
-      setTimeout(() => {
-        this.processNext();
-      }, 15);
-    };
-
-    video.addEventListener('seeked', onSeeked);
-
+  const captureCanvas = () => {
+    if (!ctx) return;
     try {
-      const duration = video.duration || 600;
-      const safeTime = Math.max(0.05, Math.min(duration - 0.1, task.targetTime));
-      video.currentTime = safeTime;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      globalThumbnailCache.set(cacheKey, dataUrl);
+      if (!globalThumbnailCache.has(posterKey)) {
+        globalThumbnailCache.set(posterKey, dataUrl);
+      }
+      onExtracted(cacheKey, dataUrl);
     } catch {
-      clearTimeout(seekTimeout);
-      video.removeEventListener('seeked', onSeeked);
-      this.processNext();
+      // ignore draw error
     }
+    cleanup();
+  };
+
+  const handleSeeked = () => {
+    captureCanvas();
+  };
+
+  const handleLoaded = () => {
+    try {
+      video.currentTime = Math.max(0.05, targetTime);
+    } catch {
+      captureCanvas();
+    }
+  };
+
+  const handleError = () => {
+    if (video.crossOrigin) {
+      video.removeAttribute('crossorigin');
+      video.src = url;
+      try {
+        video.load();
+      } catch {
+        cleanup();
+      }
+    } else {
+      cleanup();
+    }
+  };
+
+  video.addEventListener('loadeddata', handleLoaded);
+  video.addEventListener('seeked', handleSeeked);
+  video.addEventListener('error', handleError);
+
+  timeoutId = setTimeout(() => {
+    cleanup();
+  }, 3000);
+
+  video.src = url;
+  try {
+    video.load();
+  } catch {
+    cleanup();
   }
-}
-
-const extractors = new Map<string, VideoUrlExtractor>();
-
-function requestVideoFrameExtraction(url: string, targetTime: number, crossOrigin?: string): string {
-  const roundedTime = Math.round(targetTime * 10) / 10;
-  const cacheKey = `${url}_${roundedTime}`;
-
-  if (globalThumbnailCache.has(cacheKey)) {
-    return cacheKey;
-  }
-
-  if (!extractors.has(url)) {
-    extractors.set(url, new VideoUrlExtractor(url, crossOrigin));
-  }
-
-  const extractor = extractors.get(url)!;
-  extractor.requestFrame(targetTime, cacheKey);
-
-  return cacheKey;
 }
 
 export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
@@ -256,7 +136,8 @@ export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
   isSelected,
   zoom,
 }) => {
-  const targetFrameWidth = Math.max(48, Math.min(80, Math.round(56 * (zoom > 25 ? 1 : 0.85))));
+  // CapCut Pro frame slice width (approx 68px to 80px per frame slice)
+  const targetFrameWidth = Math.max(56, Math.min(90, Math.round(68 * (zoom > 25 ? 1 : 0.85))));
   const frameCount = Math.max(1, Math.min(48, Math.floor(width / targetFrameWidth)));
   const frameWidth = width / Math.max(1, frameCount);
 
@@ -274,99 +155,90 @@ export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
   const initialPoster = posterKey ? globalThumbnailCache.get(posterKey) : null;
   const [posterThumb, setPosterThumb] = useState<string | null>(initialPoster || null);
   const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
+  const [, setIsLoaded] = useState<boolean>(!!initialPoster || isImage);
 
   const crossOrigin = useMemo(() => getSafeCrossOrigin(clip.url), [clip.url]);
 
   const frames = useMemo(() => {
     const list = [];
     const secPerFrame = clip.duration / Math.max(1, frameCount);
-    const mediaDuration = clip.mediaDuration || 0;
+    const sourceOffset = clip.sourceStart || 0;
 
     for (let i = 0; i < frameCount; i++) {
-      const frameOffset = clip.start + i * secPerFrame;
-      const rawTime = (clip.offset || 0) + i * secPerFrame;
-      const mediaTime = mediaDuration > 0 ? (rawTime % mediaDuration) : rawTime;
-
+      const clipTimeOffset = clip.start + i * secPerFrame;
+      const mediaTime = sourceOffset + i * secPerFrame;
       list.push({
         index: i,
-        timecode: formatTimeCode(frameOffset, false),
+        timecode: formatTimeCode(clipTimeOffset, false),
         mediaTime,
       });
     }
     return list;
-  }, [width, zoom, clip.start, clip.duration, clip.offset, clip.mediaDuration, frameCount]);
+  }, [width, zoom, clip.start, clip.duration, clip.sourceStart, frameCount]);
 
-  // Subscribe to extracted frame thumbnails smoothly
+  // Preload image or extract video thumbnails with global caching
   useEffect(() => {
     if (!normalizedUrl) return;
+
+    let isMounted = true;
 
     if (isImage) {
       const img = new Image();
       if (crossOrigin) img.crossOrigin = crossOrigin;
       img.src = normalizedUrl;
       img.onload = () => {
-        globalThumbnailCache.set(posterKey, normalizedUrl);
-        setPosterThumb(normalizedUrl);
+        if (isMounted) {
+          setIsLoaded(true);
+          globalThumbnailCache.set(posterKey, normalizedUrl);
+        }
       };
-      return;
+      return () => {
+        isMounted = false;
+      };
     }
 
-    // Subscribe to poster thumbnail
-    const unSubPoster = subscribeToFrame(posterKey, (_key, dataUrl) => {
-      setPosterThumb(dataUrl);
+    // Video extraction: First get poster (at start)
+    const initialTime = (clip.sourceStart || 0) + 0.1;
+    extractVideoFrame(normalizedUrl, initialTime, crossOrigin, (_key, dataUrl) => {
+      if (isMounted) {
+        setPosterThumb(dataUrl);
+        setIsLoaded(true);
+      }
     });
 
-    // Request poster extraction at 0.1s
-    requestVideoFrameExtraction(normalizedUrl, 0.1, crossOrigin);
-
-    // Request & subscribe to each keyframe thumbnail
-    const unSubList: Array<() => void> = [];
+    // Then extract keyframes for multi-frame filmstrip
     frames.forEach((frame) => {
-      const cacheKey = requestVideoFrameExtraction(normalizedUrl, frame.mediaTime, crossOrigin);
-      const unSub = subscribeToFrame(cacheKey, (_key, dataUrl) => {
-        setThumbnails((prev) => ({ ...prev, [frame.index]: dataUrl }));
-      });
-      unSubList.push(unSub);
+      const roundedTime = Math.round(frame.mediaTime * 10) / 10;
+      const cacheKey = `${normalizedUrl}_${roundedTime}`;
+      if (globalThumbnailCache.has(cacheKey)) {
+        if (isMounted) {
+          setThumbnails((prev) => ({ ...prev, [frame.index]: globalThumbnailCache.get(cacheKey)! }));
+        }
+      } else {
+        extractVideoFrame(normalizedUrl, frame.mediaTime, crossOrigin, (_key, dataUrl) => {
+          if (isMounted) {
+            setThumbnails((prev) => ({ ...prev, [frame.index]: dataUrl }));
+          }
+        });
+      }
     });
 
     return () => {
-      unSubPoster();
-      unSubList.forEach((fn) => fn());
+      isMounted = false;
     };
-  }, [normalizedUrl, isImage, frames, crossOrigin, posterKey]);
-
-  // Find best available thumbnail for frame `index` (falls back to nearest extracted frame or poster)
-  const getFrameThumbnail = (index: number): string | null => {
-    if (thumbnails[index]) return thumbnails[index];
-    // Search backwards for nearest extracted frame
-    for (let i = index - 1; i >= 0; i--) {
-      if (thumbnails[i]) return thumbnails[i];
-    }
-    // Search forwards for nearest extracted frame
-    for (let i = index + 1; i < frameCount; i++) {
-      if (thumbnails[i]) return thumbnails[i];
-    }
-    return posterThumb;
-  };
+  }, [normalizedUrl, isImage, frames, crossOrigin, posterKey, clip.sourceStart]);
 
   return (
-    <div className="absolute inset-0 flex items-center overflow-hidden pointer-events-none select-none rounded-md bg-[#12121a]">
-      {/* Top Film Sprocket Holes (Cinematic Perforation Ribbon) */}
-      <div className="absolute top-0 left-0 right-0 h-1.5 flex justify-between px-1 bg-black/75 z-10">
-        {Array.from({ length: Math.max(2, Math.floor(width / 12)) }).map((_, i) => (
-          <div key={`sprocket-top-${i}`} className="w-1.5 h-1 bg-white/25 rounded-xs" />
-        ))}
-      </div>
-
-      {/* Repeating Filmstrip Loop Container */}
-      <div className="w-full h-full flex items-center pt-1.5 pb-1.5">
+    <div className="absolute inset-0 flex items-stretch overflow-hidden pointer-events-none select-none rounded-md bg-[#10171d]">
+      {/* Edge-to-Edge Filmstrip Container matching CapCut */}
+      <div className="w-full h-full flex items-stretch">
         {isImage && normalizedUrl ? (
           /* Smooth Looping Image Ribbon */
-          <div className="w-full h-full flex items-center relative overflow-hidden">
+          <div className="w-full h-full flex items-stretch relative overflow-hidden">
             {frames.map((frame) => (
               <div
                 key={`img-frame-${frame.index}`}
-                className={`h-full border-r border-black/40 relative overflow-hidden bg-slate-900/90 flex-shrink-0 ${
+                className={`h-full border-r border-black/50 relative overflow-hidden bg-slate-900 flex-shrink-0 ${
                   isSelected ? 'border-cyan-400/40' : 'border-slate-800/80'
                 }`}
                 style={{ width: `${frameWidth}px`, minWidth: `${frameWidth}px` }}
@@ -375,12 +247,13 @@ export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
                   src={normalizedUrl}
                   crossOrigin={crossOrigin}
                   alt={`img-loop-${frame.index}`}
-                  className="absolute inset-0 w-full h-full object-cover opacity-85 transition-opacity duration-300"
+                  className="absolute inset-0 w-full h-full object-cover opacity-95 transition-opacity duration-300"
                   loading="lazy"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30" />
-                {frameWidth >= 40 && (
-                  <div className="absolute bottom-0.5 left-1 z-10 text-[6.5px] font-mono text-cyan-200/80 bg-black/60 px-0.5 rounded-xs">
+                
+                {/* Subtle bottom timecode indicator */}
+                {frameWidth >= 44 && (
+                  <div className="absolute bottom-1 left-1 z-10 text-[7px] font-mono text-cyan-200 bg-black/75 px-1 py-0.5 rounded shadow-sm">
                     {frame.timecode}
                   </div>
                 )}
@@ -388,15 +261,15 @@ export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
             ))}
           </div>
         ) : (
-          /* Smooth Looping Video Filmstrip */
+          /* CapCut Style Full-Bleed Video Keyframe Strip */
           frames.map((frame) => {
-            const thumb = getFrameThumbnail(frame.index);
+            const thumb = thumbnails[frame.index] || posterThumb;
 
             return (
               <div
                 key={`video-frame-${frame.index}`}
-                className={`h-full border-r border-black/40 flex flex-col justify-between p-1 relative overflow-hidden bg-[#161622] flex-shrink-0 ${
-                  isSelected ? 'border-cyan-400/50' : 'border-slate-800/70'
+                className={`h-full border-r border-black/60 flex flex-col justify-between relative overflow-hidden bg-[#0c181d] flex-shrink-0 ${
+                  isSelected ? 'border-cyan-400/50' : 'border-black/50'
                 }`}
                 style={{ width: `${frameWidth}px`, minWidth: `${frameWidth}px` }}
               >
@@ -404,38 +277,28 @@ export const VideoFilmstripVisual: React.FC<VideoFilmstripVisualProps> = ({
                   <img
                     src={thumb}
                     alt={`frame-${frame.index}`}
-                    className="absolute inset-0 w-full h-full object-cover opacity-85 transition-opacity duration-200"
+                    className="absolute inset-0 w-full h-full object-cover opacity-95 transition-opacity duration-200"
                   />
                 ) : (
-                  /* Smooth shimmering placeholder skeleton while generating snapshot */
-                  <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 animate-pulse opacity-70" />
-                )}
-
-                {/* Subtle dark vignette overlay for high contrast */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40 pointer-events-none" />
-
-                {/* Timecode Badge on frame */}
-                {frameWidth >= 42 && (
-                  <div className="z-10 flex justify-between items-center text-[6.5px] font-mono font-bold text-cyan-200 bg-black/75 px-1 py-0.2 rounded-xs w-fit shadow-xs">
-                    <span>{frame.timecode}</span>
+                  /* Shimmering placeholder skeleton while generating snapshot */
+                  <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 animate-pulse opacity-90 flex items-center justify-center">
+                    <span className="text-[7px] font-mono text-cyan-500/60">loading...</span>
                   </div>
                 )}
 
-                {/* Center subtle filmstrip frame icon */}
-                <div className="z-10 flex items-center justify-center opacity-25">
-                  <div className="w-2.5 h-1.5 border border-cyan-200 rounded-xs" />
-                </div>
+                {/* Subtle vignette for contrast */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 pointer-events-none" />
+
+                {/* Frame timecode indicator in lower corner */}
+                {frameWidth >= 46 && (
+                  <div className="z-10 absolute bottom-1 left-1 flex items-center text-[7px] font-mono font-bold text-cyan-200 bg-black/80 px-1 py-0.2 rounded shadow-sm">
+                    <span>{frame.timecode}</span>
+                  </div>
+                )}
               </div>
             );
           })
         )}
-      </div>
-
-      {/* Bottom Film Sprocket Holes (Cinematic Perforation Ribbon) */}
-      <div className="absolute bottom-0 left-0 right-0 h-1.5 flex justify-between px-1 bg-black/75 z-10">
-        {Array.from({ length: Math.max(2, Math.floor(width / 12)) }).map((_, i) => (
-          <div key={`sprocket-bot-${i}`} className="w-1.5 h-1 bg-white/25 rounded-xs" />
-        ))}
       </div>
     </div>
   );

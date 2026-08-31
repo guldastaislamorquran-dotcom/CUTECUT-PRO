@@ -6,12 +6,12 @@ import {
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
   Zap, Split, Radio, ChevronDown, Flag, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
   Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge,
-  GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen,
-  Cpu, Activity
+  GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
 } from 'lucide-react';
-import { Track, Clip, ClipType } from '../types';
-import { formatTimeCode, extractAyahNumberFromClip } from '../utils/editorUtils';
-import { getSystemSpecs, PerformanceTier } from '../utils/systemPerformance';
+import { Track, Clip, ClipType, TransitionType } from '../types';
+import { formatTimeCode, inspectQuranAyahAlignment, QuranSyncInspectionReport, QuranSyncInspectionItem, generateAutoFixQuranTextClips, extractAyahNumberFromClip } from '../utils/editorUtils';
+import { SURAHS } from './MediaPanel';
+import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById } from '../utils/quranTranslations';
 import AudioWaveformGraph from './AudioWaveformGraph';
 import VideoFilmstripVisual from './VideoFilmstripVisual';
 
@@ -100,6 +100,12 @@ interface TimelineProps {
   onAutoSyncVideoToAyahs?: () => void;
   onAutoRemoveSilence?: (clipId?: string) => void;
   onAutoSegmentRhythm?: (clipId?: string, interval?: number) => void;
+  onAutoFixQuranText?: (params: {
+    surahNumber?: number;
+    startAyahNumber?: number;
+    translationOption?: any;
+    targetClipIds?: string[];
+  }) => Promise<void> | void;
 }
 
 export default function Timeline({
@@ -146,6 +152,7 @@ export default function Timeline({
   onAutoSyncVideoToAyahs,
   onAutoRemoveSilence,
   onAutoSegmentRhythm,
+  onAutoFixQuranText,
   snapToGrid: propSnapToGrid = true,
   onToggleSnapToGrid,
 }: TimelineProps) {
@@ -315,55 +322,125 @@ export default function Timeline({
   const [followPlayheadMode, setFollowPlayheadMode] = useState<'page' | 'smooth' | 'off'>('page');
   const lastAutoScrollRef = useRef<number>(0);
 
-  // Hardware System Performance Spec & Virtualization Engine
-  const systemSpecs = useMemo(() => getSystemSpecs(), []);
-  const [perfMode, setPerfMode] = useState<'auto' | PerformanceTier>('auto');
-  const [showPerfMenu, setShowPerfMenu] = useState(false);
-  const activePerfTier = perfMode === 'auto' ? systemSpecs.tier : perfMode;
+  // Real-Time Quran Tilawat & Ayah Subtitle Sync Inspection Suite
+  const quranSyncReport = useMemo(() => {
+    return inspectQuranAyahAlignment(tracks);
+  }, [tracks]);
 
-  // Viewport Scroll Virtualization Tracking (DOM Windowing for 60 FPS)
-  const [viewportScrollLeft, setViewportScrollLeft] = useState(0);
-  const [viewportWidth, setViewportWidth] = useState(1200);
+  const [showQuranInspectorModal, setShowQuranInspectorModal] = useState(false);
+  const [isFixingText, setIsFixingText] = useState(false);
+  const [inspectorSurah, setInspectorSurah] = useState<number>(1);
+  const [inspectorStartAyah, setInspectorStartAyah] = useState<number>(1);
+  const [inspectorTranslationId, setInspectorTranslationId] = useState<string>('urdu-jalandhry');
+  const [inspectorTargetClips, setInspectorTargetClips] = useState<string[]>([]);
+  const [fixNotification, setFixNotification] = useState<string | null>(null);
+
+  // Timeline Direct File Drag & Drop State
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const timelineFileInputRef = useRef<HTMLInputElement>(null);
+
+  const processDroppedFiles = useCallback((files: FileList | File[]) => {
+    Array.from(files).forEach((file) => {
+      const url = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/');
+      const isAudio = file.type.startsWith('audio/');
+      const isImage = file.type.startsWith('image/');
+
+      if (!isVideo && !isAudio && !isImage) return;
+
+      const targetType = isAudio ? ClipType.AUDIO : (isImage ? ClipType.IMAGE : ClipType.VIDEO);
+
+      if (isImage) {
+        onAddClip?.({
+          name: file.name,
+          type: ClipType.IMAGE,
+          url,
+          duration: 5.0,
+          sourceDuration: 5.0,
+        });
+      } else {
+        const el = document.createElement(isVideo ? 'video' : 'audio');
+        el.src = url;
+        el.onloadedmetadata = () => {
+          const dur = el.duration && !isNaN(el.duration) && el.duration > 0 ? parseFloat(el.duration.toFixed(2)) : 5.0;
+          onAddClip?.({
+            name: file.name,
+            type: targetType,
+            url,
+            duration: dur,
+            sourceDuration: dur,
+          });
+        };
+        el.onerror = () => {
+          onAddClip?.({
+            name: file.name,
+            type: targetType,
+            url,
+            duration: 5.0,
+            sourceDuration: 5.0,
+          });
+        };
+      }
+    });
+  }, [onAddClip]);
+
+  const handleTimelineDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDraggingFiles(true);
+    }
+  };
+
+  const handleTimelineDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFiles(false);
+  };
+
+  const handleTimelineDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFiles(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processDroppedFiles(e.dataTransfer.files);
+    }
+  };
 
   useEffect(() => {
-    const el = tracksContainerRef.current;
-    if (!el) return;
+    if (quranSyncReport.detectedSurah) {
+      setInspectorSurah(quranSyncReport.detectedSurah);
+    }
+    if (quranSyncReport.detectedStartAyah) {
+      setInspectorStartAyah(quranSyncReport.detectedStartAyah);
+    }
+  }, [quranSyncReport.detectedSurah, quranSyncReport.detectedStartAyah]);
 
-    let rafId: number | null = null;
-    const handleScroll = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        setViewportScrollLeft(el.scrollLeft);
-        rafId = null;
-      });
-    };
+  const handleExecuteFixText = async (targetClipIds?: string[], specificSurah?: number, specificStartAyah?: number) => {
+    setIsFixingText(true);
+    try {
+      const surahNum = specificSurah || inspectorSurah || 1;
+      const startAyahNum = specificStartAyah || inspectorStartAyah || 1;
+      const transOption = getTranslationOptionById(inspectorTranslationId);
 
-    const updateWidth = () => {
-      if (el) setViewportWidth(el.clientWidth || 1200);
-    };
+      if (onAutoFixQuranText) {
+        await onAutoFixQuranText({
+          surahNumber: surahNum,
+          startAyahNumber: startAyahNum,
+          translationOption: transOption,
+          targetClipIds: targetClipIds || (inspectorTargetClips.length > 0 ? inspectorTargetClips : undefined),
+        });
+      }
+      setFixNotification(`✓ Successfully synced Ayah subtitles!`);
+      setTimeout(() => setFixNotification(null), 4000);
+      setShowQuranInspectorModal(false);
+    } catch (err) {
+      console.error('Failed to auto-fix Quran text:', err);
+    } finally {
+      setIsFixingText(false);
+    }
+  };
 
-    updateWidth();
-    el.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', updateWidth);
-
-    const ro = new ResizeObserver(updateWidth);
-    ro.observe(el);
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      el.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', updateWidth);
-      ro.disconnect();
-    };
-  }, []);
-
-  // Visible timeline time window for off-screen clip virtualization
-  const { visibleStartTime, visibleEndTime } = useMemo(() => {
-    const marginPx = activePerfTier === 'power_saver' ? 200 : 400;
-    const start = Math.max(0, (viewportScrollLeft - marginPx) / zoom);
-    const end = (viewportScrollLeft + viewportWidth + marginPx) / zoom;
-    return { visibleStartTime: start, visibleEndTime: end };
-  }, [viewportScrollLeft, viewportWidth, zoom, activePerfTier]);
 
   // Multi-Selection Marquee (Rubberband Box Selection)
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
@@ -541,9 +618,9 @@ export default function Timeline({
 
     const left = minTime * zoom;
     const width = Math.max(24, (maxTime - minTime) * zoom);
-    // Track row height = 56px, gap = 8px, padding top = 6px
-    const top = 6 + minTrackIdx * 64;
-    const height = (maxTrackIdx - minTrackIdx) * 64 + 56;
+    // Track row height = 72px, gap = 8px, padding top = 6px (step = 80px)
+    const top = 6 + minTrackIdx * 80;
+    const height = (maxTrackIdx - minTrackIdx) * 80 + 72;
 
     return {
       minTime,
@@ -1276,7 +1353,7 @@ export default function Timeline({
   return (
     <div
       id="timeline-engine"
-      className="bg-[#121216] border border-[#202028] rounded-xl flex flex-col select-none relative overflow-hidden shadow-lg mx-1 mb-1"
+      className="bg-[#141418] rounded-lg border border-[#23232b] flex flex-col select-none relative overflow-hidden shadow-sm min-h-0"
       style={{ height: height !== undefined ? `${height}px` : undefined }}
     >
       
@@ -1819,94 +1896,61 @@ export default function Timeline({
             </span>
           </button>
 
-          <div className="h-4 w-px bg-[#2a2a35] mx-0.5" />
+          {/* Quran Tilawat & Ayah Subtitle Sync Inspector & Auto-Fixer Toolbar Widget */}
+          {quranSyncReport.isQuranAudioPresent && (
+            <div className="flex items-center gap-1 bg-[#13131d] border border-amber-500/40 rounded-lg p-0.5 shadow-sm">
+              <button
+                id="btn-quran-sync-detector"
+                onClick={() => {
+                  setInspectorTargetClips([]);
+                  setShowQuranInspectorModal(true);
+                }}
+                className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  quranSyncReport.missingTextCount > 0
+                    ? 'bg-amber-950/90 text-amber-300 border border-amber-500/60 hover:bg-amber-900/80 shadow-xs animate-pulse'
+                    : quranSyncReport.outOfSyncCount > 0
+                    ? 'bg-orange-950/90 text-orange-300 border border-orange-500/60 hover:bg-orange-900/80'
+                    : 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/80'
+                }`}
+                title={`Quran Tilawat Alignment Detector: ${quranSyncReport.syncedCount}/${quranSyncReport.totalAudioSegments} Synced (${quranSyncReport.missingTextCount} Missing Subtitles). Click to inspect & fix!`}
+              >
+                <span className="text-xs">🕌</span>
+                <span className="font-semibold text-[10px] hidden md:inline">
+                  {quranSyncReport.missingTextCount > 0
+                    ? `Ayah Text: ${quranSyncReport.missingTextCount} Missing ⚠️`
+                    : quranSyncReport.outOfSyncCount > 0
+                    ? `Ayah Text: ${quranSyncReport.outOfSyncCount} Shifted ⚠️`
+                    : `Ayah Text: ${quranSyncReport.syncedCount} Synced ✓`}
+                </span>
+                <span className="md:hidden text-[10px]">
+                  {quranSyncReport.missingTextCount > 0 ? `⚠️ ${quranSyncReport.missingTextCount}` : '✓'}
+                </span>
+              </button>
 
-          {/* System Specs & Hardware Performance Indicator Pill */}
-          <div className="relative">
-            <button
-              onClick={() => setShowPerfMenu(!showPerfMenu)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center gap-1 border shadow-xs cursor-pointer ${
-                activePerfTier === 'ultra'
-                  ? 'bg-purple-950/90 text-purple-200 border-purple-500/50 hover:bg-purple-900/90'
-                  : activePerfTier === 'high'
-                  ? 'bg-cyan-950/90 text-cyan-200 border-cyan-500/50 hover:bg-cyan-900/90'
-                  : activePerfTier === 'balanced'
-                  ? 'bg-amber-950/90 text-amber-200 border-amber-500/50 hover:bg-amber-900/90'
-                  : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:bg-slate-800'
-              }`}
-              title="System Hardware Performance Specs & Timeline Optimization Settings"
-            >
-              <Cpu className="w-3 h-3 text-cyan-400" />
-              <span className="hidden sm:inline">
-                {activePerfTier === 'ultra' ? '⚡ Ultra (60 FPS)' : activePerfTier === 'high' ? '⚡ 60 FPS' : activePerfTier === 'balanced' ? '⚡ 45 FPS' : '⚡ Power Saver'}
-              </span>
-              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
-            </button>
+              {/* 1-Click Instant Auto-Fix All Button */}
+              {(quranSyncReport.missingTextCount > 0 || quranSyncReport.outOfSyncCount > 0) && (
+                <button
+                  id="btn-quick-fix-all-quran-text"
+                  onClick={() => handleExecuteFixText()}
+                  disabled={isFixingText}
+                  className="px-2 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold text-[10px] rounded shadow-sm flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                  title="1-Click Auto-Fix & Generate Missing Ayah Subtitle Text Clips"
+                >
+                  <Zap className="w-3 h-3 fill-current text-black" />
+                  <span className="hidden sm:inline">Fix Text</span>
+                </button>
+              )}
+            </div>
+          )}
 
-            {showPerfMenu && (
-              <div className="absolute top-full mt-1.5 right-0 bg-[#121218]/98 border border-[#2a2a38] rounded-xl shadow-2xl p-3 z-50 w-72 backdrop-blur-md text-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2">
-                  <div className="flex items-center gap-1.5 font-bold text-cyan-300">
-                    <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
-                    <span>Hardware Performance</span>
-                  </div>
-                  <button onClick={() => setShowPerfMenu(false)} className="text-gray-400 hover:text-white cursor-pointer">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+          {/* Quick Notification Toast */}
+          {fixNotification && (
+            <div className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 text-[10px] font-mono flex items-center gap-1 animate-fade-in">
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span>{fixNotification}</span>
+            </div>
+          )}
 
-                {/* Specs Info */}
-                <div className="bg-[#1a1a24] p-2 rounded-lg border border-white/5 space-y-1 mb-2.5 text-[10.5px]">
-                  <div className="flex justify-between text-gray-300">
-                    <span className="text-gray-400">CPU Cores:</span>
-                    <span className="font-mono font-bold text-white">{systemSpecs.cpuCores} Threads</span>
-                  </div>
-                  <div className="flex justify-between text-gray-300">
-                    <span className="text-gray-400">RAM Memory:</span>
-                    <span className="font-mono font-bold text-white">~{systemSpecs.deviceMemoryGb} GB</span>
-                  </div>
-                  <div className="flex justify-between text-gray-300 truncate">
-                    <span className="text-gray-400 shrink-0">GPU Accel:</span>
-                    <span className="font-mono font-bold text-cyan-300 truncate max-w-[130px]" title={systemSpecs.gpuRenderer}>
-                      {systemSpecs.hasHardwareAcceleration ? 'WebGL Active' : 'Software'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-gray-300">
-                    <span className="text-gray-400">Timeline Mode:</span>
-                    <span className="font-mono font-bold text-amber-300 uppercase">{activePerfTier}</span>
-                  </div>
-                </div>
-
-                {/* Performance Tier Selectors */}
-                <div className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-wider">Performance Presets</div>
-                <div className="space-y-1">
-                  {[
-                    { mode: 'auto', label: '🤖 Auto Hardware Detection', desc: 'Auto-adapts to your CPU/GPU specs' },
-                    { mode: 'ultra', label: '🚀 Ultra Performance (60 FPS)', desc: 'Max visual quality for 8+ core PCs' },
-                    { mode: 'high', label: '⚡ High FPS Mode (60 FPS)', desc: 'Optimized for fast smooth editing' },
-                    { mode: 'balanced', label: '⚖️ Balanced Mode (45 FPS)', desc: 'Saves battery & CPU resources' },
-                    { mode: 'power_saver', label: '🔋 Power Saver Mode (30 FPS)', desc: 'Smooth rendering on budget PCs' },
-                  ].map((item) => (
-                    <button
-                      key={item.mode}
-                      onClick={() => {
-                        setPerfMode(item.mode as any);
-                        setShowPerfMenu(false);
-                      }}
-                      className={`w-full text-left p-1.5 rounded-lg border transition flex flex-col cursor-pointer ${
-                        perfMode === item.mode
-                          ? 'bg-cyan-950/90 text-cyan-200 border-cyan-500'
-                          : 'bg-[#181822] text-gray-300 border-[#2a2a35] hover:bg-[#20202e]'
-                      }`}
-                    >
-                      <span className="font-bold text-[11px]">{item.label}</span>
-                      <span className="text-[9.5px] text-gray-400">{item.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
           <div className="h-4 w-px bg-[#2a2a35] mx-0.5" />
 
@@ -1953,7 +1997,23 @@ export default function Timeline({
       </div>
 
       {/* Tracks Container */}
-      <div className="flex-1 flex min-h-0 relative">
+      <div 
+        onDragOver={handleTimelineDragOver}
+        onDragLeave={handleTimelineDragLeave}
+        onDrop={handleTimelineDrop}
+        className="flex-1 flex min-h-0 relative"
+      >
+        {/* Hidden File Input for Direct Media Import */}
+        <input
+          ref={timelineFileInputRef}
+          type="file"
+          multiple
+          accept="video/*,audio/*,image/*"
+          onChange={(e) => {
+            if (e.target.files) processDroppedFiles(e.target.files);
+          }}
+          className="hidden"
+        />
         
         {/* Track Headers (Left sidebar of Timeline with CapCut Pro Mute, Lock, Hide controls) */}
         <div className="w-36 sm:w-44 bg-[#15151a] border-r border-[#2a2a30] flex flex-col z-20 shadow-md shrink-0 select-none">
@@ -1990,76 +2050,73 @@ export default function Timeline({
           </div>
           <div ref={headersScrollRef} onScroll={handleVerticalScroll} className="flex-1 flex flex-col p-1.5 gap-2 overflow-y-auto custom-scrollbar">
             {sortedTracks.length === 0 ? (
-              <div className="h-24 border border-dashed border-[#2a2a35] rounded-lg flex flex-col items-center justify-center text-center p-2 text-gray-500 text-[10px]">
-                <span>No tracks</span>
-                <span className="text-[9px] text-gray-600 mt-0.5">Drop files to create</span>
+              <div className="flex-1 flex flex-col items-center justify-center p-3 text-center text-gray-500 gap-1.5 min-h-[140px]">
+                <Layers className="w-5 h-5 text-gray-600" />
+                <span className="text-[10px] font-medium text-gray-400">No tracks</span>
+                <span className="text-[8px] text-gray-600">Drop files or click + Track</span>
               </div>
             ) : (
               sortedTracks.map((track, trackIdx) => (
                 <div
                   key={track.id ? `${track.id}-${trackIdx}` : `track-${trackIdx}`}
                   onContextMenu={(e) => handleContextMenu(e, null, track)}
-                  className={`h-20 min-h-[80px] border border-[#2a2a35] rounded-lg flex items-center justify-between px-2.5 bg-[#16161d] shadow-sm transition-all ${track.locked ? 'opacity-60' : ''}`}
+                  className={`h-[72px] min-h-[72px] border border-[#2a2a35] rounded-lg flex flex-col justify-between p-2 bg-[#16161d] shadow-sm transition-all ${track.locked ? 'opacity-60' : ''}`}
                 >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <div className="p-1.5 rounded-md bg-[#20202d] text-cyan-400">
-                      {getTrackIcon(track.type)}
-                    </div>
-                    <div className="flex flex-col overflow-hidden">
-                      <span className="text-[11px] text-gray-200 font-semibold truncate max-w-[65px] sm:max-w-[85px]" title={track.name}>
-                        {track.name}
-                      </span>
-                      <span className="text-[9px] text-gray-400 uppercase font-mono tracking-wider">
-                        {track.type}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-1.5 overflow-hidden">
+                    {getTrackIcon(track.type)}
+                    <span className="text-[11px] text-gray-200 font-semibold truncate max-w-[80px] sm:max-w-[105px]" title={track.name}>
+                      {track.name}
+                    </span>
                   </div>
 
                   {/* Track Status & Controls (Mute, Lock, Hide, Delete) */}
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {/* Mute Track */}
-                    {onToggleTrackMute && (
-                      <button
-                        onClick={() => onToggleTrackMute(track.id)}
-                        className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                        title={track.muted ? 'Unmute Track' : 'Mute Track'}
-                      >
-                        {track.muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+                  <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                    <span className="text-[8px] font-mono text-gray-500 uppercase">{track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}</span>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {/* Mute Track */}
+                      {onToggleTrackMute && (
+                        <button
+                          onClick={() => onToggleTrackMute(track.id)}
+                          className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                          title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                        >
+                          {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                        </button>
+                      )}
 
-                    {/* Lock Track */}
-                    {onToggleTrackLock && (
-                      <button
-                        onClick={() => onToggleTrackLock(track.id)}
-                        className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                        title={track.locked ? 'Unlock Track' : 'Lock Track'}
-                      >
-                        {track.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+                      {/* Lock Track */}
+                      {onToggleTrackLock && (
+                        <button
+                          onClick={() => onToggleTrackLock(track.id)}
+                          className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                          title={track.locked ? 'Unlock Track' : 'Lock Track'}
+                        >
+                          {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                        </button>
+                      )}
 
-                    {/* Hide Track */}
-                    {onToggleTrackHidden && (
-                      <button
-                        onClick={() => onToggleTrackHidden(track.id)}
-                        className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                        title={track.hidden ? 'Show Track' : 'Hide Track'}
-                      >
-                        {track.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+                      {/* Hide Track */}
+                      {onToggleTrackHidden && (
+                        <button
+                          onClick={() => onToggleTrackHidden(track.id)}
+                          className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                          title={track.hidden ? 'Show Track' : 'Hide Track'}
+                        >
+                          {track.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        </button>
+                      )}
 
-                    {/* Delete Track */}
-                    {onDeleteTrack && (
-                      <button
-                        onClick={() => onDeleteTrack(track.id)}
-                        className="p-1 rounded text-gray-600 hover:text-red-400 transition"
-                        title="Delete Track"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                      {/* Delete Track */}
+                      {onDeleteTrack && sortedTracks.length > 1 && (
+                        <button
+                          onClick={() => onDeleteTrack(track.id)}
+                          className="p-1 rounded text-gray-600 hover:text-red-400 transition"
+                          title="Delete Track"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
@@ -2077,75 +2134,6 @@ export default function Timeline({
             className="h-full relative min-w-full"
             onMouseDown={handleGridMouseDown}
             onContextMenu={(e) => handleContextMenu(e, null, null)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'copy';
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (!onAddClip) return;
-
-              const rect = tracksContainerRef.current?.getBoundingClientRect();
-              const scrollLeft = tracksContainerRef.current?.scrollLeft || 0;
-              const dropX = rect ? e.clientX - rect.left + scrollLeft : 0;
-              const dropTime = Math.max(0, Math.round((dropX / zoom) * 10) / 10);
-
-              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                Array.from(e.dataTransfer.files).forEach((file: File) => {
-                  const isVideo = file.type.startsWith('video/');
-                  const isAudio = file.type.startsWith('audio/');
-                  const isImage = file.type.startsWith('image/');
-                  const url = URL.createObjectURL(file);
-                  const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
-
-                  if (isVideo || isAudio) {
-                    const tempEl = document.createElement(isVideo ? 'video' : 'audio');
-                    tempEl.src = url;
-                    tempEl.onloadedmetadata = () => {
-                      const dur = tempEl.duration || 10;
-                      onAddClip({
-                        name: file.name,
-                        type: clipType,
-                        url,
-                        start: dropTime,
-                        duration: dur,
-                        sourceDuration: dur,
-                      });
-                    };
-                  } else {
-                    onAddClip({
-                      name: file.name,
-                      type: clipType,
-                      url,
-                      start: dropTime,
-                      duration: 5,
-                    });
-                  }
-                });
-                return;
-              }
-
-              const rawData = e.dataTransfer.getData('application/json') || e.dataTransfer.getData('text/plain');
-              if (rawData) {
-                try {
-                  const asset = JSON.parse(rawData);
-                  if (asset.url) {
-                    const isVideo = asset.type === 'video' || asset.url.endsWith('.mp4');
-                    const isAudio = asset.type === 'audio' || asset.url.endsWith('.mp3');
-                    const isImage = asset.type === 'image';
-                    const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
-
-                    onAddClip({
-                      name: asset.title || asset.name || 'Media Clip',
-                      type: clipType,
-                      url: asset.url,
-                      start: dropTime,
-                      duration: asset.duration || 5,
-                    });
-                  }
-                } catch {}
-              }
-            }}
           >
             
             {/* Timeline Ruler */}
@@ -2163,227 +2151,266 @@ export default function Timeline({
             {/* Visual Grid rows */}
             <div ref={gridScrollRef} onScroll={handleVerticalScroll} className="absolute top-8 bottom-0 left-0 right-0 flex flex-col p-1.5 gap-2 overflow-y-auto custom-scrollbar min-w-full w-full">
               {sortedTracks.length === 0 ? (
-                <div
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'video/*,audio/*,image/*';
-                    input.onchange = (ev: any) => {
-                      const files = ev.target.files;
-                      if (!files || files.length === 0 || !onAddClip) return;
-                      const file = files[0];
-                      const isVideo = file.type.startsWith('video/');
-                      const isAudio = file.type.startsWith('audio/');
-                      const isImage = file.type.startsWith('image/');
-                      const url = URL.createObjectURL(file);
-                      const clipType = isVideo ? ClipType.VIDEO : isAudio ? ClipType.AUDIO : isImage ? ClipType.IMAGE : ClipType.VIDEO;
-
-                      if (isVideo || isAudio) {
-                        const tempEl = document.createElement(isVideo ? 'video' : 'audio');
-                        tempEl.src = url;
-                        tempEl.onloadedmetadata = () => {
-                          const dur = tempEl.duration || 10;
-                          onAddClip({
-                            name: file.name,
-                            type: clipType,
-                            url,
-                            start: 0,
-                            duration: dur,
-                            sourceDuration: dur,
-                          });
-                        };
-                      } else {
-                        onAddClip({
-                          name: file.name,
-                          type: clipType,
-                          url,
-                          start: 0,
-                          duration: 5,
-                        });
-                      }
-                    };
-                    input.click();
-                  }}
-                  className="h-32 border-2 border-dashed border-[#2d2d3c] hover:border-cyan-500/60 rounded-xl flex flex-col items-center justify-center p-6 text-center bg-[#13131b]/60 hover:bg-[#181824]/80 transition-all cursor-pointer group select-none m-2"
+                /* CapCut Pro Empty Timeline Dropzone */
+                <div 
+                  onClick={() => timelineFileInputRef.current?.click()}
+                  className={`h-full min-h-[180px] border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all ${
+                    isDraggingFiles ? 'border-cyan-400 bg-cyan-950/40 shadow-[0_0_25px_rgba(6,182,212,0.3)]' : 'border-[#262633] bg-[#121218]/60 hover:border-cyan-500/50 hover:bg-[#151520]'
+                  }`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-2 text-cyan-400 group-hover:scale-110 transition-transform">
-                    <Plus className="w-5 h-5" />
+                  <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-3 shadow-inner">
+                    <Film className={`w-6 h-6 ${isDraggingFiles ? 'animate-bounce text-cyan-300' : ''}`} />
                   </div>
-                  <span className="text-xs font-bold text-gray-200">Drag & drop files here to add media</span>
-                  <span className="text-[10px] text-gray-400 mt-1 max-w-sm">
-                    Tracks will be created automatically for Video, Audio & Text
-                  </span>
+                  <h3 className="text-xs sm:text-sm font-bold text-gray-200">
+                    {isDraggingFiles ? 'Drop media files to auto-create tracks!' : 'Drag & drop media files here to start editing'}
+                  </h3>
+                  <p className="text-[10px] text-gray-500 max-w-sm mt-1">
+                    Supports Video (MP4, WebM), Audio (MP3, WAV), and Images (PNG, JPG). Tracks are created automatically on drop.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        timelineFileInputRef.current?.click();
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-[11px] font-bold shadow-md shadow-cyan-500/20 transition flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Import Media</span>
+                    </button>
+                    {onAddTrack && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddTrack(ClipType.VIDEO);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#22222d] hover:bg-[#2b2b3b] text-gray-300 text-[11px] font-semibold border border-white/10 transition flex items-center gap-1"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Add Video Track</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 sortedTracks.map((track, trackIdx) => (
                   <div
                     key={track.id ? `grid-${track.id}-${trackIdx}` : `grid-track-${trackIdx}`}
                     onContextMenu={(e) => handleContextMenu(e, null, track)}
-                    className={`h-20 min-h-[80px] border border-[#22222c] rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
+                    className={`h-[72px] min-h-[72px] border border-[#22222c] rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
                   >
-                  {/* Subtle Grid backdrop lines */}
-                  <div className="absolute inset-0 bg-grid-pattern opacity-5" />
+                    {/* Subtle Grid backdrop lines */}
+                    <div className="absolute inset-0 bg-grid-pattern opacity-5" />
 
-                  {/* Clips list */}
-                  {track.clips.map((clip, clipIdx) => {
-                    const isSelected = activeSelectedIds.includes(clip.id);
-                    const left = clip.start * zoom;
-                    const width = clip.duration * zoom;
+                    {/* Clips list */}
+                    {track.clips.map((clip, clipIdx) => {
+                      const isSelected = activeSelectedIds.includes(clip.id);
+                      const left = clip.start * zoom;
+                      const width = clip.duration * zoom;
 
-                    // Track specific clip styling with Multi-Selection Matrix glow
-                    let clipStyleClass = isSelected
-                      ? 'bg-[#2a2200] border-2 border-amber-400 text-amber-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.5)] ring-2 ring-amber-400/40 z-30 scale-[1.01]'
-                      : 'bg-[#1a1a24] hover:bg-[#20202c] border-gray-800 text-gray-300';
+                      // Track specific clip styling with Multi-Selection Matrix glow
+                      let clipStyleClass = isSelected
+                        ? 'bg-[#2a2200] border-2 border-amber-400 text-amber-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.5)] ring-2 ring-amber-400/40 z-30 scale-[1.005]'
+                        : 'bg-[#1a1a24] hover:bg-[#20202c] border-gray-800 text-gray-300';
 
-                    if (!isSelected) {
-                      if (clip.type === ClipType.AUDIO) {
-                        clipStyleClass = 'bg-gradient-to-r from-teal-950/90 via-emerald-950/90 to-teal-950/90 hover:from-teal-900/90 border-teal-500/40 text-teal-200';
-                      } else if (clip.type === ClipType.VIDEO) {
-                        clipStyleClass = 'bg-gradient-to-r from-slate-900/90 via-cyan-950/90 to-slate-900/90 hover:from-slate-800/90 border-cyan-500/40 text-cyan-200';
-                      } else if (clip.type === ClipType.IMAGE) {
-                        clipStyleClass = 'bg-gradient-to-r from-emerald-950/90 via-teal-950/90 to-emerald-950/90 hover:from-emerald-900/90 border-emerald-500/40 text-emerald-200';
-                      } else if (clip.type === ClipType.TEXT) {
-                        clipStyleClass = 'bg-gradient-to-r from-purple-950/90 via-indigo-950/90 to-purple-950/90 hover:from-purple-900/90 border-purple-500/40 text-purple-200';
-                      } else if (clip.type === ClipType.EFFECT) {
-                        clipStyleClass = 'bg-amber-950/90 border-amber-500/40 text-amber-200';
+                      if (!isSelected) {
+                        if (clip.type === ClipType.AUDIO) {
+                          clipStyleClass = 'bg-teal-950/90 hover:bg-teal-900/90 border-teal-500/40 text-teal-200';
+                        } else if (clip.type === ClipType.VIDEO) {
+                          clipStyleClass = 'bg-[#121a24] hover:bg-[#182330] border-cyan-500/40 text-cyan-200';
+                        } else if (clip.type === ClipType.IMAGE) {
+                          clipStyleClass = 'bg-emerald-950/90 hover:bg-emerald-900/90 border-emerald-500/40 text-emerald-200';
+                        } else if (clip.type === ClipType.TEXT) {
+                          clipStyleClass = 'bg-purple-950/90 hover:bg-purple-900/90 border-purple-500/40 text-purple-200';
+                        } else if (clip.type === ClipType.EFFECT) {
+                          clipStyleClass = 'bg-amber-950/90 border-amber-500/40 text-amber-200';
+                        }
+                      } else {
+                        if (clip.type === ClipType.AUDIO) {
+                          clipStyleClass = 'bg-teal-900 border-2 border-amber-400 text-teal-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
+                        } else if (clip.type === ClipType.TEXT) {
+                          clipStyleClass = 'bg-purple-900 border-2 border-amber-400 text-purple-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
+                        } else if (clip.type === ClipType.IMAGE) {
+                          clipStyleClass = 'bg-emerald-900 border-2 border-amber-400 text-emerald-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
+                        } else if (clip.type === ClipType.VIDEO) {
+                          clipStyleClass = 'bg-cyan-950 border-2 border-amber-400 text-cyan-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
+                        }
                       }
-                    } else {
-                      if (clip.type === ClipType.AUDIO) {
-                        clipStyleClass = 'bg-gradient-to-r from-teal-900 via-teal-800 to-teal-900 border-2 border-amber-400 text-teal-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
-                      } else if (clip.type === ClipType.TEXT) {
-                        clipStyleClass = 'bg-gradient-to-r from-purple-900 via-purple-800 to-purple-900 border-2 border-amber-400 text-purple-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
-                      } else if (clip.type === ClipType.IMAGE) {
-                        clipStyleClass = 'bg-gradient-to-r from-emerald-900 via-teal-800 to-emerald-900 border-2 border-amber-400 text-emerald-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
-                      } else if (clip.type === ClipType.VIDEO) {
-                        clipStyleClass = 'bg-gradient-to-r from-cyan-950 via-cyan-900 to-cyan-950 border-2 border-amber-400 text-cyan-100 font-bold shadow-[0_0_15px_rgba(251,191,36,0.55)] ring-2 ring-amber-400/40 z-30';
-                      }
-                    }
 
-                    // Timeline Virtualization: Check if clip is within visible viewport window
-                    const isClipVisible = (clip.start + clip.duration >= visibleStartTime) && (clip.start <= visibleEndTime);
+                      const syncItem = clip.type === ClipType.AUDIO
+                        ? quranSyncReport.items.find(it => it.audioClipId === clip.id)
+                        : null;
 
-                    return (
-                      <div
-                        key={clip.id ? `${clip.id}-${clipIdx}` : `clip-${track.id}-${clipIdx}`}
-                        id={`clip-${clip.id}`}
-                        onMouseDown={(e) => startClipDrag(e, clip)}
-                        onTouchStart={(e) => startClipDrag(e, clip)}
-                        onContextMenu={(e) => handleContextMenu(e, clip, track)}
-                        className={`absolute top-[4px] bottom-[4px] rounded-lg flex items-center justify-between px-2 cursor-pointer transition-all select-none group border shadow-xs ${clipStyleClass}`}
-                        style={{
-                          left: `${left}px`,
-                          width: `${width}px`,
-                        }}
-                      >
-                        {/* Video & Image Frame Strip Visuals for Visual Tracks (Only rendered when visible in viewport window) */}
-                        {isClipVisible && (clip.type === ClipType.VIDEO || clip.type === ClipType.IMAGE) && (
-                          <VideoFilmstripVisual
-                            clip={clip}
-                            width={width}
-                            isSelected={isSelected}
-                            zoom={zoom}
-                          />
-                        )}
-
-                        {/* Real-time Audio Waveform Graph Visualizer (Only rendered for AUDIO clips) */}
-                        {isClipVisible && clip.type === ClipType.AUDIO && (
-                          <AudioWaveformGraph
-                            clipId={clip.id}
-                            url={clip.url}
-                            width={width}
-                            isSelected={isSelected}
-                            volume={clip.volume}
-                            showSilenceHighlights={showSilenceGuide}
-                            showBeatMarkers={true}
-                            overlayMode={false}
-                            currentTime={currentTime}
-                            clipStart={clip.start}
-                            clipDuration={clip.duration}
-                            clipOffset={clip.offset || 0}
-                            mediaDuration={clip.mediaDuration}
-                            isPlaying={isPlaying}
-                          />
-                        )}
-
-                        {/* Drag Resize Handle Left */}
-                        <div
-                          onMouseDown={(e) => startClipDrag(e, clip, 'left')}
-                          onTouchStart={(e) => startClipDrag(e, clip, 'left')}
-                          className={`absolute left-0 top-0 bottom-0 w-3.5 bg-black/60 hover:bg-cyan-500 rounded-l-md cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
-                          title="Drag to trim start time (ew-resize)"
-                        >
-                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full group-hover/handle:bg-white" />
-                        </div>
-
-                        {/* Title text & Metadata Badge Overlay with Glass Floating Card */}
-                        <div className="flex-1 mx-1.5 overflow-hidden pointer-events-none z-10 flex items-center justify-between">
-                          <div className="truncate bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 shadow-xs max-w-[calc(100%-40px)]">
-                            <div className="flex items-center gap-1 truncate">
-                              <p className={`text-[9.5px] font-bold truncate tracking-wide ${isSelected ? 'text-amber-200' : 'text-white'}`}>
-                                {clip.name}
-                              </p>
-
-                              {/* Transition Indicator Badge */}
-                                  {clip.transition && (clip.transition.inType !== 'none' || clip.transition.outType !== 'none' || clip.transition.type !== 'none') && (
-                                    <span
-                                      className="px-1 py-0.2 rounded text-[6.5px] font-mono font-black bg-cyan-950/90 text-cyan-300 border border-cyan-500/60 shrink-0 shadow-xs uppercase flex items-center gap-0.5"
-                                      title={`Transition Effect: ${clip.transition.type || clip.transition.inType || 'Active'} (${clip.transition.duration || 1.0}s)`}
-                                    >
-                                      ✨ {clip.transition.type || clip.transition.inType || 'Trans'}
-                                    </span>
-                                  )}
-
-                                  {/* Audio Peak Indicator Badge */}
-                                  {clip.peakDb !== undefined && (
-                                    <span
-                                      className={`px-1 py-0.2 rounded text-[6.5px] font-mono font-black border shrink-0 shadow-xs ${
-                                        clip.peakDb > -0.5
-                                          ? 'bg-red-500/90 text-white border-red-300'
-                                          : clip.peakDb > -6
-                                          ? 'bg-amber-500/90 text-black border-amber-200'
-                                          : 'bg-emerald-500/90 text-black border-emerald-200'
-                                      }`}
-                                      title={`Audio Peak Level: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)} dBFS`}
-                                    >
-                                      Peak {clip.peakDb > 0 ? `+${clip.peakDb.toFixed(1)}` : clip.peakDb.toFixed(1)}dB
-                                    </span>
-                                  )}
-                                </div>
-                                <p className={`text-[7.5px] font-mono leading-none mt-0.5 ${isSelected ? 'text-amber-300/90' : 'text-gray-300'}`}>
-                                  {clip.duration.toFixed(2)}s • x{clip.playbackRate.toFixed(1)}
-                                  {clip.peakDb !== undefined && ` • Peak: ${clip.peakDb > 0 ? '+' : ''}${clip.peakDb.toFixed(1)}dB`}
-                                </p>
-                              </div>
-
-                              {/* Track type indicator tag & Selected Matrix Badge */}
-                              <div className="flex items-center gap-1 shrink-0 ml-1">
-                                {isSelected && (
-                                  <span className="px-1 py-0.2 rounded text-[7px] font-mono font-black bg-amber-400 text-black border border-amber-300 uppercase shadow-xs">
-                                    SEL
+                      return (
+                        <React.Fragment key={clip.id ? `${clip.id}-${clipIdx}` : `clip-${track.id}-${clipIdx}`}>
+                          <div
+                            id={`clip-${clip.id}`}
+                            onMouseDown={(e) => startClipDrag(e, clip)}
+                            onTouchStart={(e) => startClipDrag(e, clip)}
+                            onContextMenu={(e) => handleContextMenu(e, clip, track)}
+                            className={`absolute top-[4px] h-[64px] rounded-lg flex flex-col justify-between cursor-pointer transition-all select-none group border shadow-sm overflow-hidden ${clipStyleClass}`}
+                            style={{
+                              left: `${left}px`,
+                              width: `${width}px`,
+                            }}
+                          >
+                            {/* Top Header Bar (~20px) */}
+                            <div className={`h-5 w-full flex items-center justify-between px-1.5 text-[9.5px] font-mono border-b select-none z-10 shrink-0 ${
+                              clip.type === ClipType.AUDIO 
+                                ? 'bg-[#042f2e]/90 text-teal-200 border-teal-800/60' 
+                                : clip.type === ClipType.TEXT 
+                                ? 'bg-[#2e1065]/90 text-purple-200 border-purple-800/60' 
+                                : clip.type === ClipType.IMAGE
+                                ? 'bg-[#064e3b]/90 text-emerald-200 border-emerald-800/60'
+                                : 'bg-[#0e3b43]/90 text-cyan-200 border-cyan-800/60'
+                            }`}>
+                              <div className="flex items-center gap-1 truncate max-w-[calc(100%-42px)]">
+                                <span className={`font-bold truncate text-[9.5px] ${isSelected ? 'text-amber-200' : 'text-white'}`} title={clip.name}>
+                                  {clip.name}
+                                </span>
+                                {/* Ayah Alignment Badge */}
+                                {syncItem && (
+                                  <div className="shrink-0 flex items-center ml-0.5 pointer-events-auto">
+                                    {syncItem.status === 'missing_text' ? (
+                                      <span className="px-1 py-0.1 rounded text-[6.5px] font-mono font-bold bg-red-950 text-red-300 border border-red-500/60">
+                                        No Text
+                                      </span>
+                                    ) : syncItem.status === 'out_of_sync' ? (
+                                      <span className="px-1 py-0.1 rounded text-[6.5px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-500/60">
+                                        Shift {syncItem.timeShiftSec}s
+                                      </span>
+                                    ) : (
+                                      <span className="px-1 py-0.1 rounded text-[6.5px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/50">
+                                        Ayah {syncItem.ayahNumber} ✓
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {/* Transition Badge */}
+                                {clip.transition && (clip.transition.inType !== 'none' || clip.transition.outType !== 'none' || clip.transition.type !== 'none') && (
+                                  <span className="px-1 py-0.1 rounded text-[6.5px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/60 shrink-0 uppercase">
+                                    ✨ {clip.transition.type || 'Trans'}
                                   </span>
                                 )}
-                                <div className="px-1 py-0.5 rounded text-[7px] font-mono font-extrabold uppercase bg-black/60 backdrop-blur-xs text-white/90 border border-white/15 shrink-0 shadow-xs">
-                                  {clip.type}
-                                </div>
                               </div>
+                              <span className="text-[8px] opacity-80 shrink-0 font-mono">
+                                {clip.duration.toFixed(1)}s
+                              </span>
                             </div>
 
+                            {/* Bottom Visual Body (~44px) */}
+                            <div className="flex-1 w-full relative overflow-hidden bg-[#0c0c12]">
+                              {/* Video & Image Frame Strip Visuals for Visual Tracks */}
+                              {(clip.type === ClipType.VIDEO || clip.type === ClipType.IMAGE) && (
+                                <VideoFilmstripVisual
+                                  clip={clip}
+                                  width={width}
+                                  isSelected={isSelected}
+                                  zoom={zoom}
+                                />
+                              )}
 
-                        {/* Drag Resize Handle Right */}
-                        <div
-                          onMouseDown={(e) => startClipDrag(e, clip, 'right')}
-                          onTouchStart={(e) => startClipDrag(e, clip, 'right')}
-                          className={`absolute right-0 top-0 bottom-0 w-3.5 bg-black/60 hover:bg-cyan-500 rounded-r-md cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
-                          title="Drag to trim end time (ew-resize)"
-                        >
-                          <div className="w-0.5 h-3.5 bg-white/90 rounded-full group-hover/handle:bg-white" />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )))
-            }
+                              {/* Real-time Audio Waveform Graph Visualizer for Audio & Video Clips */}
+                              {(clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url)) && (
+                                <AudioWaveformGraph
+                                  clipId={clip.id}
+                                  url={clip.url}
+                                  width={width}
+                                  isSelected={isSelected}
+                                  volume={clip.volume}
+                                  showSilenceHighlights={showSilenceGuide}
+                                  showBeatMarkers={true}
+                                  overlayMode={clip.type === ClipType.VIDEO}
+                                  currentTime={currentTime}
+                                  clipStart={clip.start}
+                                  clipDuration={clip.duration}
+                                  isPlaying={isPlaying}
+                                />
+                              )}
+
+                              {/* Text Preview for Text Clips */}
+                              {clip.type === ClipType.TEXT && (
+                                <div className="absolute inset-0 flex items-center justify-center px-2 text-center">
+                                  <span className="text-[10px] font-bold text-purple-200/90 truncate max-w-full drop-shadow">
+                                    {clip.text || clip.name}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Drag Resize Handle Left */}
+                            <div
+                              onMouseDown={(e) => startClipDrag(e, clip, 'left')}
+                              onTouchStart={(e) => startClipDrag(e, clip, 'left')}
+                              className={`absolute left-0 top-0 bottom-0 w-3 bg-black/60 hover:bg-cyan-500 cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
+                              title="Drag to trim start time"
+                            >
+                              <div className="w-0.5 h-4 bg-white/90 rounded-full group-hover/handle:bg-white" />
+                            </div>
+
+                            {/* Drag Resize Handle Right */}
+                            <div
+                              onMouseDown={(e) => startClipDrag(e, clip, 'right')}
+                              onTouchStart={(e) => startClipDrag(e, clip, 'right')}
+                              className={`absolute right-0 top-0 bottom-0 w-3 bg-black/60 hover:bg-cyan-500 cursor-ew-resize flex items-center justify-center transition-all z-20 group/handle ${isSelected ? 'opacity-100 ring-1 ring-amber-400' : 'opacity-0 group-hover:opacity-100'}`}
+                              title="Drag to trim end time"
+                            >
+                              <div className="w-0.5 h-4 bg-white/90 rounded-full group-hover/handle:bg-white" />
+                            </div>
+                          </div>
+
+                          {/* CapCut Transition Split / Merge Connector Button between contiguous clips */}
+                          {clipIdx < track.clips.length - 1 && (
+                            (() => {
+                              const nextClip = track.clips[clipIdx + 1];
+                              const gap = nextClip.start - (clip.start + clip.duration);
+                              if (Math.abs(gap) < 0.25) {
+                                const connectorLeft = (clip.start + clip.duration) * zoom - 8;
+                                return (
+                                  <button
+                                    key={`trans-connector-${clip.id}-${nextClip.id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onSelectClip(clip.id);
+                                      if (onUpdateClip) {
+                                        const currentTrans = clip.transition?.type || 'none';
+                                        const nextTrans: TransitionType =
+                                          currentTrans === 'none'
+                                            ? 'fade'
+                                            : currentTrans === 'fade'
+                                            ? 'cross-dissolve'
+                                            : currentTrans === 'cross-dissolve'
+                                            ? 'slide-left'
+                                            : currentTrans === 'slide-left'
+                                            ? 'zoom'
+                                            : 'none';
+                                        onUpdateClip(clip.id, {
+                                          transition: {
+                                            type: nextTrans,
+                                            duration: 1.0,
+                                            inType: nextTrans,
+                                            outType: nextTrans
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    className="absolute top-1/2 -translate-y-1/2 w-4 h-5 bg-[#252533] hover:bg-cyan-500 hover:text-black text-gray-300 border border-[#3e3e52] rounded-xs shadow-md flex items-center justify-center z-25 transition cursor-pointer group/trans"
+                                    style={{ left: `${connectorLeft}px` }}
+                                    title={`Transition Effect: ${clip.transition?.type || 'None'} (Click to cycle transition)`}
+                                  >
+                                    <Split className="w-2.5 h-2.5 group-hover/trans:scale-110 transition" />
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
 
               {/* Multi-Selection Bounding Box & Interactive Group Move Drag-Handle */}
               {multiSelectionBounds && (
@@ -2465,11 +2492,11 @@ export default function Timeline({
               </div>
             )}
 
-            {/* Playhead vertical red line with GPU translate3d hardware layer acceleration */}
+            {/* Playhead vertical red line */}
             <div
               id="timeline-playhead"
-              className="absolute top-0 bottom-0 left-0 w-0.5 bg-red-500 z-30 pointer-events-none will-change-transform"
-              style={{ transform: `translate3d(${currentTime * zoom}px, 0, 0)` }}
+              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30 pointer-events-none"
+              style={{ left: `${currentTime * zoom}px` }}
             >
               {/* Playhead head icon */}
               <div className="w-3 h-3 bg-red-500 rounded-b-sm absolute -top-1.5 -left-1.5 transform rotate-45" />
@@ -2771,6 +2798,24 @@ export default function Timeline({
                 </button>
               )}
 
+              {/* Quran Tilawat Ayah Subtitle Auto-Fix Action */}
+              {contextMenu.clip.type === ClipType.AUDIO && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectorTargetClips([contextMenu.clip!.id]);
+                    const clipAyah = extractAyahNumberFromClip(contextMenu.clip!) || 1;
+                    setInspectorStartAyah(clipAyah);
+                    setShowQuranInspectorModal(true);
+                    setContextMenu(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-200 transition font-bold"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-400 fill-current" />
+                  <span>⚡ Fix & Align Ayah Subtitle Text (آیت ٹیکسٹ فکس)</span>
+                </button>
+              )}
+
               {contextMenu.clip.type === ClipType.VIDEO && onAutoSyncVideoToAyahs && (
                 <button
                   type="button"
@@ -2936,6 +2981,260 @@ export default function Timeline({
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* QURAN TILAWAT & AYAH SUBTITLE ALIGNMENT INSPECTOR & AUTO-FIX MODAL       */}
+      {/* ========================================================================= */}
+      {showQuranInspectorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-[#12121c] border border-amber-500/40 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-[#252538] flex items-center justify-between bg-gradient-to-r from-amber-950/40 via-[#181826] to-[#12121c]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 text-lg shadow-inner">
+                  🕌
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Quran Tilawat Alignment Detector & Subtitle Auto-Fixer</span>
+                    <span className="text-xs text-amber-400 font-urdu">(آیت آٹو سنک و ٹیکسٹ فکسر)</span>
+                  </h3>
+                  <p className="text-[11px] text-gray-400">
+                    Real-time audio scan detects missing or desynced Arabic & translation subtitle clips and auto-generates them.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuranInspectorModal(false)}
+                className="p-1.5 rounded-lg bg-[#202030] hover:bg-[#2c2c42] text-gray-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Status Pill Bar */}
+            <div className="px-5 py-3 bg-[#171724] border-b border-[#252538] flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-gray-400">Total Recitation Parts:</span>
+                  <span className="font-mono font-bold text-white bg-[#222234] px-2 py-0.5 rounded border border-[#33334a]">
+                    {quranSyncReport.totalAudioSegments}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-gray-400">Synced:</span>
+                  <span className="font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/40">
+                    {quranSyncReport.syncedCount} ✓
+                  </span>
+                </div>
+                {quranSyncReport.missingTextCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-gray-400">Missing Subtitles:</span>
+                    <span className="font-mono font-bold text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-500/50 animate-pulse">
+                      {quranSyncReport.missingTextCount} ⚠️
+                    </span>
+                  </div>
+                )}
+                {quranSyncReport.outOfSyncCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-gray-400">Desynced:</span>
+                    <span className="font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/40">
+                      {quranSyncReport.outOfSyncCount} ⚠️
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {inspectorTargetClips.length > 0 && (
+                <div className="text-[11px] text-amber-300 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  Targeting {inspectorTargetClips.length} specific clip(s)
+                </div>
+              )}
+            </div>
+
+            {/* Config Controls */}
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3 border-b border-[#252538] bg-[#141420]">
+              {/* Surah Selector */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1 flex items-center justify-between">
+                  <span>Surah (سورۃ):</span>
+                  {quranSyncReport.detectedSurah && (
+                    <span className="text-[10px] text-amber-400 font-normal">Auto-detected</span>
+                  )}
+                </label>
+                <select
+                  value={inspectorSurah}
+                  onChange={(e) => setInspectorSurah(Number(e.target.value))}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-hidden"
+                >
+                  {SURAHS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Starting Ayah */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1 flex items-center justify-between">
+                  <span>Starting Ayah # (شروع آیت):</span>
+                  {quranSyncReport.detectedStartAyah && (
+                    <span className="text-[10px] text-amber-400 font-normal">Auto-detected</span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="286"
+                  value={inspectorStartAyah}
+                  onChange={(e) => setInspectorStartAyah(Math.max(1, Number(e.target.value)))}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-amber-400 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Translation Language */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 mb-1">
+                  Translation Track (ترجمہ):
+                </label>
+                <select
+                  value={inspectorTranslationId}
+                  onChange={(e) => setInspectorTranslationId(e.target.value)}
+                  className="w-full bg-[#1e1e2d] border border-[#35354e] rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-hidden"
+                >
+                  {QURAN_TRANSLATION_OPTIONS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.flag} {t.language} ({t.translator})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Recitation Audio Segments List */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-2 bg-[#0e0e16] min-h-[160px] max-h-[300px]">
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>Detected Audio Clips on Timeline ({quranSyncReport.items.length})</span>
+                <span className="text-[10px] text-gray-500 font-normal">Click any clip to fix individually</span>
+              </div>
+
+              {quranSyncReport.items.length === 0 ? (
+                <div className="p-6 text-center text-gray-400 text-xs bg-[#161622] rounded-xl border border-dashed border-[#333346]">
+                  <p>No audio clips detected on the timeline yet.</p>
+                  <p className="text-[11px] text-gray-500 mt-1">Import or place Quran Tilawat recitation audio on the timeline to inspect alignment.</p>
+                </div>
+              ) : (
+                quranSyncReport.items.map((item, idx) => {
+                  const clipAyah = item.ayahNumber || (inspectorStartAyah + idx);
+                  return (
+                    <div
+                      key={`qsync-item-${item.audioClipId}-${item.ayahNumber ?? idx}-${idx}`}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition ${
+                        item.status === 'missing_text'
+                          ? 'bg-red-950/30 border-red-500/40 hover:border-red-500/70'
+                          : item.status === 'out_of_sync'
+                          ? 'bg-amber-950/30 border-amber-500/40 hover:border-amber-500/70'
+                          : 'bg-[#151522] border-[#252538] hover:border-emerald-500/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="w-6 h-6 rounded-md bg-[#222234] border border-[#35354e] flex items-center justify-center text-xs font-mono font-bold text-gray-300 shrink-0">
+                          {idx + 1}
+                        </div>
+                        <div className="truncate">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white truncate">
+                              {item.audioClipName}
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              Ayah {clipAyah}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono mt-0.5">
+                            <span>{formatTimeCode(item.audioStart)} → {formatTimeCode(item.audioEnd)}</span>
+                            <span>({(item.audioEnd - item.audioStart).toFixed(2)}s)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status and Action */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === 'missing_text' ? (
+                          <>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-950 text-red-300 border border-red-500/60 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                              <span>No Subtitle</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteFixText([item.audioClipId], inspectorSurah, clipAyah)}
+                              disabled={isFixingText}
+                              className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white font-bold text-[10.5px] rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Zap className="w-3 h-3 fill-current" />
+                              <span>Fix Ayah {clipAyah}</span>
+                            </button>
+                          </>
+                        ) : item.status === 'out_of_sync' ? (
+                          <>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-500/60">
+                              Shifted ({item.timeShiftSec}s)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteFixText([item.audioClipId], inspectorSurah, clipAyah)}
+                              disabled={isFixingText}
+                              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-black font-extrabold text-[10.5px] rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Zap className="w-3 h-3 fill-current" />
+                              <span>Re-align</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                            <span>✓ Synced</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="p-4 bg-[#141420] border-t border-[#252538] flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setShowQuranInspectorModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#222232] hover:bg-[#2d2d42] text-gray-300 font-semibold text-xs transition cursor-pointer"
+              >
+                Close (بند کریں)
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExecuteFixText()}
+                  disabled={isFixingText || quranSyncReport.items.length === 0}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 fill-current" />
+                  <span>
+                    {isFixingText
+                      ? 'Aligning Subtitles...'
+                      : quranSyncReport.missingTextCount > 0
+                      ? `⚡ Auto-Fix ${quranSyncReport.missingTextCount} Missing Ayah Subtitles`
+                      : '⚡ Re-Sync & Generate All Subtitles'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

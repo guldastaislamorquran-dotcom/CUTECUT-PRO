@@ -924,7 +924,7 @@ export default function MediaPanel({
   return (
     <div
       id="media-panel"
-      className="bg-[#121216] border border-[#202028] rounded-xl flex flex-col h-full select-none overflow-hidden shadow-lg m-1 mr-0"
+      className="bg-[#141418] rounded-lg border border-[#23232b] flex flex-col h-full select-none overflow-hidden shadow-sm flex-shrink-0"
       style={{ width: width !== undefined ? `${width}px` : undefined }}
     >
       {/* Tab Navigation with Bottom Slider & Scroll Controls */}

@@ -1723,7 +1723,7 @@ export default function PreviewPlayer({
   };
 
   return (
-    <div id="preview-player" ref={playerFrameRef} className="flex-1 bg-[#0c0c0f] flex flex-col h-full border border-[#202028] rounded-xl select-none overflow-hidden shadow-lg m-1 mx-1">
+    <div id="preview-player" ref={playerFrameRef} className="flex-1 bg-[#141418] rounded-lg border border-[#23232b] flex flex-col h-full select-none overflow-hidden shadow-sm">
       
       {/* Exact CapCut Player Header */}
       <div className="h-9 border-b border-[#24242c] px-3 flex items-center justify-between bg-[#1e1e24] shrink-0 text-xs text-gray-300">

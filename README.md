@@ -45,14 +45,14 @@ sudo snap connect cutecut-pro:removable-media
 
 ### 📦 2. Linux Debian / Ubuntu (.deb Package)
 
-Download the latest `.deb` file from [GitHub Releases](https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/tag/v2.3.6):
+Download the latest `.deb` file from [GitHub Releases](https://github.com/guldastaislamorquran-dotcom/CUTECUT-PRO/releases/latest):
 
 ```bash
 # Download the latest .deb installer
-wget https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/cutecut-pro_2.3.6_amd64.deb
+wget https://github.com/guldastaislamorquran-dotcom/CUTECUT-PRO/releases/download/v2.3.0/cutecut-pro_2.3.0_amd64.deb
 
 # Install the package
-sudo dpkg -i cutecut-pro_2.3.6_amd64.deb
+sudo dpkg -i cutecut-pro_2.3.0_amd64.deb
 
 # Fix any missing dependencies if prompted
 sudo apt-get install -f
@@ -66,23 +66,22 @@ Download and run directly on any Linux distribution without root privileges:
 
 ```bash
 # Download latest AppImage
-wget https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO-2.3.6.AppImage
+wget https://github.com/guldastaislamorquran-dotcom/CUTECUT-PRO/releases/download/v2.3.0/CUTECUT.PRO-2.3.0.AppImage
 
 # Make it executable
-chmod +x CUTECUT.PRO-2.3.6.AppImage
+chmod +x CUTECUT.PRO-2.3.0.AppImage
 
 # Run CUTECUT PRO
-./CUTECUT.PRO-2.3.6.AppImage
+./CUTECUT.PRO-2.3.0.AppImage
 ```
 
 ---
 
-### 🪟 4. Windows & macOS Desktop Installers
+### 🪟 4. Windows Installation (.exe)
 
-1. Go to [Latest GitHub Releases (v2.3.6)](https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/tag/v2.3.6).
-2. Windows: Download [`CUTECUT.PRO.Setup.2.3.6.exe`](https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO.Setup.2.3.6.exe)
-3. macOS: Download [`CUTECUT.PRO-2.3.6-arm64.dmg`](https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/CUTECUT.PRO-2.3.6-arm64.dmg)
-4. Linux Snap: Download [`cutecut-pro_2.3.6_amd64.snap`](https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.6/cutecut-pro_2.3.6_amd64.snap)
+1. Go to [Latest GitHub Releases](https://github.com/guldastaislamorquran-dotcom/CUTECUT-PRO/releases/latest).
+2. Download `CUTECUT.PRO.Setup.2.3.0.exe` (Installer) or `CUTECUT-PRO-2.3.0-win-portable.zip` (Portable).
+3. Double-click the installer and launch CUTECUT PRO from your Start Menu.
 
 ---
 

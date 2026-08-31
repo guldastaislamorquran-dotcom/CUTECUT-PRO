@@ -86,7 +86,7 @@ export default function Inspector({
     return (
       <div
         id="inspector-panel"
-        className="bg-[#18181c] border-l border-[#2a2a30] h-full flex flex-col items-center justify-center p-6 text-center select-none"
+        className="bg-[#141418] rounded-lg border border-[#23232b] h-full flex flex-col items-center justify-center p-6 text-center select-none shadow-sm flex-shrink-0"
         style={{ width: width !== undefined ? `${width}px` : undefined }}
       >
         <Sliders className="w-10 h-10 text-gray-600 mb-3" />
@@ -312,7 +312,7 @@ export default function Inspector({
   return (
     <div
       id="inspector-panel"
-      className="bg-[#121216] border border-[#202028] rounded-xl flex flex-col h-full select-none overflow-hidden shadow-lg m-1 ml-0"
+      className="bg-[#141418] rounded-lg border border-[#23232b] h-full flex flex-col select-none overflow-hidden shadow-sm flex-shrink-0"
       style={{ width: width !== undefined ? `${width}px` : undefined }}
     >
       {/* Header Info */}

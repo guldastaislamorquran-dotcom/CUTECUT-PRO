@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { generateWaveformPeaks, normalizeMediaUrl, calculateAudioPeakDb, calculateFrequencySpectrumAtOffset } from '../utils/editorUtils';
-import { getSystemSpecs } from '../utils/systemPerformance';
 
 interface AudioWaveformGraphProps {
   clipId: string;
@@ -16,8 +15,6 @@ interface AudioWaveformGraphProps {
   currentTime?: number;
   clipStart?: number;
   clipDuration?: number;
-  clipOffset?: number;
-  mediaDuration?: number;
   isPlaying?: boolean;
 }
 
@@ -39,8 +36,6 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
   currentTime,
   clipStart = 0,
   clipDuration = 0,
-  clipOffset = 0,
-  mediaDuration,
   isPlaying = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -134,13 +129,7 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
 
     const renderWidth = Math.max(10, Math.floor(width));
     const renderHeight = height || canvas.parentElement?.clientHeight || 48;
-    
-    // Adapt DPR and sampling step based on system hardware performance tier
-    const specs = getSystemSpecs();
-    let dprCap = 1.0;
-    if (specs.tier === 'ultra') dprCap = Math.min(window.devicePixelRatio || 1, 2.0);
-    else if (specs.tier === 'high') dprCap = Math.min(window.devicePixelRatio || 1, 1.5);
-    const dpr = dprCap;
+    const dpr = window.devicePixelRatio || 1;
 
     canvas.width = renderWidth * dpr;
     canvas.height = renderHeight * dpr;
@@ -164,74 +153,44 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     ctx.fillStyle = backdropGradient;
     ctx.fillRect(0, 0, renderWidth, renderHeight);
 
-    // 2. Compute Peak Amplitudes (downsampled per bar across clip range)
+    // 2. Compute Peak Amplitudes & RMS Silence Flags (downsampled per bar)
     const volFactor = Math.min(2.0, Math.max(0.1, volume));
-    const targetBarStep = specs.tier === 'power_saver' ? 5 : 3;
-    const totalBars = Math.max(16, Math.floor(renderWidth / targetBarStep));
-    const stepX = renderWidth / totalBars;
-    const barWidth = Math.max(1, Math.min(4, stepX - 1));
+    const barWidth = 2;
+    const gap = 1;
+    const totalBars = Math.max(8, Math.floor(renderWidth / (barWidth + gap)));
 
     let peaks: number[] = [];
+    let isSilenceFlags: boolean[] = [];
+
+    const noiseFloorDb = -35;
+    const rmsThreshold = Math.pow(10, noiseFloorDb / 20); // ~0.01778 RMS threshold
 
     if (channelData && channelData.length > 0) {
-      const totalAudioDuration = mediaDuration || (channelData.length / 44100);
-      const activeClipDuration = clipDuration > 0 ? clipDuration : totalAudioDuration;
-      const secPerBar = activeClipDuration / totalBars;
-      // Audio sample count per bar
-      const samplesPerBar = Math.max(1, Math.floor((secPerBar / totalAudioDuration) * channelData.length));
-      const stepStride = Math.max(1, Math.floor(samplesPerBar / 80));
-
-      const rawMaxVals: number[] = [];
-      let globalWindowMaxPeak = 0;
-
+      const samplesPerBar = Math.floor(channelData.length / totalBars);
       for (let i = 0; i < totalBars; i++) {
-        // Compute bar timestamp relative to audio start
-        const barTimeSec = (clipOffset || 0) + i * secPerBar;
-        // Modulo wrap around totalAudioDuration for seamless infinite looping across timeline
-        const loopedTimeSec = totalAudioDuration > 0 ? (barTimeSec % totalAudioDuration) : 0;
-        const safeRatio = Math.min(0.9999, Math.max(0, loopedTimeSec / totalAudioDuration));
-        const startSample = Math.floor(safeRatio * channelData.length);
-        const endSample = Math.min(channelData.length, startSample + samplesPerBar);
-
+        const start = i * samplesPerBar;
+        const end = Math.min(channelData.length, start + samplesPerBar);
         let maxVal = 0;
-        for (let j = startSample; j < endSample; j += stepStride) {
+        let sumSq = 0;
+        let count = 0;
+        for (let j = start; j < end; j += 2) {
           const val = channelData[j];
-          if (val !== undefined) {
-            const absVal = Math.abs(val);
-            if (absVal > maxVal) maxVal = absVal;
-          }
+          const absVal = Math.abs(val);
+          if (absVal > maxVal) maxVal = absVal;
+          sumSq += val * val;
+          count++;
         }
-
-        rawMaxVals.push(maxVal);
-        if (maxVal > globalWindowMaxPeak) {
-          globalWindowMaxPeak = maxVal;
-        }
-      }
-
-      // Dynamic Auto-Gain Normalization Factor
-      // Normalize audio track so waveform fills canvas height cleanly
-      const normScale = globalWindowMaxPeak > 0.005 ? Math.min(12.0, 0.88 / globalWindowMaxPeak) : 1.0;
-
-      for (let i = 0; i < totalBars; i++) {
-        const rawM = rawMaxVals[i];
-        const scaledPeak = Math.min(1.0, rawM * normScale * volFactor);
-        // Ensure a solid continuous visible floor (~0.18) so there are no empty breaks or gaps
-        const displayPeak = Math.max(0.18, scaledPeak);
-        peaks.push(displayPeak);
+        const rms = count > 0 ? Math.sqrt(sumSq / count) : 0;
+        peaks.push(Math.min(1.0, maxVal * volFactor));
+        // Silence condition: RMS energy below noise floor or peak negligible
+        isSilenceFlags.push(rms < rmsThreshold || maxVal < 0.02);
       }
     } else {
-      const totalAudioDuration = mediaDuration || 60;
-      const activeClipDuration = clipDuration > 0 ? clipDuration : totalAudioDuration;
-      const secPerBar = activeClipDuration / totalBars;
-      const rawPeaks = generateWaveformPeaks(`${clipId}-${url || 'audio'}`, Math.max(totalBars, 200));
-
+      const rawPeaks = generateWaveformPeaks(`${clipId}-${url || 'audio'}`, totalBars);
       for (let i = 0; i < totalBars; i++) {
-        const barTimeSec = (clipOffset || 0) + i * secPerBar;
-        const loopedTimeSec = totalAudioDuration > 0 ? (barTimeSec % totalAudioDuration) : 0;
-        const loopRatio = Math.min(0.9999, Math.max(0, loopedTimeSec / totalAudioDuration));
-        const peakIdx = Math.floor(loopRatio * rawPeaks.length) % rawPeaks.length;
-        const p = rawPeaks[peakIdx] || 0.4;
-        peaks.push(Math.min(1.0, Math.max(0.18, p * volFactor)));
+        const p = rawPeaks[i];
+        peaks.push(Math.min(1.0, p * volFactor));
+        isSilenceFlags.push(p < 0.15);
       }
     }
 
@@ -249,6 +208,44 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       }
     }
 
+    // 3. Draw Background Highlight Bands & Text Guides for Silence Regions
+    if (showSilenceHighlights) {
+      let silenceStartBar: number | null = null;
+      for (let i = 0; i <= totalBars; i++) {
+        const isSil = i < totalBars ? isSilenceFlags[i] : false;
+        if (isSil && silenceStartBar === null) {
+          silenceStartBar = i;
+        } else if (!isSil && silenceStartBar !== null) {
+          const silenceEndBar = i;
+          const xStart = silenceStartBar * (barWidth + gap);
+          const xWidth = (silenceEndBar - silenceStartBar) * (barWidth + gap) - gap;
+
+          if (xWidth >= 4) {
+            // Draw soft Amber translucent glow background
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+            ctx.fillRect(xStart, 0, xWidth, renderHeight);
+
+            // Top and bottom accent border lines marking the silence window
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.5)';
+            ctx.fillRect(xStart, 0, xWidth, 1.5);
+            ctx.fillRect(xStart, renderHeight - 1.5, xWidth, 1.5);
+
+            // Render crisp "PAUSE" text node placement guide label if silence region is wide enough
+            if (xWidth >= 24 && renderHeight >= 28) {
+              ctx.save();
+              ctx.font = '700 8px Inter, system-ui, sans-serif';
+              ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'top';
+              ctx.fillText('PAUSE', xStart + xWidth / 2, 2);
+              ctx.restore();
+            }
+          }
+          silenceStartBar = null;
+        }
+      }
+    }
+
     // 4. Center Baseline Reference Line
     const centerY = renderHeight / 2;
     ctx.strokeStyle = isSelected ? 'rgba(216, 180, 254, 0.5)' : 'rgba(168, 85, 247, 0.3)';
@@ -258,10 +255,10 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     ctx.lineTo(renderWidth, centerY);
     ctx.stroke();
 
-    // 5. Solid Uniform Waveform Bar Gradient Across Full Track
+    // 5. Speech vs Silence Waveform Bar Gradients
     const speechGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
     if (overlayMode) {
-      // Vibrant Cyan/Teal for Video Audio Overlays
+      // Vibrant Cyan/Teal/Emerald for Video Overlays
       if (isSelected) {
         speechGradient.addColorStop(0, '#e0f2fe');
         speechGradient.addColorStop(0.5, '#38bdf8');
@@ -279,23 +276,36 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
         speechGradient.addColorStop(1, '#c084fc');
       } else {
         speechGradient.addColorStop(0, '#e9d5ff');
-        speechGradient.addColorStop(0.5, 'rgba(192, 132, 252, 0.95)');
-        speechGradient.addColorStop(1, 'rgba(168, 85, 247, 0.75)');
+        speechGradient.addColorStop(0.5, 'rgba(192, 132, 252, 0.9)');
+        speechGradient.addColorStop(1, 'rgba(168, 85, 247, 0.7)');
       }
+    }
+
+    // Silence: High-Contrast Amber / Gold / Orange Highlight
+    const silenceGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
+    if (isSelected) {
+      silenceGradient.addColorStop(0, '#fffbeb');
+      silenceGradient.addColorStop(0.5, '#fde68a');
+      silenceGradient.addColorStop(1, '#f59e0b');
+    } else {
+      silenceGradient.addColorStop(0, '#fef3c7');
+      silenceGradient.addColorStop(0.5, 'rgba(251, 191, 36, 0.9)');
+      silenceGradient.addColorStop(1, 'rgba(217, 119, 6, 0.8)');
     }
 
     const maxAmplitude = (renderHeight / 2) * 0.88;
 
-    // 6. Draw Unbroken Waveform Bars Across Full Clip Width
+    // 6. Draw Main Waveform Bars & Beat Transient Markers
     for (let i = 0; i < totalBars; i++) {
-      const x = i * stepX;
-      const amp = Math.max(0.18, peaks[i] || 0.18);
+      const x = i * (barWidth + gap);
+      const isSil = isSilenceFlags[i];
+      const amp = Math.max(0.04, peaks[i] || 0.04);
       const barHeight = amp * maxAmplitude;
 
       const topY = centerY - barHeight;
       const h = barHeight * 2;
 
-      ctx.fillStyle = speechGradient;
+      ctx.fillStyle = (showSilenceHighlights && isSil) ? silenceGradient : speechGradient;
 
       ctx.beginPath();
       if (typeof ctx.roundRect === 'function') {
@@ -307,7 +317,7 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
 
       // 6.5 Beat / Transient Spike Dot Indicator
       const prevPeak = i > 0 ? peaks[i - 1] : 0;
-      const isBeatTransient = showBeatMarkers && amp > 0.42 && (amp > prevPeak * 1.2 + 0.08);
+      const isBeatTransient = showBeatMarkers && !isSil && amp > 0.42 && (amp > prevPeak * 1.2 + 0.08);
       if (isBeatTransient && renderHeight >= 20) {
         ctx.save();
         ctx.fillStyle = overlayMode ? '#fbbf24' : '#22d3ee';

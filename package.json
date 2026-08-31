@@ -1,7 +1,7 @@
 {
   "name": "cutecut-pro",
   "private": true,
-  "version": "2.3.6",
+  "version": "2.3.7",
   "license": "MIT",
   "description": "CUTECUT PRO Professional Video Editor Suite",
   "homepage": "https://github.com",
@@ -17,6 +17,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "tsc --noEmit",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
     "electron:pack": "npm run build && electron-packager . CUTECUT-PRO --out=dist-desktop --overwrite --asar",
@@ -24,8 +25,7 @@
     "pack:linux": "npm run build && electron-packager . CUTECUT-PRO --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
     "pack:mac": "npm run build && electron-packager . CUTECUT-PRO --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri": "tauri"
+    "tauri:build": "tauri build"
   },
   "build": {
     "appId": "com.guldastaislamorquran.cutecutpro",

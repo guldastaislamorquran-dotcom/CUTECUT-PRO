@@ -15,7 +15,7 @@ import ExportModal, { ExportConfig } from './components/ExportModal';
 import LandingPortal from './components/LandingPortal';
 import { MobileCapCutLayout } from './components/MobileCapCutLayout';
 import { AdMobService } from './utils/admobService';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, getTajweedPhoneticWeight } from './utils/editorUtils';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, inspectQuranAyahAlignment, generateAutoFixQuranTextClips, getTajweedPhoneticWeight } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -1217,7 +1217,7 @@ export default function App() {
   };
 
   // Quran Intro Mode: 'both' (⭐ Ta'awwuz + Bismillah) | 'taawwuz-only' | 'bismillah-only' | 'none'
-  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('both');
+  const [quranIntroMode, setQuranIntroMode] = useState<'both' | 'taawwuz-only' | 'bismillah-only' | 'none'>('none');
 
   // Quran Breath & Waqf Segmentation Mode: 'full-ayah' (Full Ayah Display) | 'split-breaths' (Split Breath Phrases)
   const [quranBreathSegmentationMode, setQuranBreathSegmentationMode] = useState<'full-ayah' | 'split-breaths'>('split-breaths');
@@ -2541,58 +2541,64 @@ export default function App() {
       ? clipData.id
       : `clip-${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${Math.floor(Math.random() * 100000)}`;
 
-    const newClip: Clip = {
-      id: uniqueClipId,
-      name: clipData.name || 'Untitled Clip',
-      type: targetType,
-      trackId: '',
-      start: clipData.start !== undefined ? clipData.start : currentTime,
-      duration: clipData.duration || 5,
-      sourceStart: clipData.sourceStart || 0,
-      sourceDuration: clipData.sourceDuration || 5,
-      playbackRate: clipData.playbackRate || 1.0,
-      volume: clipData.volume || 1.0,
-      url: clipData.url,
-      text: clipData.text,
-      fontSize: clipData.fontSize,
-      color: clipData.color,
-      fontFamily: clipData.fontFamily,
-      textStyle: clipData.textStyle,
-      textX: clipData.textX,
-      textY: clipData.textY,
-      textWrap: clipData.textWrap,
-      textMaxWidth: clipData.textMaxWidth,
-      textLineHeight: clipData.textLineHeight,
-      textAlignment: clipData.textAlignment,
-      filters: clipData.filters
-    };
+    setTracks(prevTracks => {
+      let existingTrack = prevTracks.find(t => t.type === targetType);
+      const trackId = existingTrack ? existingTrack.id : `track-${targetType}-${Date.now()}`;
 
-    setTracks(prev => {
-      let existingTrack = prev.find(t => t.type === targetType);
+      const newClip: Clip = {
+        id: uniqueClipId,
+        name: clipData.name || (targetType === ClipType.VIDEO ? (clipData.url?.includes('data:image') || clipData.url?.match(/\.(png|jpg|jpeg|webp)/i) ? 'Image Clip' : 'Video Clip') : targetType === ClipType.AUDIO ? 'Audio Track' : 'Text Overlay'),
+        type: targetType,
+        trackId: trackId,
+        start: clipData.start !== undefined ? clipData.start : (currentTime || 0),
+        duration: clipData.duration || 5,
+        sourceStart: clipData.sourceStart || 0,
+        sourceDuration: clipData.sourceDuration || (clipData.duration || 5),
+        playbackRate: clipData.playbackRate || 1.0,
+        volume: clipData.volume || 1.0,
+        url: clipData.url,
+        text: clipData.text,
+        fontSize: clipData.fontSize,
+        color: clipData.color,
+        fontFamily: clipData.fontFamily,
+        textStyle: clipData.textStyle,
+        textX: clipData.textX,
+        textY: clipData.textY,
+        textWrap: clipData.textWrap,
+        textMaxWidth: clipData.textMaxWidth,
+        textLineHeight: clipData.textLineHeight,
+        textAlignment: clipData.textAlignment,
+        filters: clipData.filters
+      };
+
       if (!existingTrack) {
-        const trackId = `track-${targetType.toLowerCase()}-${Date.now()}`;
-        const count = prev.filter(t => t.type === targetType).length + 1;
-        const newTrackName = `${targetType.toUpperCase()} Track ${count}`;
-        existingTrack = {
+        const trackCountOfType = prevTracks.filter(t => t.type === targetType).length + 1;
+        const trackName = targetType === ClipType.VIDEO 
+          ? `Video Track ${trackCountOfType}` 
+          : targetType === ClipType.AUDIO 
+          ? `Audio Track ${trackCountOfType}` 
+          : targetType === ClipType.TEXT 
+          ? `Text Track ${trackCountOfType}` 
+          : `${targetType.toUpperCase()} Track`;
+
+        const newTrack: Track = {
           id: trackId,
-          name: newTrackName,
+          name: trackName,
           type: targetType,
-          clips: []
+          clips: [newClip]
         };
-        const clipWithTrack = { ...newClip, trackId };
-        return [...prev, { ...existingTrack, clips: [clipWithTrack] }];
-      } else {
-        return prev.map(t => {
-          if (t.id === existingTrack!.id) {
-            const clipWithTrack = { ...newClip, trackId: t.id };
-            return {
-              ...t,
-              clips: [...t.clips, clipWithTrack].sort((a, b) => a.start - b.start)
-            };
-          }
-          return t;
-        });
+        return [...prevTracks, newTrack];
       }
+
+      return prevTracks.map(t => {
+        if (t.id === existingTrack!.id) {
+          return {
+            ...t,
+            clips: [...t.clips, newClip].sort((a, b) => a.start - b.start)
+          };
+        }
+        return t;
+      });
     });
 
     setSelectedClipId(uniqueClipId);
@@ -2981,6 +2987,36 @@ export default function App() {
       }
       return track;
     }));
+  };
+
+  // ------------------ (C2) QURAN TILAWAT ALIGNMENT DETECTOR & SUBTITLE AUTO-FIXER ------------------
+  const handleAutoFixQuranText = async (params: {
+    surahNumber?: number;
+    startAyahNumber?: number;
+    translationOption?: any;
+    targetClipIds?: string[];
+  }) => {
+    try {
+      const report = inspectQuranAyahAlignment(tracks);
+      const surahToUse = params.surahNumber || report.detectedSurah || 1;
+      const startAyahToUse = params.startAyahNumber || report.detectedStartAyah || 1;
+      const transOptionToUse = params.translationOption || getTranslationOptionById(quranTranslation);
+
+      const { newTracks, fixedCount } = await generateAutoFixQuranTextClips({
+        tracks,
+        surahNumber: surahToUse,
+        startAyahNumber: startAyahToUse,
+        translationOption: transOptionToUse,
+        targetClipIds: params.targetClipIds,
+      });
+
+      if (fixedCount > 0) {
+        setTracks(newTracks);
+      }
+    } catch (err: any) {
+      console.error('handleAutoFixQuranText error:', err);
+      alert(`Quran subtitle auto-fix notice: ${err?.message || 'Could not align text'}`);
+    }
   };
 
   // ------------------ (D) AI AUTO CAPTION PARSER ------------------
@@ -3414,7 +3450,6 @@ export default function App() {
       // Web Audio API VAD RMS Voice Activity Analysis with True Speech Onset & Offset Boundaries
       let acousticSpeechSegments: Array<{ start: number; end: number }> = [];
       let totalAudioDuration = targetClip.duration || 44.0;
-      let decodedAudioData: { pcmData: Float32Array; sampleRate: number } | undefined = undefined;
 
       if (targetClip?.url) {
         try {
@@ -3429,15 +3464,14 @@ export default function App() {
               const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
               const pcmData = audioBuffer.getChannelData(0);
               const sampleRate = audioBuffer.sampleRate;
-              decodedAudioData = { pcmData, sampleRate };
               totalAudioDuration = Math.max(targetClip.duration || 0, audioBuffer.duration || 0);
               audioCtx.close();
 
-              // Analyze RMS voice activity with adaptive thresholding to detect natural breathing pauses (Waqf)
+              // Analyze RMS voice activity with 600ms silence threshold to bridge normal word transitions and detect true breathing pauses (Waqf)
               acousticSpeechSegments = analyzeVoiceActivityRMS(pcmData, sampleRate, {
-                minSilenceMs: 380,
-                minSpeechMs: 280,
-                paddingMs: 80
+                minSilenceMs: 600,
+                minSpeechMs: 650,
+                paddingMs: 60
               });
 
               addLog(`[RMS Voice Analyzer] Extracted ${acousticSpeechSegments.length} natural voice speech segments with breathing pause gaps across ${totalAudioDuration.toFixed(1)}s audio.`, 65);
@@ -3457,17 +3491,15 @@ export default function App() {
         const currentSurah = surahsToProcess[sIdx];
         const isFirstSurah = (sIdx === 0);
         const isNotTawbahThis = currentSurah !== 9;
-        const currentIntroMode = introMode || quranIntroMode || 'both';
-
-        const targetStartAyahNum = parseInt(String(startAyah), 10) || 1;
+        const currentIntroMode = introMode || quranIntroMode || 'none';
 
         // 1. Opening Verse Rules for Multi-Surah & Single Surah:
-        // - First Surah / Single Ayah: Follows selected Intro Mode (e.g. Ta'awwuz + Bismillah, or Bismillah only)
+        // - First Surah: Follows selected Intro Mode (e.g. Ta'awwuz + Bismillah, or Bismillah only)
         // - Subsequent Surahs in the audio: Automatically insert Bismillah (unless Surah At-Tawbah #9)
         if (isFirstSurah) {
-          const isSurah1Ayah1Included = currentSurah === 1 && (targetStartAyahNum === 1 || selectionType !== 'single');
-          const shouldIncludeTaawwuz = isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
-          const shouldIncludeBismillah = isNotTawbahThis && !isSurah1Ayah1Included && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
+          const isStartFromFirstAyah = (selectionType === 'single' ? startAyah === 1 : true);
+          const shouldIncludeTaawwuz = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'taawwuz-only');
+          const shouldIncludeBismillah = isStartFromFirstAyah && isNotTawbahThis && (currentIntroMode === 'both' || currentIntroMode === 'bismillah-only');
 
           if (shouldIncludeTaawwuz) {
             allRawVerses.push({
@@ -3584,13 +3616,9 @@ export default function App() {
 
         if (sIdx === 0 && selectionType === 'single') {
           surahVerses = surahVerses.filter(v => {
-            if (v.isTaawwuz || v.isTasmiyah || v.verse_key === 'aux' || v.verse_key === 'bis' || v.verse_key?.includes(':0:')) {
-              return false; // Exclude intro headers when searching for target Ayah
-            }
-            const parts = (v.verse_key || '').split(':');
-            if (parts.length < 2) return false;
-            const ayahNum = parseInt(parts[1], 10);
-            return ayahNum === targetStartAyahNum;
+            const parts = v.verse_key.split(':');
+            const ayahNum = parseInt(parts[1]) || 1;
+            return ayahNum === startAyah;
           });
         }
 
@@ -3599,23 +3627,6 @@ export default function App() {
 
         allRawVerses.push(...surahVerses);
       }
-
-      // Deduplicate consecutive Bismillah header entries (e.g. 1:0:bismillah followed by another header) without touching real Ayahs
-      const cleanRawVerses: typeof allRawVerses = [];
-      for (let i = 0; i < allRawVerses.length; i++) {
-        const item = allRawVerses[i];
-        const isHeaderBis = item.isTasmiyah || item.verse_key?.endsWith(':0:bismillah') || item.verse_key === 'bis';
-        if (isHeaderBis && cleanRawVerses.length > 0) {
-          const prev = cleanRawVerses[cleanRawVerses.length - 1];
-          const prevIsHeaderBis = prev.isTasmiyah || prev.verse_key?.endsWith(':0:bismillah') || prev.verse_key === 'bis';
-          if (prevIsHeaderBis) {
-            continue; // Skip redundant Bismillah header
-          }
-        }
-        cleanRawVerses.push(item);
-      }
-      allRawVerses.length = 0;
-      allRawVerses.push(...cleanRawVerses);
 
       // TRUE FULL-DURATION ACOUSTIC SILENCE & BREATHING GAP TIMELINE ENGINE
       // Guarantees all segments are distributed across the FULL length of the audio up to the very last point
@@ -3635,24 +3646,6 @@ export default function App() {
         return Math.max(8, tajweedScore * 1.4 + fullAr.length * 0.4 + enLen * 0.2);
       });
       const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
-
-      // Validate acoustic speech segments quality & coverage span
-      const firstAcousticStart = acousticSpeechSegments.length > 0 ? acousticSpeechSegments[0].start : 0;
-      const lastAcousticEndRaw = acousticSpeechSegments.length > 0 ? acousticSpeechSegments[acousticSpeechSegments.length - 1].end : 0;
-      const acousticSpan = lastAcousticEndRaw - firstAcousticStart;
-
-      // If VAD segments cover less than 35% of total audio duration OR start after 30% into the audio (when audio > 8s), VAD is partial
-      const isVadValid = acousticSpeechSegments.length >= 1 && (
-        totalAudioDuration <= 8.0 || (
-          acousticSpan >= totalAudioDuration * 0.35 &&
-          firstAcousticStart <= totalAudioDuration * 0.30
-        )
-      );
-
-      if (!isVadValid && acousticSpeechSegments.length > 0) {
-        addLog(`[VAD Engine] Detected partial acoustic segments (${acousticSpan.toFixed(1)}s span). Utilizing full-duration timeline synthesizer...`, 68);
-        acousticSpeechSegments = [];
-      }
 
       // Determine speech onset and end target spanning the full audio duration
       const speechOnset = acousticSpeechSegments.length > 0
@@ -3699,33 +3692,18 @@ export default function App() {
             );
           }
 
-          if (segs.length > 1) {
-            // Long Ayah read in multiple breaths: create clips for each breath segment so silence gaps are respected
-            segs.forEach((s, sIdx) => {
-              const subKey = `${singleVerse.verse_key} [${sIdx + 1}/${segs.length}]`;
-              subtitles.push({
-                verse_key: subKey,
-                text_arabic: arText,
-                text_english: singleVerse.text_english || '',
-                start: Number(s.start.toFixed(2)),
-                end: Number(Math.max(s.start + 0.8, s.end).toFixed(2)),
-                isTaawwuz: singleVerse.isTaawwuz,
-                isTasmiyah: singleVerse.isTasmiyah
-              });
-            });
-          } else {
-            const vStart = Number(segs[0].start.toFixed(2));
-            const vEnd = Number(segs[0].end.toFixed(2));
-            subtitles.push({
-              verse_key: singleVerse.verse_key,
-              text_arabic: arText,
-              text_english: singleVerse.text_english || '',
-              start: vStart,
-              end: Math.max(vStart + 0.8, vEnd),
-              isTaawwuz: singleVerse.isTaawwuz,
-              isTasmiyah: singleVerse.isTasmiyah
-            });
-          }
+          const vStart = Number(segs[0].start.toFixed(2));
+          const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+
+          subtitles.push({
+            verse_key: singleVerse.verse_key,
+            text_arabic: arText,
+            text_english: singleVerse.text_english || '',
+            start: vStart,
+            end: Math.max(vStart + 0.8, vEnd),
+            isTaawwuz: singleVerse.isTaawwuz,
+            isTasmiyah: singleVerse.isTasmiyah
+          });
         }
       } else {
         // Multi-verse distribution:
@@ -3738,7 +3716,7 @@ export default function App() {
         const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
 
         if (acousticSpeechSegments.length >= 1) {
-          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights, decodedAudioData);
+          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights);
           
           for (let i = 0; i < totalVerses; i++) {
             const verse = allRawVerses[i];
@@ -3769,33 +3747,19 @@ export default function App() {
               );
               subtitles.push(...multiSubs);
             } else {
-              if (segs.length > 1) {
-                // Long Ayah read in multiple breaths: create clips for each breath segment so silence gaps are respected
-                segs.forEach((s, sIdx) => {
-                  const subKey = `${verse.verse_key} [${sIdx + 1}/${segs.length}]`;
-                  subtitles.push({
-                    verse_key: subKey,
-                    text_arabic: arText,
-                    text_english: verse.text_english || '',
-                    start: Number(s.start.toFixed(2)),
-                    end: Number(Math.max(s.start + 0.8, s.end).toFixed(2)),
-                    isTaawwuz: verse.isTaawwuz,
-                    isTasmiyah: verse.isTasmiyah
-                  });
-                });
-              } else {
-                const vStart = Number(segs[0].start.toFixed(2));
-                const vEnd = Number(segs[0].end.toFixed(2));
-                subtitles.push({
-                  verse_key: verse.verse_key,
-                  text_arabic: arText,
-                  text_english: verse.text_english || '',
-                  start: vStart,
-                  end: Math.max(vStart + 0.8, vEnd),
-                  isTaawwuz: verse.isTaawwuz,
-                  isTasmiyah: verse.isTasmiyah
-                });
-              }
+              // Keep the complete Ayah intact across all internal breaths (Option 1 - Full Ayah Display)
+              const vStart = Number(segs[0].start.toFixed(2));
+              const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
+
+              subtitles.push({
+                verse_key: verse.verse_key,
+                text_arabic: arText,
+                text_english: verse.text_english || '',
+                start: vStart,
+                end: Math.max(vStart + 0.8, vEnd),
+                isTaawwuz: verse.isTaawwuz,
+                isTasmiyah: verse.isTasmiyah
+              });
             }
           }
         } else {
@@ -4755,38 +4719,14 @@ export default function App() {
 
   if (currentView === 'portal') {
     return (
-      <>
-        <LandingPortal
-          user={currentUser}
-          onOpenEditor={() => setCurrentView('editor')}
-          onOpenAuth={() => setShowAuthModal(true)}
-          onOpenProjectModal={() => setShowSaveModal(true)}
-          onLoadTemplate={handleLoadTemplate}
-          recentProjects={[]}
-        />
-        {/* Auth Modal */}
-        <AuthModal
-          isOpen={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
-          user={currentUser}
-          onLogin={handleLoginUser}
-          onLogout={handleLogoutUser}
-        />
-        {/* Project Save & Style Presets Modal */}
-        <ProjectSaveModal
-          isOpen={showSaveModal}
-          onClose={() => setShowSaveModal(false)}
-          currentTracks={tracks}
-          currentDuration={duration}
-          currentZoom={zoom}
-          currentAspectRatio={aspectRatio}
-          watermark={watermark}
-          userProfile={currentUser}
-          selectedClip={getSelectedClip()}
-          onLoadProject={handleLoadSavedProject}
-          onApplyStylePreset={handleApplyStylePreset}
-        />
-      </>
+      <LandingPortal
+        user={currentUser}
+        onOpenEditor={() => setCurrentView('editor')}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenProjectModal={() => setShowSaveModal(true)}
+        onLoadTemplate={handleLoadTemplate}
+        recentProjects={[]}
+      />
     );
   }
 
@@ -4881,6 +4821,7 @@ export default function App() {
               onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
               onAutoRemoveSilence={handleAutoRemoveSilence}
               onAutoSegmentRhythm={handleAutoSegmentRhythm}
+              onAutoFixQuranText={handleAutoFixQuranText}
             />
           )}
           renderMediaPanel={() => (
@@ -5038,7 +4979,7 @@ export default function App() {
   }
 
   return (
-    <div id="video-editor-workspace" className="h-screen bg-[#060608] text-gray-200 flex flex-col font-sans overflow-hidden">
+    <div id="video-editor-workspace" className="h-screen bg-[#0e0e11] text-gray-200 flex flex-col font-sans overflow-hidden">
       
       {/* Top Header */}
       <header className="h-14 bg-[#121217] border-b border-[#242430] flex items-center justify-between px-5 z-10 select-none shadow-md">
@@ -5345,160 +5286,162 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main split dashboard panel */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main split dashboard panel with CapCut-style modular layout gaps */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#0c0c10] p-1.5 gap-1.5 min-h-0">
         
-        {/* Media Side-Panel */}
-        <MediaPanel
-          onAddClip={addNewClip}
-          selectedAspectRatio={aspectRatio}
-          tracks={tracks}
-          onAlignQuran={handleAlignQuran}
-          aligningStatus={aligningStatus}
-          quranArabicFont={quranArabicFont}
-          setQuranArabicFont={setQuranArabicFont}
-          quranArabicSize={quranArabicSize}
-          setQuranArabicSize={setQuranArabicSize}
-          quranArabicColor={quranArabicColor}
-          setQuranArabicColor={setQuranArabicColor}
-          quranArabicStyle={quranArabicStyle}
-          setQuranArabicStyle={setQuranArabicStyle}
-          quranArabicY={quranArabicY}
-          setQuranArabicY={setQuranArabicY}
-          quranArabicWrap={quranArabicWrap}
-          setQuranArabicWrap={setQuranArabicWrap}
-          quranArabicMaxWidth={quranArabicMaxWidth}
-          setQuranArabicMaxWidth={setQuranArabicMaxWidth}
-          quranArabicLineHeight={quranArabicLineHeight}
-          setQuranArabicLineHeight={setQuranArabicLineHeight}
-          quranArabicAlign={quranArabicAlign}
-          setQuranArabicAlign={setQuranArabicAlign}
-          quranAyahSymbolStyle={quranAyahSymbolStyle}
-          setQuranAyahSymbolStyle={setQuranAyahSymbolStyle}
-          quranAyahDigitType={quranAyahDigitType}
-          setQuranAyahDigitType={setQuranAyahDigitType}
-          quranAyahSymbolPosition={quranAyahSymbolPosition}
-          setQuranAyahSymbolPosition={setQuranAyahSymbolPosition}
-          quranShowAyahSymbol={quranShowAyahSymbol}
-          setQuranShowAyahSymbol={setQuranShowAyahSymbol}
-          quranEnglishFont={quranEnglishFont}
-          setQuranEnglishFont={setQuranEnglishFont}
-          quranEnglishSize={quranEnglishSize}
-          setQuranEnglishSize={setQuranEnglishSize}
-          quranEnglishColor={quranEnglishColor}
-          setQuranEnglishColor={setQuranEnglishColor}
-          quranEnglishStyle={quranEnglishStyle}
-          setQuranEnglishStyle={setQuranEnglishStyle}
-          quranEnglishY={quranEnglishY}
-          setQuranEnglishY={setQuranEnglishY}
-          quranEnglishUppercase={quranEnglishUppercase}
-          setQuranEnglishUppercase={setQuranEnglishUppercase}
-          quranEnglishWrap={quranEnglishWrap}
-          setQuranEnglishWrap={setQuranEnglishWrap}
-          quranEnglishMaxWidth={quranEnglishMaxWidth}
-          setQuranEnglishMaxWidth={setQuranEnglishMaxWidth}
-          quranEnglishLineHeight={quranEnglishLineHeight}
-          setQuranEnglishLineHeight={setQuranEnglishLineHeight}
-          quranEnglishAlign={quranEnglishAlign}
-          setQuranEnglishAlign={setQuranEnglishAlign}
-          quranTranslation={quranTranslation}
-          setQuranTranslation={setQuranTranslation}
-          quranIntroMode={quranIntroMode}
-          setQuranIntroMode={setQuranIntroMode}
-          quranBreathSegmentationMode={quranBreathSegmentationMode}
-          setQuranBreathSegmentationMode={setQuranBreathSegmentationMode}
-          onReplaceBismillahWithTabarakallazi={handleReplaceBismillahWithTabarakallazi}
-          onApplyTranslationToTimeline={handleApplyTranslationToTimeline}
-          onApplyQuranStyles={applyQuranStylesToTimeline}
-          onApplyGlobalFontSize={handleApplyGlobalFontSize}
-          onApplyGlobalTextCase={handleApplyGlobalTextCase}
-          onOpenAISegmentation={() => setShowAISegmentationModal(true)}
-          watermark={watermark}
-          setWatermark={setWatermark}
-          width={mediaPanelWidth}
-          selectedClip={getSelectedClip()}
-          onUpdateClip={(clipId, updates) => updateClipProperties(clipId, updates)}
-          onAutoSegmentAudio={handleAutoSegmentAudio}
-          onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
-          onAutoRemoveSilence={handleAutoRemoveSilence}
-          onAutoSegmentRhythm={handleAutoSegmentRhythm}
-          onReplaceVideoTrackClips={handleReplaceVideoTrackClips}
-          currentTime={currentTime}
-        />
-
-        {/* Media Side-Panel Splitter Bar */}
-        <div
-          id="splitter-media"
-          className="w-1 bg-[#060608] hover:bg-cyan-500/30 cursor-col-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
-          onMouseDown={(e) => startResizing(e, 'media')}
-          title="Drag to resize Media Panel"
-        >
-          <div className="absolute inset-y-0 left-0 right-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
-        </div>
-
-        {/* Live center frame / Canvas Viewport */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <PreviewPlayer
+        {/* Top 3 Modular Panels (Media + Splitter + Player + Splitter + Inspector) */}
+        <div className="flex-1 flex overflow-hidden min-h-0 gap-1.5">
+          {/* Media Side-Panel */}
+          <MediaPanel
+            onAddClip={addNewClip}
+            selectedAspectRatio={aspectRatio}
             tracks={tracks}
-            currentTime={currentTime}
-            duration={duration}
-            isPlaying={isPlaying}
-            aspectRatio={aspectRatio}
+            onAlignQuran={handleAlignQuran}
+            aligningStatus={aligningStatus}
+            quranArabicFont={quranArabicFont}
+            setQuranArabicFont={setQuranArabicFont}
+            quranArabicSize={quranArabicSize}
+            setQuranArabicSize={setQuranArabicSize}
+            quranArabicColor={quranArabicColor}
+            setQuranArabicColor={setQuranArabicColor}
+            quranArabicStyle={quranArabicStyle}
+            setQuranArabicStyle={setQuranArabicStyle}
+            quranArabicY={quranArabicY}
+            setQuranArabicY={setQuranArabicY}
+            quranArabicWrap={quranArabicWrap}
+            setQuranArabicWrap={setQuranArabicWrap}
+            quranArabicMaxWidth={quranArabicMaxWidth}
+            setQuranArabicMaxWidth={setQuranArabicMaxWidth}
+            quranArabicLineHeight={quranArabicLineHeight}
+            setQuranArabicLineHeight={setQuranArabicLineHeight}
+            quranArabicAlign={quranArabicAlign}
+            setQuranArabicAlign={setQuranArabicAlign}
+            quranAyahSymbolStyle={quranAyahSymbolStyle}
+            setQuranAyahSymbolStyle={setQuranAyahSymbolStyle}
+            quranAyahDigitType={quranAyahDigitType}
+            setQuranAyahDigitType={setQuranAyahDigitType}
+            quranAyahSymbolPosition={quranAyahSymbolPosition}
+            setQuranAyahSymbolPosition={setQuranAyahSymbolPosition}
+            quranShowAyahSymbol={quranShowAyahSymbol}
+            setQuranShowAyahSymbol={setQuranShowAyahSymbol}
+            quranEnglishFont={quranEnglishFont}
+            setQuranEnglishFont={setQuranEnglishFont}
+            quranEnglishSize={quranEnglishSize}
+            setQuranEnglishSize={setQuranEnglishSize}
+            quranEnglishColor={quranEnglishColor}
+            setQuranEnglishColor={setQuranEnglishColor}
+            quranEnglishStyle={quranEnglishStyle}
+            setQuranEnglishStyle={setQuranEnglishStyle}
+            quranEnglishY={quranEnglishY}
+            setQuranEnglishY={setQuranEnglishY}
+            quranEnglishUppercase={quranEnglishUppercase}
+            setQuranEnglishUppercase={setQuranEnglishUppercase}
+            quranEnglishWrap={quranEnglishWrap}
+            setQuranEnglishWrap={setQuranEnglishWrap}
+            quranEnglishMaxWidth={quranEnglishMaxWidth}
+            setQuranEnglishMaxWidth={setQuranEnglishMaxWidth}
+            quranEnglishLineHeight={quranEnglishLineHeight}
+            setQuranEnglishLineHeight={setQuranEnglishLineHeight}
+            quranEnglishAlign={quranEnglishAlign}
+            setQuranEnglishAlign={setQuranEnglishAlign}
+            quranTranslation={quranTranslation}
+            setQuranTranslation={setQuranTranslation}
+            quranIntroMode={quranIntroMode}
+            setQuranIntroMode={setQuranIntroMode}
+            quranBreathSegmentationMode={quranBreathSegmentationMode}
+            setQuranBreathSegmentationMode={setQuranBreathSegmentationMode}
+            onReplaceBismillahWithTabarakallazi={handleReplaceBismillahWithTabarakallazi}
+            onApplyTranslationToTimeline={handleApplyTranslationToTimeline}
+            onApplyQuranStyles={applyQuranStylesToTimeline}
+            onApplyGlobalFontSize={handleApplyGlobalFontSize}
+            onApplyGlobalTextCase={handleApplyGlobalTextCase}
+            onOpenAISegmentation={() => setShowAISegmentationModal(true)}
             watermark={watermark}
-            isExporting={exporting}
-            exportResolution={exportResolution}
-            onCanvasReady={handleCanvasReady}
-            onPlayPause={togglePlayPause}
-            onSeek={setCurrentTime}
-            onSetAspectRatio={setAspectRatio}
-            videoNodes={videoElementsRef.current}
+            setWatermark={setWatermark}
+            width={mediaPanelWidth}
+            selectedClip={getSelectedClip()}
+            onUpdateClip={(clipId, updates) => updateClipProperties(clipId, updates)}
+            onAutoSegmentAudio={handleAutoSegmentAudio}
+            onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
+            onAutoRemoveSilence={handleAutoRemoveSilence}
+            onAutoSegmentRhythm={handleAutoSegmentRhythm}
+            onReplaceVideoTrackClips={handleReplaceVideoTrackClips}
+            currentTime={currentTime}
+          />
+
+          {/* Media Side-Panel Splitter Handle */}
+          <div
+            id="splitter-media"
+            className="w-1.5 hover:w-2 bg-[#1b1b24] hover:bg-cyan-500/60 rounded-full cursor-col-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group flex items-center justify-center my-1 shadow-sm"
+            onMouseDown={(e) => startResizing(e, 'media')}
+            title="Drag to resize Media Panel"
+          >
+            <div className="w-0.5 h-6 bg-gray-600 group-hover:bg-cyan-300 rounded-full pointer-events-none transition" />
+          </div>
+
+          {/* Live center frame / Canvas Viewport */}
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0">
+            <PreviewPlayer
+              tracks={tracks}
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={isPlaying}
+              aspectRatio={aspectRatio}
+              watermark={watermark}
+              isExporting={exporting}
+              exportResolution={exportResolution}
+              onCanvasReady={handleCanvasReady}
+              onPlayPause={togglePlayPause}
+              onSeek={setCurrentTime}
+              onSetAspectRatio={setAspectRatio}
+              videoNodes={videoElementsRef.current}
+              selectedClip={getSelectedClip()}
+              selectedClipIds={selectedClipIds}
+              onSelectClip={(clip) => setSelectedClipId(clip ? clip.id : null)}
+              onSelectClips={setSelectedClipIds}
+              onUpdateClip={updateClipProperties}
+              onBatchUpdateClips={batchUpdateClipProperties}
+            />
+          </div>
+
+          {/* Center-Inspector Splitter Handle */}
+          <div
+            id="splitter-inspector"
+            className="w-1.5 hover:w-2 bg-[#1b1b24] hover:bg-cyan-500/60 rounded-full cursor-col-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group flex items-center justify-center my-1 shadow-sm"
+            onMouseDown={(e) => startResizing(e, 'inspector')}
+            title="Drag to resize Inspector Panel"
+          >
+            <div className="w-0.5 h-6 bg-gray-600 group-hover:bg-cyan-300 rounded-full pointer-events-none transition" />
+          </div>
+
+          {/* Right context Inspector panel */}
+          <Inspector
             selectedClip={getSelectedClip()}
             selectedClipIds={selectedClipIds}
-            onSelectClip={(clip) => setSelectedClipId(clip ? clip.id : null)}
-            onSelectClips={setSelectedClipIds}
+            tracks={tracks}
             onUpdateClip={updateClipProperties}
             onBatchUpdateClips={batchUpdateClipProperties}
+            onGenerateAICaptions={handleGenerateAICaptions}
+            onGenerateTTS={handleGenerateTTS}
+            width={inspectorWidth}
+            currentTime={currentTime}
+            onSeek={setCurrentTime}
+            onMergeClips={mergeSelectedClips}
           />
         </div>
 
-        {/* Center-Inspector Splitter Bar */}
+        {/* Dashboard-Timeline Splitter Handle */}
         <div
-          id="splitter-inspector"
-          className="w-1 bg-[#060608] hover:bg-cyan-500/30 cursor-col-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
-          onMouseDown={(e) => startResizing(e, 'inspector')}
-          title="Drag to resize Inspector Panel"
+          id="splitter-timeline"
+          className="h-1.5 hover:h-2 bg-[#1b1b24] hover:bg-cyan-500/60 rounded-full cursor-row-resize active:bg-cyan-500 z-20 transition-all duration-150 relative flex-shrink-0 select-none group flex items-center justify-center mx-1 shadow-sm"
+          onMouseDown={(e) => startResizing(e, 'timeline')}
+          title="Drag to resize Timeline Height"
         >
-          <div className="absolute inset-y-0 left-0 right-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
+          <div className="h-0.5 w-10 bg-gray-600 group-hover:bg-cyan-300 rounded-full pointer-events-none transition" />
         </div>
 
-        {/* Right context Inspector panel */}
-        <Inspector
-          selectedClip={getSelectedClip()}
-          selectedClipIds={selectedClipIds}
-          tracks={tracks}
-          onUpdateClip={updateClipProperties}
-          onBatchUpdateClips={batchUpdateClipProperties}
-          onGenerateAICaptions={handleGenerateAICaptions}
-          onGenerateTTS={handleGenerateTTS}
-          width={inspectorWidth}
-          currentTime={currentTime}
-          onSeek={setCurrentTime}
-          onMergeClips={mergeSelectedClips}
-        />
-      </div>
-
-      {/* Dashboard-Timeline Splitter Bar */}
-      <div
-        id="splitter-timeline"
-        className="h-1 bg-[#060608] hover:bg-cyan-500/30 cursor-row-resize active:bg-cyan-500/50 z-20 transition-all duration-150 relative flex-shrink-0 select-none group"
-        onMouseDown={(e) => startResizing(e, 'timeline')}
-        title="Drag to resize Timeline Height"
-      >
-        <div className="absolute inset-x-0 top-0 bottom-0 bg-transparent group-hover:bg-cyan-500/30 pointer-events-none transition-colors" />
-      </div>
-
-      {/* Bottom multi-track Timeline panel */}
-      <Timeline
+        {/* Bottom multi-track Timeline panel */}
+        <Timeline
         tracks={tracks}
         currentTime={currentTime}
         duration={duration}
@@ -5544,7 +5487,9 @@ export default function App() {
         onAutoSyncVideoToAyahs={handleAutoSyncVideoToAyahs}
         onAutoRemoveSilence={handleAutoRemoveSilence}
         onAutoSegmentRhythm={handleAutoSegmentRhythm}
+        onAutoFixQuranText={handleAutoFixQuranText}
       />
+      </div>
 
       {/* ------------------ (E) EXPORT MODULE PANEL (MODAL OVERLAY WINDOW) ------------------ */}
       <ExportModal
