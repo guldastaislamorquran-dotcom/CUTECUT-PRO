@@ -1365,7 +1365,17 @@ export default function PreviewPlayer({
         coords.y >= item.top &&
         coords.y <= item.top + item.height
       ) {
-        onSelectClip?.(item.clip);
+        const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+        if (isMulti && onSelectClips) {
+          const currentIds = selectedClipIds && selectedClipIds.length > 0 ? selectedClipIds : (selectedClip ? [selectedClip.id] : []);
+          if (currentIds.includes(item.clip.id)) {
+            onSelectClips(currentIds.filter(id => id !== item.clip.id));
+          } else {
+            onSelectClips([...currentIds, item.clip.id]);
+          }
+        } else {
+          onSelectClip?.(item.clip);
+        }
         setIsDraggingText(true);
         setDragStart(coords);
         setInitialTextPos({

@@ -824,7 +824,7 @@ export interface VoiceActivityAnalysisOptions {
   minSilenceMs?: number;
   minSpeechMs?: number;
   paddingMs?: number;
-  noiseFloorSensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom';
+  noiseFloorSensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf';
   customThresholdDb?: number;
 }
 
@@ -848,6 +848,11 @@ export function analyzeVoiceActivityRMS(
     defaultMinSpeech = 800;  // Capture shorter phrases
     defaultPadding = 100;
     baselineFloorDb = -29;   // Raised from -33 to tolerate background hiss/breathing inhalation noises
+  } else if (sensitivity === 'smart-waqf') {
+    defaultMinSilence = 400; // Natural breaths need at least 400ms pause to count as Waqf breathing points
+    defaultMinSpeech = 600;  // Capture slightly shorter verses or half-verse phrases
+    defaultPadding = 120;    // Spacious Tajweed padding to preserve quiet endings
+    baselineFloorDb = -32;   // Optimized floor for distinguishing natural breath in/out
   } else if (sensitivity === 'tartil') {
     defaultMinSilence = 350; // Slow, measured recitation but responsive to standard pause lengths
     defaultMinSpeech = 1000;
@@ -910,9 +915,20 @@ export function analyzeVoiceActivityRMS(
     ? Math.pow(10, options.customThresholdDb / 20)
     : Math.max(Math.pow(10, baselineFloorDb / 20), noiseFloorRms * 2.2);
 
-  // Guard: if dynamic range is narrow, fallback to relative margin
-  if (peakSpeechRms > noiseFloorRms * 1.5) {
-    computedThreshold = Math.min(computedThreshold, (noiseFloorRms + peakSpeechRms) * 0.28);
+  // If sensitivity is 'smart-waqf', calculate the RMS threshold specifically for Waqf breathing pauses
+  if (sensitivity === 'smart-waqf') {
+    const lowerMidRms = sampleEnergies[Math.floor(sampleEnergies.length * 0.20)] || noiseFloorRms;
+    const higherSpeechRms = sampleEnergies[Math.floor(sampleEnergies.length * 0.75)] || peakSpeechRms;
+    const breathingRmsThreshold = Math.max(
+      Math.pow(10, -32 / 20), // -32dB safety floor
+      lowerMidRms * 1.5 + (higherSpeechRms - lowerMidRms) * 0.12
+    );
+    computedThreshold = breathingRmsThreshold;
+  } else {
+    // Guard: if dynamic range is narrow, fallback to relative margin
+    if (peakSpeechRms > noiseFloorRms * 1.5) {
+      computedThreshold = Math.min(computedThreshold, (noiseFloorRms + peakSpeechRms) * 0.28);
+    }
   }
 
   const frameSpeech = new Array<boolean>(totalFrames);
@@ -1670,13 +1686,15 @@ export interface AutoSegmentAudioOptions {
   labelPrefix?: string;
   keepGaps?: boolean;
   startAyahNumber?: number;
-  gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+  gapHandling?: 'preserve-gaps' | 'bridge-seamless' | 'label-pauses';
   paddingMs?: number;
+  includePauses?: boolean;
 }
 
 /**
  * Auto-Segments an Audio Clip into discrete timeline clips based on detected silence pauses.
- * Supports preserving natural silence gaps (Waqf pauses) on the timeline or bridging seamlessly.
+ * Supports preserving natural silence gaps (Waqf pauses) on the timeline, bridging seamlessly,
+ * or automatically identifying and labeling pause segments as dedicated timeline clips.
  */
 export function autoSegmentAudioClipsBySilence(
   sourceClip: Clip,
@@ -1692,16 +1710,42 @@ export function autoSegmentAudioClipsBySilence(
   const isQuranAudio = /quran|surah|ayah|recitation|tilawat|fatihah|baqarah|mulk|rahman|yaseen/i.test(rawPrefix) || /quran|surah|ayah/i.test(sourceClip.name || '');
   const startNum = options.startAyahNumber || 1;
   const gapHandling = options.gapHandling || (options.keepGaps !== false ? 'preserve-gaps' : 'bridge-seamless');
+  const includePauses = options.includePauses || gapHandling === 'label-pauses';
   const newClips: Clip[] = [];
 
-  speechSegments.forEach((seg, idx) => {
-    const isLast = idx === speechSegments.length - 1;
+  // Ensure speech segments are sorted
+  const sortedSegments = [...speechSegments].sort((a, b) => a.start - b.start);
+
+  let currentPos = 0;
+  let breathCount = 1;
+
+  sortedSegments.forEach((seg, idx) => {
+    const isLast = idx === sortedSegments.length - 1;
     let segStart = seg.start;
     let segEnd = seg.end;
 
+    // 1. Identify and label any preceding pause segment as a 'Waqf Pause'
+    if (includePauses && segStart > currentPos + 0.1) {
+      const pauseDuration = segStart - currentPos;
+      const pauseClipStart = sourceClip.start + currentPos;
+      const pauseSourceStart = (sourceClip.sourceStart || 0) + (currentPos * (sourceClip.playbackRate || 1.0));
+
+      newClips.push({
+        ...sourceClip,
+        id: `clip-audio-pause-${Date.now()}-${idx}-pre-${Math.random().toString(36).substring(2, 7)}`,
+        name: `⏸️ Waqf Pause [Breath ${breathCount++}] (${pauseDuration.toFixed(1)}s)`,
+        start: Number(pauseClipStart.toFixed(2)),
+        duration: Number(pauseDuration.toFixed(2)),
+        sourceStart: Number(pauseSourceStart.toFixed(2)),
+        sourceDuration: Number((pauseDuration * (sourceClip.playbackRate || 1.0)).toFixed(2)),
+        color: '#475569', // Distinct slate color for Waqf pauses
+      });
+    }
+
+    // 2. Perform speech segment scaling and bridging
     if (gapHandling === 'bridge-seamless' && !isLast) {
       // Extend end timestamp up to the start of next speech segment
-      const nextSeg = speechSegments[idx + 1];
+      const nextSeg = sortedSegments[idx + 1];
       if (nextSeg && nextSeg.start > segStart) {
         segEnd = nextSeg.start;
       }
@@ -1731,7 +1775,28 @@ export function autoSegmentAudioClipsBySilence(
       sourceStart: Number(sourceStart.toFixed(2)),
       sourceDuration: Number((segDuration * (sourceClip.playbackRate || 1.0)).toFixed(2)),
     });
+
+    currentPos = segEnd;
   });
+
+  // 3. Identify and label any trailing pause segment
+  const clipTotalDur = sourceClip.duration || 0;
+  if (includePauses && clipTotalDur > currentPos + 0.1) {
+    const pauseDuration = clipTotalDur - currentPos;
+    const pauseClipStart = sourceClip.start + currentPos;
+    const pauseSourceStart = (sourceClip.sourceStart || 0) + (currentPos * (sourceClip.playbackRate || 1.0));
+
+    newClips.push({
+      ...sourceClip,
+      id: `clip-audio-pause-${Date.now()}-post-${Math.random().toString(36).substring(2, 7)}`,
+      name: `⏸️ Waqf Pause [Breath ${breathCount++}] (${pauseDuration.toFixed(1)}s)`,
+      start: Number(pauseClipStart.toFixed(2)),
+      duration: Number(pauseDuration.toFixed(2)),
+      sourceStart: Number(pauseSourceStart.toFixed(2)),
+      sourceDuration: Number((pauseDuration * (sourceClip.playbackRate || 1.0)).toFixed(2)),
+      color: '#475569',
+    });
+  }
 
   return newClips;
 }

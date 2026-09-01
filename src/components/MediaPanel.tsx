@@ -261,13 +261,14 @@ interface MediaPanelProps {
   // Auto-Segmentation & Acoustic Analysis Suite
   onAutoSegmentAudio?: (
     clipId?: string,
-    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom',
+    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf',
     customOptions?: {
       minSilenceMs?: number;
       minSpeechMs?: number;
       startAyahNumber?: number;
-      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless' | 'label-pauses';
       paddingMs?: number;
+      customThresholdDb?: number;
     }
   ) => void;
   onAutoSyncVideoToAyahs?: () => void;
@@ -359,10 +360,10 @@ export default function MediaPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Acoustic Sensitivity State
-  const [audioSensitivity, setAudioSensitivity] = useState<'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom'>('quran-ayah');
+  const [audioSensitivity, setAudioSensitivity] = useState<'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf'>('smart-waqf');
   const [customMinSilenceMs, setCustomMinSilenceMs] = useState(480);
   const [customStartAyah, setCustomStartAyah] = useState(1);
-  const [gapHandlingMode, setGapHandlingMode] = useState<'preserve-gaps' | 'bridge-seamless'>('preserve-gaps');
+  const [gapHandlingMode, setGapHandlingMode] = useState<'preserve-gaps' | 'bridge-seamless' | 'label-pauses'>('label-pauses');
   const [silencePaddingMs, setSilencePaddingMs] = useState(120);
   const [isSegmentingAudio, setIsSegmentingAudio] = useState(false);
   const [isSyncingVideo, setIsSyncingVideo] = useState(false);
@@ -1131,7 +1132,8 @@ export default function MediaPanel({
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-gray-300 font-semibold">Recitation Style & Sensitivity:</span>
                   <span className="text-amber-400 font-mono text-[10px]">
-                    {audioSensitivity === 'quran-ayah' ? '🕌 Standard Ayah Waqf' :
+                    {audioSensitivity === 'smart-waqf' ? '🧠 Smart Waqf (Auto Breaths)' :
+                     audioSensitivity === 'quran-ayah' ? '🕌 Standard Ayah Waqf' :
                      audioSensitivity === 'tartil' ? '📖 Tartil (Slow & Madd)' :
                      audioSensitivity === 'hadr' ? '⚡ Hadr (Fast)' :
                      audioSensitivity === 'mosque' ? '🏛️ Mosque / Reverb' :
@@ -1141,10 +1143,10 @@ export default function MediaPanel({
 
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
+                    { id: 'smart-waqf', label: '🧠 Smart Waqf Pause', desc: 'Auto-detect & label breaths' },
                     { id: 'quran-ayah', label: '🕌 Standard Ayah', desc: '480ms Waqf Gap' },
                     { id: 'tartil', label: '📖 Slow Tartil', desc: '600ms Deep Pause' },
                     { id: 'hadr', label: '⚡ Fast Hadr', desc: '340ms Short Pause' },
-                    { id: 'mosque', label: '🏛️ Mosque Reverb', desc: 'Echo Rejection' },
                   ].map((preset) => (
                     <button
                       key={preset.id}
@@ -1193,42 +1195,60 @@ export default function MediaPanel({
                       <span>Silence Gap Behavior:</span>
                     </span>
                     <span className="text-[10px] font-mono text-amber-400">
-                      {gapHandlingMode === 'preserve-gaps' ? '⏸️ Keep Silence Gaps' : '🔗 Continuous Audio'}
+                      {gapHandlingMode === 'preserve-gaps' ? '⏸️ Keep Silence Gaps' :
+                       gapHandlingMode === 'bridge-seamless' ? '🔗 Continuous Audio' : '🧠 Identify Waqf Pauses'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1">
                     <button
                       type="button"
                       onClick={() => setGapHandlingMode('preserve-gaps')}
-                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
+                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
                         gapHandlingMode === 'preserve-gaps'
                           ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
                           : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
                       }`}
                     >
-                      <p className="text-[10px] font-bold flex items-center gap-1">
-                        <span>⏸️ Leave Gaps</span>
+                      <p className="text-[9px] font-bold flex items-center gap-1">
+                        <span>⏸️ Gaps</span>
                       </p>
-                      <p className="text-[8px] text-gray-400 mt-0.5">
-                        Preserves silence spaces between clips for easy editing & visuals snap
+                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
+                        Leaves empty silent spaces between clips
                       </p>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setGapHandlingMode('bridge-seamless')}
-                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
+                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
                         gapHandlingMode === 'bridge-seamless'
                           ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
                           : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
                       }`}
                     >
-                      <p className="text-[10px] font-bold flex items-center gap-1">
+                      <p className="text-[9px] font-bold flex items-center gap-1">
                         <span>🔗 Seamless</span>
                       </p>
-                      <p className="text-[8px] text-gray-400 mt-0.5">
-                        Bridges audio tail to next verse start without timeline gaps
+                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
+                        Bridges audio tail to next verse start
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setGapHandlingMode('label-pauses')}
+                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
+                        gapHandlingMode === 'label-pauses'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
+                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <p className="text-[9px] font-bold flex items-center gap-1">
+                        <span>🧠 Waqf Clips</span>
+                      </p>
+                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
+                        Splits, labels & colors pause points
                       </p>
                     </button>
                   </div>

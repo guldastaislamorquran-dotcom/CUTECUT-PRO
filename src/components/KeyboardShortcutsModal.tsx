@@ -18,6 +18,10 @@ import {
   Save,
   HelpCircle,
   Merge,
+  FolderPlus,
+  FolderMinus,
+  Clipboard,
+  MousePointer,
 } from 'lucide-react';
 
 interface ShortcutItem {
@@ -82,7 +86,7 @@ const SHORTCUT_LIST: ShortcutItem[] = [
   {
     id: 'delete-clip',
     keys: ['Del', 'Backspace'],
-    description: 'Delete selected clip(s) from timeline',
+    description: 'Delete selected clip from timeline',
     category: 'editing',
     icon: <Trash2 className="w-3.5 h-3.5 text-red-400" />,
   },

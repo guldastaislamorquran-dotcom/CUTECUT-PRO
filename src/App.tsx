@@ -99,22 +99,37 @@ export default function App() {
       setSelectedClipIds([]);
       return;
     }
+
+    // Check if clicked clip belongs to a unified compound group
+    const targetClip = tracks.flatMap(t => t.clips).find(c => c.id === id);
+    const relatedIds = targetClip?.groupId
+      ? tracks.flatMap(t => t.clips).filter(c => c.groupId === targetClip.groupId).map(c => c.id)
+      : [id];
+
     if (isMultiSelect) {
       setSelectedClipIds(prev => {
-        if (prev.includes(id)) {
-          return prev.filter(item => item !== id);
+        const hasAll = relatedIds.every(rid => prev.includes(rid));
+        if (hasAll) {
+          return prev.filter(item => !relatedIds.includes(item));
         } else {
-          return [...prev, id];
+          return Array.from(new Set([...prev, ...relatedIds]));
         }
       });
     } else {
-      setSelectedClipIds([id]);
+      setSelectedClipIds(relatedIds);
     }
   };
 
   const setSelectedClipId = (id: string | null) => {
-    if (id === null) setSelectedClipIds([]);
-    else setSelectedClipIds([id]);
+    if (id === null) {
+      setSelectedClipIds([]);
+    } else {
+      const targetClip = tracks.flatMap(t => t.clips).find(c => c.id === id);
+      const relatedIds = targetClip?.groupId
+        ? tracks.flatMap(t => t.clips).filter(c => c.groupId === targetClip.groupId).map(c => c.id)
+        : [id];
+      setSelectedClipIds(relatedIds);
+    }
   };
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -2077,6 +2092,8 @@ export default function App() {
   }, [isPlaying, duration]);
 
   // Handle global key binds
+  const selectedClipIdRef = useRef(selectedClipId);
+  selectedClipIdRef.current = selectedClipId;
   const selectedClipIdsRef = useRef(selectedClipIds);
   selectedClipIdsRef.current = selectedClipIds;
   const tracksRef = useRef(tracks);
@@ -2098,10 +2115,10 @@ export default function App() {
         togglePlayPause();
       }
 
-      // Delete / Backspace: Delete selected clips in matrix
-      if ((e.code === 'Delete' || e.code === 'Backspace') && selectedClipIdsRef.current.length > 0) {
+      // Delete / Backspace: Delete selected clip
+      if ((e.code === 'Delete' || e.code === 'Backspace') && selectedClipIdRef.current) {
         e.preventDefault();
-        deleteSelectedClips();
+        deleteClip(selectedClipIdRef.current);
       }
 
       // Ctrl + D: Duplicate selected clip
@@ -2351,8 +2368,9 @@ export default function App() {
   };
 
   const deleteSelectedClips = () => {
-    if (selectedClipIds.length === 0) return;
-    const idsToDelete = new Set(selectedClipIds);
+    const currentIds = selectedClipIdsRef.current.length > 0 ? selectedClipIdsRef.current : selectedClipIds;
+    if (currentIds.length === 0) return;
+    const idsToDelete = new Set(currentIds);
     setTracks(prev => prev.map(t => ({
       ...t,
       clips: t.clips.filter(c => !idsToDelete.has(c.id))
@@ -2360,15 +2378,212 @@ export default function App() {
     setSelectedClipIds([]);
   };
 
-  const batchUpdateClipTimes = (updates: { id: string; start: number; duration: number }[]) => {
-    const updateMap = new Map(updates.map(u => [u.id, u]));
-    setTracks(prev => prev.map(t => ({
-      ...t,
-      clips: t.clips.map(c => {
-        const u = updateMap.get(c.id);
-        return u ? { ...c, start: u.start, duration: u.duration } : c;
+  // Internal timeline clipboard for multi-clip copy, cut, and paste
+  const timelineClipboardRef = useRef<{ clips: Clip[]; minStart: number } | null>(null);
+
+  const copySelectedClips = () => {
+    const currentIds = selectedClipIdsRef.current.length > 0 ? selectedClipIdsRef.current : selectedClipIds;
+    if (currentIds.length === 0) return;
+    const selectedClips: Clip[] = [];
+    tracksRef.current.forEach(t => {
+      t.clips.forEach(c => {
+        if (currentIds.includes(c.id)) {
+          selectedClips.push({ ...c });
+        }
+      });
+    });
+    if (selectedClips.length === 0) return;
+    const minStart = Math.min(...selectedClips.map(c => c.start));
+    timelineClipboardRef.current = { clips: selectedClips, minStart };
+  };
+
+  const cutSelectedClips = () => {
+    copySelectedClips();
+    deleteSelectedClips();
+  };
+
+  const pasteClips = () => {
+    if (!timelineClipboardRef.current || timelineClipboardRef.current.clips.length === 0) return;
+    const { clips, minStart } = timelineClipboardRef.current;
+    const pasteOffset = currentTime - minStart;
+    const newSelectedIds: string[] = [];
+
+    setTracks(prevTracks => {
+      return prevTracks.map(track => {
+        const matchingClipsToPaste = clips.filter(c => c.trackId === track.id);
+        if (matchingClipsToPaste.length === 0) {
+          return track;
+        }
+
+        const newClips: Clip[] = matchingClipsToPaste.map(c => {
+          const newId = `clip-paste-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          newSelectedIds.push(newId);
+          return {
+            ...c,
+            id: newId,
+            name: `${c.name} (Copy)`,
+            start: Math.max(0, c.start + pasteOffset),
+            trackId: track.id,
+          };
+        });
+
+        return {
+          ...track,
+          clips: [...track.clips, ...newClips].sort((a, b) => a.start - b.start),
+        };
+      });
+    });
+
+    if (newSelectedIds.length > 0) {
+      setSelectedClipIds(newSelectedIds);
+    }
+  };
+
+  const groupSelectedClips = () => {
+    const currentIds = selectedClipIdsRef.current.length > 0 ? selectedClipIdsRef.current : selectedClipIds;
+    if (currentIds.length < 2) return;
+    const newGroupId = `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    setTracks(prevTracks => prevTracks.map(track => ({
+      ...track,
+      clips: track.clips.map(c => {
+        if (currentIds.includes(c.id)) {
+          return { ...c, groupId: newGroupId };
+        }
+        return c;
       })
     })));
+  };
+
+  const ungroupSelectedClips = () => {
+    const currentIds = selectedClipIdsRef.current.length > 0 ? selectedClipIdsRef.current : selectedClipIds;
+    if (currentIds.length === 0) return;
+    setTracks(prevTracks => prevTracks.map(track => ({
+      ...track,
+      clips: track.clips.map(c => {
+        if (currentIds.includes(c.id)) {
+          const { groupId, ...rest } = c;
+          return rest as Clip;
+        }
+        return c;
+      })
+    })));
+  };
+
+  const duplicateSelectedClips = () => {
+    const currentIds = selectedClipIdsRef.current.length > 0 ? selectedClipIdsRef.current : selectedClipIds;
+    if (currentIds.length === 0) {
+      duplicateClip();
+      return;
+    }
+
+    const selectedClips: Clip[] = [];
+    tracksRef.current.forEach(t => {
+      t.clips.forEach(c => {
+        if (currentIds.includes(c.id)) {
+          selectedClips.push(c);
+        }
+      });
+    });
+
+    if (selectedClips.length === 0) return;
+
+    const maxEnd = Math.max(...selectedClips.map(c => c.start + c.duration));
+    const minStart = Math.min(...selectedClips.map(c => c.start));
+    const span = maxEnd - minStart;
+    const newSelectedIds: string[] = [];
+
+    setTracks(prevTracks => prevTracks.map(track => {
+      const matchingSelected = track.clips.filter(c => currentIds.includes(c.id));
+      if (matchingSelected.length === 0) return track;
+
+      const duplicatedOnTrack = matchingSelected.map(c => {
+        const newId = `clip-dup-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        newSelectedIds.push(newId);
+        return {
+          ...c,
+          id: newId,
+          name: `${c.name} (Copy)`,
+          start: c.start + span + 0.1,
+          trackId: track.id,
+        };
+      });
+
+      return {
+        ...track,
+        clips: [...track.clips, ...duplicatedOnTrack].sort((a, b) => a.start - b.start),
+      };
+    }));
+
+    if (newSelectedIds.length > 0) {
+      setSelectedClipIds(newSelectedIds);
+    }
+  };
+
+  const batchUpdateClipTimes = (updates: { id: string; start: number; duration: number; trackId?: string }[]) => {
+    const updateMap = new Map(updates.map(u => [u.id, u]));
+
+    // Check if any clip is being moved across tracks
+    let hasTrackChange = false;
+    for (const update of updates) {
+      if (update.trackId) {
+        hasTrackChange = true;
+        break;
+      }
+    }
+
+    if (!hasTrackChange) {
+      setTracks(prev => prev.map(t => ({
+        ...t,
+        clips: t.clips.map(c => {
+          const u = updateMap.get(c.id);
+          return u ? { ...c, start: u.start, duration: u.duration } : c;
+        })
+      })));
+      return;
+    }
+
+    // Seamless cross-track clip transfer
+    setTracks(prev => {
+      const movedClips: { targetTrackId: string; clip: Clip }[] = [];
+      const updatedTracks = prev.map(track => {
+        const remainingClips: Clip[] = [];
+        for (const c of track.clips) {
+          const u = updateMap.get(c.id);
+          if (u) {
+            const destTrackId = u.trackId || track.id;
+            const updatedClip: Clip = {
+              ...c,
+              start: Math.max(0, u.start),
+              duration: Math.max(0.033, u.duration),
+              trackId: destTrackId,
+            };
+            if (destTrackId !== track.id) {
+              movedClips.push({ targetTrackId: destTrackId, clip: updatedClip });
+            } else {
+              remainingClips.push(updatedClip);
+            }
+          } else {
+            remainingClips.push(c);
+          }
+        }
+        return { ...track, clips: remainingClips };
+      });
+
+      if (movedClips.length === 0) {
+        return updatedTracks;
+      }
+
+      return updatedTracks.map(track => {
+        const incoming = movedClips.filter(m => m.targetTrackId === track.id).map(m => m.clip);
+        if (incoming.length > 0) {
+          return {
+            ...track,
+            clips: [...track.clips, ...incoming].sort((a, b) => a.start - b.start),
+          };
+        }
+        return track;
+      });
+    });
   };
 
   const batchUpdateClipProperties = (updates: { id: string; updates: Partial<Clip> }[]) => {
@@ -2509,7 +2724,7 @@ export default function App() {
     setDuration(finalDur);
   };
 
-  const updateClipTimes = (clipId: string, start: number, duration: number) => {
+  const updateClipTimes = (clipId: string, start: number, duration: number, trackId?: string) => {
     setTracks(prev => {
       // Find linked counterpart clip for Two-Track Anchor Lock (Quran Arabic & Translation sync)
       let linkedId: string | undefined;
@@ -2521,15 +2736,91 @@ export default function App() {
         }
       }
 
-      return prev.map(t => ({
-        ...t,
-        clips: t.clips.map(c => {
-          if (c.id === clipId || (linkedId && c.id === linkedId)) {
-            return { ...c, start, duration };
-          }
-          return c;
-        })
-      }));
+      if (!trackId) {
+        return prev.map(t => ({
+          ...t,
+          clips: t.clips.map(c => {
+            if (c.id === clipId || (linkedId && c.id === linkedId)) {
+              return { ...c, start, duration };
+            }
+            return c;
+          }).sort((a, b) => a.start - b.start)
+        }));
+      }
+
+      // If moving across tracks
+      let movingClip: Clip | null = null;
+      prev.forEach(t => {
+        const found = t.clips.find(c => c.id === clipId);
+        if (found) movingClip = found;
+      });
+
+      if (!movingClip) return prev;
+
+      const updatedClip: Clip = {
+        ...movingClip,
+        start,
+        duration,
+        trackId
+      };
+
+      return prev.map(t => {
+        if (t.id === trackId && (movingClip as Clip | null)?.trackId === trackId) {
+          return {
+            ...t,
+            clips: t.clips.map(c => c.id === clipId ? updatedClip : c).sort((a, b) => a.start - b.start)
+          };
+        } else if (t.id === trackId) {
+          return {
+            ...t,
+            clips: [...t.clips.filter(c => c.id !== clipId), updatedClip].sort((a, b) => a.start - b.start)
+          };
+        } else {
+          return {
+            ...t,
+            clips: t.clips.filter(c => c.id !== clipId)
+          };
+        }
+      });
+    });
+  };
+
+  const handleMoveClipToTrack = (clipId: string, targetTrackId: string, newStart?: number) => {
+    setTracks(prevTracks => {
+      let targetClip: Clip | null = null;
+      for (const t of prevTracks) {
+        const found = t.clips.find(c => c.id === clipId);
+        if (found) {
+          targetClip = found;
+          break;
+        }
+      }
+      if (!targetClip) return prevTracks;
+
+      const updatedClip: Clip = {
+        ...targetClip,
+        trackId: targetTrackId,
+        start: newStart !== undefined ? newStart : targetClip.start
+      };
+
+      return prevTracks.map(track => {
+        if (track.id === targetTrackId && targetClip!.trackId === targetTrackId) {
+          return {
+            ...track,
+            clips: track.clips.map(c => c.id === clipId ? updatedClip : c).sort((a, b) => a.start - b.start)
+          };
+        } else if (track.id === targetTrackId) {
+          return {
+            ...track,
+            clips: [...track.clips.filter(c => c.id !== clipId), updatedClip].sort((a, b) => a.start - b.start)
+          };
+        } else {
+          return {
+            ...track,
+            clips: track.clips.filter(c => c.id !== clipId)
+          };
+        }
+      });
     });
   };
 
@@ -2767,16 +3058,36 @@ export default function App() {
     setTracks(prev => prev.filter(t => t.id !== trackId));
   };
 
+  const handleMoveTrack = (trackId: string, direction: 'up' | 'down') => {
+    setTracks(prev => {
+      const idx = prev.findIndex(t => t.id === trackId);
+      if (idx === -1) return prev;
+      if (direction === 'up' && idx === 0) return prev;
+      if (direction === 'down' && idx === prev.length - 1) return prev;
+
+      const newTracks = [...prev];
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      const [moved] = newTracks.splice(idx, 1);
+      newTracks.splice(targetIdx, 0, moved);
+      return newTracks;
+    });
+  };
+
+  const handleReorderTracks = (newTracks: Track[]) => {
+    setTracks(newTracks);
+  };
+
   // ------------------ (D1) ACOUSTIC AUDIO & VIDEO AUTO-SEGMENTATION SUITE ------------------
   const handleAutoSegmentAudio = async (
     targetClipId?: string,
-    sensitivity: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' = 'quran-ayah',
+    sensitivity: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf' = 'quran-ayah',
     customOptions?: {
       minSilenceMs?: number;
       minSpeechMs?: number;
       startAyahNumber?: number;
-      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless' | 'label-pauses';
       paddingMs?: number;
+      customThresholdDb?: number;
     }
   ) => {
     let targetClip: Clip | null = null;
@@ -2823,6 +3134,7 @@ export default function App() {
         minSilenceMs: customOptions?.minSilenceMs,
         minSpeechMs: customOptions?.minSpeechMs,
         paddingMs: customOptions?.paddingMs,
+        customThresholdDb: customOptions?.customThresholdDb,
       });
 
       if (speechSegments.length === 0) {
@@ -4815,6 +5127,8 @@ export default function App() {
               onToggleTrackHidden={toggleTrackHidden}
               onAddTrack={handleAddTrack}
               onDeleteTrack={handleDeleteTrack}
+              onMoveTrack={handleMoveTrack}
+              onReorderTracks={handleReorderTracks}
               aspectRatio={aspectRatio}
               onAspectRatioChange={setAspectRatio}
               onUpdateClip={updateClipProperties}
@@ -5482,6 +5796,9 @@ export default function App() {
         onToggleTrackHidden={toggleTrackHidden}
         onAddTrack={handleAddTrack}
         onDeleteTrack={handleDeleteTrack}
+        onMoveTrack={handleMoveTrack}
+        onReorderTracks={handleReorderTracks}
+        onMoveClipToTrack={handleMoveClipToTrack}
         aspectRatio={aspectRatio}
         onAspectRatioChange={setAspectRatio}
         onUpdateClip={updateClipProperties}

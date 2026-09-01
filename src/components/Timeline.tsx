@@ -4,7 +4,8 @@ import {
   Copy, Snowflake, Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Plus, Minus,
   Magnet, Gauge, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
-  Zap, Split, Radio, ChevronDown, Flag, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
+  Zap, Split, Radio, ChevronDown, ChevronUp, GripVertical, ArrowUpDown, ArrowUp, ArrowDown,
+  Flag, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
   Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge,
   GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
 } from 'lucide-react';
@@ -14,12 +15,14 @@ import { SURAHS } from './MediaPanel';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById } from '../utils/quranTranslations';
 import AudioWaveformGraph from './AudioWaveformGraph';
 import VideoFilmstripVisual from './VideoFilmstripVisual';
+import { SmartPauseConfigModal } from './SmartPauseConfigModal';
 
 interface DraggingClipItem {
   id: string;
   initialStart: number;
   initialDuration: number;
   trackId: string;
+  sourceTrackId?: string;
 }
 
 interface MarqueeBox {
@@ -29,6 +32,8 @@ interface MarqueeBox {
   currentY: number;
   isSelecting: boolean;
   activeCount?: number;
+  button?: number;
+  dragActivated?: boolean;
 }
 
 interface ContextMenuState {
@@ -56,7 +61,7 @@ interface TimelineProps {
   onDeleteSelectedClips?: () => void;
   onRippleDelete: (direction: 'left' | 'right') => void;
   onUpdateClipTimes: (clipId: string, start: number, duration: number) => void;
-  onBatchUpdateClipTimes?: (updates: { id: string; start: number; duration: number }[]) => void;
+  onBatchUpdateClipTimes?: (updates: { id: string; start: number; duration: number; trackId?: string }[]) => void;
   onZoomChange: (zoom: number) => void;
   height?: number;
   onUpdateDuration?: (newDuration: number) => void;
@@ -72,6 +77,11 @@ interface TimelineProps {
 
   // CapCut Pro Timeline Handlers
   onDuplicateClip?: () => void;
+  onGroupClips?: () => void;
+  onUngroupClips?: () => void;
+  onCopyClips?: () => void;
+  onCutClips?: () => void;
+  onPasteClips?: () => void;
   onFreezeFrame?: () => void;
   onExtractAudio?: () => void;
   onSetClipSpeed?: (speed: number) => void;
@@ -80,6 +90,9 @@ interface TimelineProps {
   onToggleTrackHidden?: (trackId: string) => void;
   onAddTrack?: (type: ClipType) => void;
   onDeleteTrack?: (trackId: string) => void;
+  onMoveTrack?: (trackId: string, direction: 'up' | 'down') => void;
+  onReorderTracks?: (newTracks: Track[]) => void;
+  onMoveClipToTrack?: (clipId: string, targetTrackId: string, newStart?: number) => void;
   aspectRatio?: '16:9' | '9:16' | '1:1';
   onAspectRatioChange?: (ratio: '16:9' | '9:16' | '1:1') => void;
   onUpdateClip?: (clipId: string, updates: Partial<Clip>) => void;
@@ -88,13 +101,14 @@ interface TimelineProps {
   // Auto-Segmentation Suite
   onAutoSegmentAudio?: (
     clipId?: string,
-    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom',
+    sensitivity?: 'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf',
     customOptions?: {
       minSilenceMs?: number;
       minSpeechMs?: number;
       startAyahNumber?: number;
-      gapHandling?: 'preserve-gaps' | 'bridge-seamless';
+      gapHandling?: 'preserve-gaps' | 'bridge-seamless' | 'label-pauses';
       paddingMs?: number;
+      customThresholdDb?: number;
     }
   ) => void;
   onAutoSyncVideoToAyahs?: () => void;
@@ -136,6 +150,11 @@ export default function Timeline({
   isLooping = true,
   onToggleLoop,
   onDuplicateClip,
+  onGroupClips,
+  onUngroupClips,
+  onCopyClips,
+  onCutClips,
+  onPasteClips,
   onFreezeFrame,
   onExtractAudio,
   onSetClipSpeed,
@@ -144,6 +163,9 @@ export default function Timeline({
   onToggleTrackHidden,
   onAddTrack,
   onDeleteTrack,
+  onMoveTrack,
+  onReorderTracks,
+  onMoveClipToTrack,
   aspectRatio = '16:9',
   onAspectRatioChange,
   onUpdateClip,
@@ -318,6 +340,7 @@ export default function Timeline({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
   const [showAutoSegmentMenu, setShowAutoSegmentMenu] = useState(false);
+  const [showSmartPauseModal, setShowSmartPauseModal] = useState(false);
   const [showSilenceGuide, setShowSilenceGuide] = useState(true);
   const [followPlayheadMode, setFollowPlayheadMode] = useState<'page' | 'smooth' | 'off'>('page');
   const lastAutoScrollRef = useRef<number>(0);
@@ -483,25 +506,21 @@ export default function Timeline({
   const [draggingClips, setDraggingClips] = useState<{
     primaryId: string;
     dragStartPos: number;
+    dragStartY?: number;
     handle?: 'left' | 'right';
     clips: DraggingClipItem[];
+    sourceTrackId?: string;
+    targetTrackId?: string;
+    targetTrackIdx?: number;
+    calculatedTargetStart?: number;
   } | null>(null);
 
-  // Sorting order mapping for timeline: TEXT -> VIDEO -> IMAGE -> AUDIO -> EFFECT
-  const sortedTracks = useMemo(() => {
-    const TRACK_TYPE_ORDER: Record<ClipType, number> = {
-      [ClipType.TEXT]: 0,
-      [ClipType.VIDEO]: 1,
-      [ClipType.IMAGE]: 1,
-      [ClipType.AUDIO]: 2,
-      [ClipType.EFFECT]: 3,
-    };
-    return [...tracks].sort((a, b) => {
-      const orderA = TRACK_TYPE_ORDER[a.type] ?? 99;
-      const orderB = TRACK_TYPE_ORDER[b.type] ?? 99;
-      return orderA - orderB;
-    });
-  }, [tracks]);
+  // Track drag reordering state
+  const [draggedTrackId, setDraggedTrackId] = useState<string | null>(null);
+  const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
+
+  // Timeline tracks - preserve exact user track ordering (moving up/down/reordering)
+  const sortedTracks = tracks;
 
   const activeSelectedIds = useMemo(() => {
     return selectedClipIds && selectedClipIds.length > 0
@@ -514,6 +533,12 @@ export default function Timeline({
   tracksRef.current = tracks;
   const sortedTracksRef = useRef(sortedTracks);
   sortedTracksRef.current = sortedTracks;
+  const onMoveTrackRef = useRef(onMoveTrack);
+  onMoveTrackRef.current = onMoveTrack;
+  const onReorderTracksRef = useRef(onReorderTracks);
+  onReorderTracksRef.current = onReorderTracks;
+  const onMoveClipToTrackRef = useRef(onMoveClipToTrack);
+  onMoveClipToTrackRef.current = onMoveClipToTrack;
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const durationRef = useRef(duration);
@@ -536,6 +561,18 @@ export default function Timeline({
   onDeleteSelectedClipsRef.current = onDeleteSelectedClips;
   const onDeleteClipRef = useRef(onDeleteClip);
   onDeleteClipRef.current = onDeleteClip;
+  const onGroupClipsRef = useRef(onGroupClips);
+  onGroupClipsRef.current = onGroupClips;
+  const onUngroupClipsRef = useRef(onUngroupClips);
+  onUngroupClipsRef.current = onUngroupClips;
+  const onCopyClipsRef = useRef(onCopyClips);
+  onCopyClipsRef.current = onCopyClips;
+  const onCutClipsRef = useRef(onCutClips);
+  onCutClipsRef.current = onCutClips;
+  const onPasteClipsRef = useRef(onPasteClips);
+  onPasteClipsRef.current = onPasteClips;
+  const onDuplicateClipRef = useRef(onDuplicateClip);
+  onDuplicateClipRef.current = onDuplicateClip;
   const onSeekRef = useRef(onSeek);
   onSeekRef.current = onSeek;
   const isScrubbingRef = useRef(isScrubbing);
@@ -544,6 +581,21 @@ export default function Timeline({
   draggingClipsRef.current = draggingClips;
   const marqueeRef = useRef(marquee);
   marqueeRef.current = marquee;
+  const pendingSingleClickClipRef = useRef<{
+    clipId: string;
+    startClientX: number;
+    startClientY: number;
+  } | null>(null);
+  const pendingMarqueeRef = useRef<{
+    button: number;
+    startX: number;
+    startY: number;
+    startClientX: number;
+    startClientY: number;
+    isMultiSelect: boolean;
+    isActivated: boolean;
+  } | null>(null);
+  const suppressContextMenuRef = useRef(false);
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
 
@@ -795,8 +847,11 @@ export default function Timeline({
     const currentSortedTracks = sortedTracksRef.current;
     const currentZoom = zoomRef.current;
 
-    currentSortedTracks.forEach((track) => {
+    currentSortedTracks.forEach((track, trackIdx) => {
       if (track.locked || track.hidden) return;
+      const trackTop = 6 + trackIdx * 80;
+      const trackBottom = trackTop + 72;
+
       track.clips.forEach((clip) => {
         const clipEl = document.getElementById(`clip-${clip.id}`);
         if (clipEl && gridWrapperRef.current) {
@@ -820,10 +875,18 @@ export default function Timeline({
             intersectedIds.push(clip.id);
           }
         } else {
-          // Fallback time overlap calculation
-          const startTimeSec = Math.max(0, boxLeft / currentZoom);
-          const endTimeSec = Math.max(0, boxRight / currentZoom);
-          if (clip.start < endTimeSec && clip.start + clip.duration > startTimeSec) {
+          // Precise 2D Fallback considering both horizontal time and vertical track row
+          const clipLeft = clip.start * currentZoom;
+          const clipRight = (clip.start + clip.duration) * currentZoom;
+
+          const isOverlap = !(
+            clipRight < boxLeft ||
+            clipLeft > boxRight ||
+            trackBottom < boxTop ||
+            trackTop > boxBottom
+          );
+
+          if (isOverlap) {
             intersectedIds.push(clip.id);
           }
         }
@@ -1020,7 +1083,30 @@ export default function Timeline({
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
         } else {
-          // Dragging Clip Node horizontally with Time Matrix Magnetism
+          // Dragging Clip Node horizontally & vertically across tracks with Time Matrix Magnetism
+          let currentTargetTrackId = activeDragging.targetTrackId || activeDragging.sourceTrackId || tracksRef.current[0]?.id;
+          let currentTargetTrackIdx = tracksRef.current.findIndex(t => t.id === currentTargetTrackId);
+
+          // Detect target track under cursor
+          const elUnderPoint = document.elementFromPoint(clientX, clientY);
+          const trackRowEl = elUnderPoint?.closest('[data-track-id]');
+          if (trackRowEl) {
+            const tId = trackRowEl.getAttribute('data-track-id');
+            const found = tracksRef.current.find(t => t.id === tId);
+            if (found) {
+              currentTargetTrackId = found.id;
+              currentTargetTrackIdx = tracksRef.current.findIndex(t => t.id === found.id);
+            }
+          } else if (gridWrapperRef.current && gridScrollRef.current) {
+            const gridRect = gridWrapperRef.current.getBoundingClientRect();
+            const relativeY = (clientY - gridRect.top) + gridScrollRef.current.scrollTop;
+            const calculatedIdx = Math.floor((relativeY - 6) / 80);
+            if (calculatedIdx >= 0 && calculatedIdx < tracksRef.current.length) {
+              currentTargetTrackId = tracksRef.current[calculatedIdx].id;
+              currentTargetTrackIdx = calculatedIdx;
+            }
+          }
+
           const primaryItem = activeDragging.clips.find((c) => c.id === activeDragging.primaryId) || activeDragging.clips[0];
           const minInitialStart = Math.min(...activeDragging.clips.map(c => c.initialStart));
           const maxDeltaLeft = -minInitialStart;
@@ -1042,39 +1128,77 @@ export default function Timeline({
             setTimelineSnapInfo(null);
           }
 
-          const updates = activeDragging.clips.map(item => {
-            let targetStart = Math.max(0, item.initialStart + effectiveDelta);
-            if (snapToGridRef.current && !snapStart.snapInfo && !snapEnd.snapInfo) {
-              targetStart = Math.round(targetStart * 30) / 30; // 1/30s frame boundary precision
-            }
+          let primaryTargetStart = Math.max(0, primaryItem.initialStart + effectiveDelta);
+          if (snapToGridRef.current && !snapStart.snapInfo && !snapEnd.snapInfo) {
+            primaryTargetStart = Math.round(primaryTargetStart * 30) / 30;
+          }
+
+          setDraggingClips(prev => {
+            if (!prev) return null;
             return {
-              id: item.id,
-              start: targetStart,
-              duration: item.initialDuration,
+              ...prev,
+              targetTrackId: currentTargetTrackId,
+              targetTrackIdx: currentTargetTrackIdx,
+              calculatedTargetStart: primaryTargetStart,
             };
           });
 
-          if (onBatchUpdateClipTimesRef.current) {
-            onBatchUpdateClipTimesRef.current(updates);
-          } else if (onUpdateClipTimesRef.current) {
-            updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
+          // If dragging within same track, perform real-time position updates
+          if (currentTargetTrackId === activeDragging.sourceTrackId) {
+            const updates = activeDragging.clips.map(item => {
+              let targetStart = Math.max(0, item.initialStart + effectiveDelta);
+              if (snapToGridRef.current && !snapStart.snapInfo && !snapEnd.snapInfo) {
+                targetStart = Math.round(targetStart * 30) / 30; // 1/30s frame boundary precision
+              }
+              return {
+                id: item.id,
+                start: targetStart,
+                duration: item.initialDuration,
+                trackId: currentTargetTrackId,
+              };
+            });
+
+            if (onBatchUpdateClipTimesRef.current) {
+              onBatchUpdateClipTimesRef.current(updates);
+            } else if (onUpdateClipTimesRef.current) {
+              updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
+            }
           }
         }
-      } else if (marqueeRef.current && marqueeRef.current.isSelecting && gridWrapperRef.current) {
-        // Update marquee drag bounds relative to the grid wrapper
-        const activeMarquee = marqueeRef.current;
-        const rect = gridWrapperRef.current.getBoundingClientRect();
-        const currentX = clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-        const currentY = clientY - rect.top;
+      } else if (pendingMarqueeRef.current && gridWrapperRef.current) {
+        const pending = pendingMarqueeRef.current;
+        const dist = Math.hypot(clientX - pending.startClientX, clientY - pending.startClientY);
 
-        const boxLeft = Math.min(activeMarquee.startX, currentX);
-        const boxRight = Math.max(activeMarquee.startX, currentX);
-        const boxTop = Math.min(activeMarquee.startY, currentY);
-        const boxBottom = Math.max(activeMarquee.startY, currentY);
+        if (!pending.isActivated && dist >= 8) {
+          pending.isActivated = true;
+          if (pending.button === 2) {
+            suppressContextMenuRef.current = true;
+          }
+        }
 
-        const intersectedIds = getIntersectedClipIds(boxLeft, boxRight, boxTop, boxBottom);
+        if (pending.isActivated) {
+          const rect = gridWrapperRef.current.getBoundingClientRect();
+          const currentX = clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+          const currentY = clientY - rect.top;
 
-        setMarquee(prev => prev ? { ...prev, currentX, currentY, activeCount: intersectedIds.length } : null);
+          const boxLeft = Math.min(pending.startX, currentX);
+          const boxRight = Math.max(pending.startX, currentX);
+          const boxTop = Math.min(pending.startY, currentY);
+          const boxBottom = Math.max(pending.startY, currentY);
+
+          const intersectedIds = getIntersectedClipIds(boxLeft, boxRight, boxTop, boxBottom);
+
+          setMarquee({
+            startX: pending.startX,
+            startY: pending.startY,
+            currentX,
+            currentY,
+            isSelecting: true,
+            button: pending.button,
+            dragActivated: true,
+            activeCount: intersectedIds.length,
+          });
+        }
       }
     };
 
@@ -1088,33 +1212,99 @@ export default function Timeline({
         setIsScrubbing(false);
       }
       if (draggingClipsRef.current) {
+        const activeDragging = draggingClipsRef.current;
+        const currentZoom = zoomRef.current;
+        const currentClientX = latestClientX;
+        const deltaX = currentClientX - activeDragging.dragStartPos;
+        const deltaTime = deltaX / currentZoom;
+
+        const targetTrackId = activeDragging.targetTrackId || activeDragging.sourceTrackId;
+        const targetTrack = tracksRef.current.find(t => t.id === targetTrackId);
+
+        // If dragging whole clip body to a new track
+        if (!activeDragging.handle && targetTrackId && targetTrack && !targetTrack.locked) {
+          const minInitialStart = Math.min(...activeDragging.clips.map(c => c.initialStart));
+          const maxDeltaLeft = -minInitialStart;
+          const effectiveDelta = Math.max(maxDeltaLeft, deltaTime);
+
+          const updates = activeDragging.clips.map(item => {
+            let targetStart = Math.max(0, item.initialStart + effectiveDelta);
+            if (snapToGridRef.current) {
+              targetStart = Math.round(targetStart * 30) / 30;
+            }
+            return {
+              id: item.id,
+              start: targetStart,
+              duration: item.initialDuration,
+              trackId: targetTrack.id,
+            };
+          });
+
+          if (onBatchUpdateClipTimesRef.current) {
+            onBatchUpdateClipTimesRef.current(updates);
+          } else if (onUpdateClipTimesRef.current) {
+            updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
+          }
+        }
+
         setDraggingClips(null);
         setTimelineSnapInfo(null);
       }
-      if (marqueeRef.current && marqueeRef.current.isSelecting) {
-        const activeMarquee = marqueeRef.current;
-        const boxLeft = Math.min(activeMarquee.startX, activeMarquee.currentX);
-        const boxRight = Math.max(activeMarquee.startX, activeMarquee.currentX);
-        const boxTop = Math.min(activeMarquee.startY, activeMarquee.currentY);
-        const boxBottom = Math.max(activeMarquee.startY, activeMarquee.currentY);
 
-        const width = boxRight - boxLeft;
-        const height = boxBottom - boxTop;
+      if (pendingMarqueeRef.current) {
+        const pending = pendingMarqueeRef.current;
+        if (pending.isActivated && gridWrapperRef.current) {
+          const rect = gridWrapperRef.current.getBoundingClientRect();
+          const currentX = latestClientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+          const currentY = latestClientY - rect.top;
 
-        if (width > 4 || height > 4) {
-          const intersectedIds = getIntersectedClipIds(boxLeft, boxRight, boxTop, boxBottom);
+          const boxLeft = Math.min(pending.startX, currentX);
+          const boxRight = Math.max(pending.startX, currentX);
+          const boxTop = Math.min(pending.startY, currentY);
+          const boxBottom = Math.max(pending.startY, currentY);
 
-          if (intersectedIds.length > 0) {
-            if (onSelectClipsRef.current) {
-              onSelectClipsRef.current(intersectedIds);
-            } else if (onSelectClipRef.current) {
-              onSelectClipRef.current(intersectedIds[0]);
+          const width = boxRight - boxLeft;
+          const height = boxBottom - boxTop;
+
+          if (width >= 8 || height >= 8) {
+            const intersectedIds = getIntersectedClipIds(boxLeft, boxRight, boxTop, boxBottom);
+
+            if (intersectedIds.length > 0) {
+              if (pending.isMultiSelect) {
+                const combined = Array.from(new Set([...activeSelectedIdsRef.current, ...intersectedIds]));
+                if (onSelectClipsRef.current) {
+                  onSelectClipsRef.current(combined);
+                }
+              } else {
+                if (onSelectClipsRef.current) {
+                  onSelectClipsRef.current(intersectedIds);
+                } else if (onSelectClipRef.current) {
+                  onSelectClipRef.current(intersectedIds[0]);
+                }
+              }
+            } else {
+              if (pending.button === 0 && !pending.isMultiSelect) {
+                if (onSelectClipRef.current) onSelectClipRef.current(null);
+                if (onSelectClipsRef.current) onSelectClipsRef.current([]);
+              }
             }
-          } else {
+          }
+
+          if (pending.button === 2) {
+            suppressContextMenuRef.current = true;
+            setTimeout(() => {
+              suppressContextMenuRef.current = false;
+            }, 250);
+          }
+        } else {
+          // Plain click on empty background without dragging
+          if (pending.button === 0 && !pending.isMultiSelect) {
             if (onSelectClipRef.current) onSelectClipRef.current(null);
             if (onSelectClipsRef.current) onSelectClipsRef.current([]);
           }
         }
+
+        pendingMarqueeRef.current = null;
         setMarquee(null);
       }
     };
@@ -1135,40 +1325,40 @@ export default function Timeline({
       window.removeEventListener('touchend', handleEnd);
       window.removeEventListener('touchcancel', handleEnd);
     };
-  }, [isScrubbing, draggingClips !== null, marquee !== null, getIntersectedClipIds]);
+  }, [getIntersectedClipIds]);
 
-  // Start marquee selection & jump playhead slider when clicking on grid space
+  // Start marquee selection on grid background (Right-Click Drag or Left-Click Drag)
   const handleGridMouseDown = (e: React.MouseEvent) => {
-    // Only handle left click on background
-    if (e.button !== 0 || !gridWrapperRef.current) return;
+    if (!gridWrapperRef.current) return;
+    if (e.button !== 0 && e.button !== 2) return;
 
     const rect = gridWrapperRef.current.getBoundingClientRect();
     const startX = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
     const startY = e.clientY - rect.top;
 
-    // Immediately jump playhead slider to clicked timeline timestamp
-    const clickTime = Math.max(0, Math.min(duration, startX / zoom));
-    onSeek(clickTime);
-
     const isMultiSelect = e.ctrlKey || e.metaKey || e.shiftKey;
-    if (!isMultiSelect && timelineTool !== 'marquee') {
-      onSelectClip(null);
-    }
 
-    setMarquee({
+    pendingMarqueeRef.current = {
+      button: e.button,
       startX,
       startY,
-      currentX: startX,
-      currentY: startY,
-      isSelecting: true,
-      activeCount: 0,
-    });
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      isMultiSelect,
+      isActivated: false,
+    };
   };
 
   // Right-click context menu handler on clips or empty space
   const handleContextMenu = (e: React.MouseEvent, clip: Clip | null, track: Track | null) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // If right-click drag just happened for marquee selection, suppress context menu
+    if (suppressContextMenuRef.current) {
+      suppressContextMenuRef.current = false;
+      return;
+    }
 
     // Determine seek time if right-clicked on canvas/ruler
     let seekTime: number | undefined;
@@ -1179,8 +1369,9 @@ export default function Timeline({
     }
 
     if (clip) {
-      // If right-clicked clip is not already selected, select it
-      if (!activeSelectedIds.includes(clip.id)) {
+      // If right-clicked clip is already in multi-selection, preserve the entire selection!
+      // Only switch selection if right-clicking a single clip not currently in the selection group
+      if (!activeSelectedIdsRef.current.includes(clip.id)) {
         onSelectClip(clip.id, false);
       }
     }
@@ -1240,22 +1431,41 @@ export default function Timeline({
 
   // Start clip dragging or selection and jump playhead slider on click
   const startClipDrag = (e: React.MouseEvent | React.TouchEvent, clip: Clip, handle?: 'left' | 'right') => {
+    // If Right-click on clip (e.button === 2), arm pending marquee selection for right-click drag
+    if ('button' in e && (e as React.MouseEvent).button === 2) {
+      if (gridWrapperRef.current) {
+        const rect = gridWrapperRef.current.getBoundingClientRect();
+        const startX = (e as React.MouseEvent).clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+        const startY = (e as React.MouseEvent).clientY - rect.top;
+        const isMultiSelect = (e as React.MouseEvent).ctrlKey || (e as React.MouseEvent).metaKey || (e as React.MouseEvent).shiftKey;
+
+        pendingMarqueeRef.current = {
+          button: 2,
+          startX,
+          startY,
+          startClientX: (e as React.MouseEvent).clientX,
+          startClientY: (e as React.MouseEvent).clientY,
+          isMultiSelect,
+          isActivated: false,
+        };
+      }
+      return;
+    }
+
     // Only respond to primary mouse button if mouse event
     if ('button' in e && (e as React.MouseEvent).button !== 0) return;
 
     e.stopPropagation();
 
-    // Jump playhead slider immediately to where user clicked on the timeline
-    if (tracksContainerRef.current) {
-      const rect = tracksContainerRef.current.getBoundingClientRect();
-      const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-      const x = clientX - rect.left + tracksContainerRef.current.scrollLeft;
-      const clickTime = Math.max(0, Math.min(duration, x / zoom));
-      onSeek(clickTime);
-    }
-
     // If user is using the Split/Blade tool, clicking on a clip splits it at playhead/click position
     if (timelineTool === 'split') {
+      if (tracksContainerRef.current) {
+        const rect = tracksContainerRef.current.getBoundingClientRect();
+        const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+        const x = clientX - rect.left + tracksContainerRef.current.scrollLeft;
+        const clickTime = Math.max(0, Math.min(duration, x / zoom));
+        onSeek(clickTime);
+      }
       onSelectClip(clip.id, false);
       if (onSplitClip) {
         onSplitClip();
@@ -1299,12 +1509,21 @@ export default function Timeline({
     });
 
     const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+
+    const sourceTrack = tracksRef.current.find(t => t.clips.some(c => c.id === clip.id)) || tracksRef.current.find(t => t.id === clip.trackId);
+    const sourceTrackId = sourceTrack?.id || clip.trackId;
 
     setDraggingClips({
       primaryId: clip.id,
       dragStartPos: clientX,
+      dragStartY: clientY,
       handle,
-      clips: clipsToMove.length > 0 ? clipsToMove : [{ id: clip.id, initialStart: clip.start, initialDuration: clip.duration, trackId: clip.trackId }],
+      clips: clipsToMove.length > 0 ? clipsToMove : [{ id: clip.id, initialStart: clip.start, initialDuration: clip.duration, trackId: sourceTrackId, sourceTrackId }],
+      sourceTrackId,
+      targetTrackId: sourceTrackId,
+      targetTrackIdx: tracksRef.current.findIndex(t => t.id === sourceTrackId),
+      calculatedTargetStart: clip.start,
     });
   };
 
@@ -1316,15 +1535,6 @@ export default function Timeline({
     e.stopPropagation();
     e.preventDefault();
 
-    // Jump playhead slider immediately to clicked position
-    if (tracksContainerRef.current) {
-      const rect = tracksContainerRef.current.getBoundingClientRect();
-      const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-      const x = clientX - rect.left + tracksContainerRef.current.scrollLeft;
-      const clickTime = Math.max(0, Math.min(duration, x / zoom));
-      onSeek(clickTime);
-    }
-
     const clipsToMove: DraggingClipItem[] = [];
     tracksRef.current.forEach(track => {
       if (track.locked) return;
@@ -1335,6 +1545,7 @@ export default function Timeline({
             initialStart: c.start,
             initialDuration: c.duration,
             trackId: track.id,
+            sourceTrackId: track.id,
           });
         }
       });
@@ -1343,14 +1554,23 @@ export default function Timeline({
     if (clipsToMove.length === 0) return;
 
     const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
 
     // Sort to make the leftmost clip the primary reference
     clipsToMove.sort((a, b) => a.initialStart - b.initialStart);
 
+    const primaryClip = clipsToMove[0];
+    const sourceTrackId = primaryClip ? primaryClip.trackId : tracksRef.current[0]?.id;
+
     setDraggingClips({
       primaryId: clipsToMove[0].id,
       dragStartPos: clientX,
+      dragStartY: clientY,
       clips: clipsToMove,
+      sourceTrackId,
+      targetTrackId: sourceTrackId,
+      targetTrackIdx: tracksRef.current.findIndex(t => t.id === sourceTrackId),
+      calculatedTargetStart: primaryClip?.initialStart || 0,
     });
   };
 
@@ -1616,6 +1836,21 @@ export default function Timeline({
                       ✕
                     </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAutoSegmentAudio(selectedClipId || undefined, 'smart-waqf', { gapHandling: 'label-pauses' });
+                      setShowAutoSegmentMenu(false);
+                    }}
+                    className="w-full text-left p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-200 hover:text-amber-200 transition cursor-pointer flex items-center gap-2 border border-amber-500/30 bg-amber-500/10"
+                  >
+                    <span className="text-sm">🧠</span>
+                    <div>
+                      <p className="font-bold text-[11px] leading-tight text-amber-300">Smart Pause (Waqf Detection)</p>
+                      <p className="text-[9px] text-amber-400/80 font-semibold">Adaptive RMS + Auto-Label Pauses</p>
+                    </div>
+                  </button>
 
                   <button
                     type="button"
@@ -2075,70 +2310,153 @@ export default function Timeline({
                 <span className="text-[8px] text-gray-600">Drop files or click + Track</span>
               </div>
             ) : (
-              sortedTracks.map((track, trackIdx) => (
-                <div
-                  key={track.id ? `${track.id}-${trackIdx}` : `track-${trackIdx}`}
-                  onContextMenu={(e) => handleContextMenu(e, null, track)}
-                  className={`h-[72px] min-h-[72px] border border-[#2a2a35] rounded-lg flex flex-col justify-between p-2 bg-[#16161d] shadow-sm transition-all ${track.locked ? 'opacity-60' : ''}`}
-                >
-                  <div className="flex items-center gap-1.5 overflow-hidden">
-                    {getTrackIcon(track.type)}
-                    <span className="text-[11px] text-gray-200 font-semibold truncate max-w-[80px] sm:max-w-[105px]" title={track.name}>
-                      {track.name}
-                    </span>
-                  </div>
+              sortedTracks.map((track, trackIdx) => {
+                const isDraggingOver = dragOverTrackId === track.id;
+                const isBeingDragged = draggedTrackId === track.id;
 
-                  {/* Track Status & Controls (Mute, Lock, Hide, Delete) */}
-                  <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                    <span className="text-[8px] font-mono text-gray-500 uppercase">{track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}</span>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      {/* Mute Track */}
-                      {onToggleTrackMute && (
-                        <button
-                          onClick={() => onToggleTrackMute(track.id)}
-                          className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                          title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                return (
+                  <div
+                    key={track.id ? `${track.id}-${trackIdx}` : `track-${trackIdx}`}
+                    data-track-id={track.id}
+                    data-track-index={trackIdx}
+                    draggable={!track.locked}
+                    onDragStart={(e) => {
+                      setDraggedTrackId(track.id);
+                      e.dataTransfer.setData('text/plain', track.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (draggedTrackId && draggedTrackId !== track.id) {
+                        setDragOverTrackId(track.id);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverTrackId === track.id) setDragOverTrackId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const sourceId = draggedTrackId || e.dataTransfer.getData('text/plain');
+                      if (sourceId && sourceId !== track.id) {
+                        const fromIdx = tracks.findIndex(t => t.id === sourceId);
+                        const toIdx = tracks.findIndex(t => t.id === track.id);
+                        if (fromIdx !== -1 && toIdx !== -1) {
+                          const newTracks = [...tracks];
+                          const [moved] = newTracks.splice(fromIdx, 1);
+                          newTracks.splice(toIdx, 0, moved);
+                          if (onReorderTracks) {
+                            onReorderTracks(newTracks);
+                          }
+                        }
+                      }
+                      setDraggedTrackId(null);
+                      setDragOverTrackId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedTrackId(null);
+                      setDragOverTrackId(null);
+                    }}
+                    onContextMenu={(e) => handleContextMenu(e, null, track)}
+                    className={`h-[72px] min-h-[72px] border rounded-lg flex flex-col justify-between p-1.5 sm:p-2 bg-[#16161d] shadow-sm transition-all relative ${
+                      isDraggingOver
+                        ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-400/50 scale-[1.02] z-30'
+                        : isBeingDragged
+                        ? 'opacity-40 border-dashed border-gray-600'
+                        : 'border-[#2a2a35]'
+                    } ${track.locked ? 'opacity-60' : ''}`}
+                  >
+                    <div className="flex items-center justify-between gap-1 overflow-hidden">
+                      <div className="flex items-center gap-1.5 overflow-hidden flex-1 min-w-0">
+                        {/* Drag Reorder Handle */}
+                        <div
+                          className="cursor-grab active:cursor-grabbing text-gray-500 hover:text-cyan-400 p-0.5 rounded transition shrink-0"
+                          title="Drag to reorder track position up or down"
                         >
-                          {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                        </button>
-                      )}
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </div>
+                        {getTrackIcon(track.type)}
+                        <span className="text-[11px] text-gray-200 font-semibold truncate max-w-[65px] sm:max-w-[85px]" title={track.name}>
+                          {track.name}
+                        </span>
+                      </div>
 
-                      {/* Lock Track */}
-                      {onToggleTrackLock && (
-                        <button
-                          onClick={() => onToggleTrackLock(track.id)}
-                          className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                          title={track.locked ? 'Unlock Track' : 'Lock Track'}
-                        >
-                          {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                        </button>
-                      )}
-
-                      {/* Hide Track */}
-                      {onToggleTrackHidden && (
-                        <button
-                          onClick={() => onToggleTrackHidden(track.id)}
-                          className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
-                          title={track.hidden ? 'Show Track' : 'Hide Track'}
-                        >
-                          {track.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        </button>
-                      )}
-
-                      {/* Delete Track */}
-                      {onDeleteTrack && sortedTracks.length > 1 && (
-                        <button
-                          onClick={() => onDeleteTrack(track.id)}
-                          className="p-1 rounded text-gray-600 hover:text-red-400 transition"
-                          title="Delete Track"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                      {/* Track Up / Down Reorder Buttons */}
+                      {onMoveTrack && sortedTracks.length > 1 && (
+                        <div className="flex items-center gap-0.5 shrink-0 bg-[#0e0e14] border border-[#272733] rounded px-0.5 py-0.5">
+                          <button
+                            type="button"
+                            disabled={trackIdx === 0}
+                            onClick={() => onMoveTrack(track.id, 'up')}
+                            className="p-0.5 text-gray-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:text-gray-400 transition"
+                            title="Move track up"
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={trackIdx === sortedTracks.length - 1}
+                            onClick={() => onMoveTrack(track.id, 'down')}
+                            className="p-0.5 text-gray-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:text-gray-400 transition"
+                            title="Move track down"
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
+
+                    {/* Track Status & Controls (Mute, Lock, Hide, Delete) */}
+                    <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                      <span className="text-[8px] font-mono text-gray-500 uppercase">{track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}</span>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {/* Mute Track */}
+                        {onToggleTrackMute && (
+                          <button
+                            onClick={() => onToggleTrackMute(track.id)}
+                            className={`p-1 rounded transition ${track.muted ? 'text-red-400 bg-red-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                            title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                          >
+                            {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          </button>
+                        )}
+
+                        {/* Lock Track */}
+                        {onToggleTrackLock && (
+                          <button
+                            onClick={() => onToggleTrackLock(track.id)}
+                            className={`p-1 rounded transition ${track.locked ? 'text-amber-400 bg-amber-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                            title={track.locked ? 'Unlock Track' : 'Lock Track'}
+                          >
+                            {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          </button>
+                        )}
+
+                        {/* Hide Track */}
+                        {onToggleTrackHidden && (
+                          <button
+                            onClick={() => onToggleTrackHidden(track.id)}
+                            className={`p-1 rounded transition ${track.hidden ? 'text-purple-400 bg-purple-950/50' : 'text-gray-500 hover:text-gray-300'}`}
+                            title={track.hidden ? 'Show Track' : 'Hide Track'}
+                          >
+                            {track.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </button>
+                        )}
+
+                        {/* Delete Track */}
+                        {onDeleteTrack && sortedTracks.length > 1 && (
+                          <button
+                            onClick={() => onDeleteTrack(track.id)}
+                            className="p-1 rounded text-gray-600 hover:text-red-400 transition"
+                            title="Delete Track"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -2188,14 +2506,50 @@ export default function Timeline({
                   </p>
                 </div>
               ) : (
-                sortedTracks.map((track, trackIdx) => (
+                sortedTracks.map((track, trackIdx) => {
+                const isCrossTrackTarget = Boolean(
+                  draggingClips &&
+                  !draggingClips.handle &&
+                  draggingClips.targetTrackId === track.id &&
+                  draggingClips.sourceTrackId !== track.id
+                );
+
+                return (
                   <div
                     key={track.id ? `grid-${track.id}-${trackIdx}` : `grid-track-${trackIdx}`}
+                    data-track-id={track.id}
+                    data-track-index={trackIdx}
                     onContextMenu={(e) => handleContextMenu(e, null, track)}
-                    className={`h-[72px] min-h-[72px] border border-[#22222c] rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
+                    className={`h-[72px] min-h-[72px] border rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden transition-all ${
+                      isCrossTrackTarget
+                        ? 'border-cyan-400 bg-cyan-950/25 ring-2 ring-cyan-400/40 shadow-[inset_0_0_20px_rgba(6,182,212,0.15)] z-15'
+                        : 'border-[#22222c]'
+                    } ${track.hidden ? 'opacity-30 pointer-events-none' : ''}`}
                   >
                     {/* Subtle Grid backdrop lines */}
                     <div className="absolute inset-0 bg-grid-pattern opacity-5" />
+
+                    {/* Ghost Drop Preview when dragging clips between tracks */}
+                    {isCrossTrackTarget && draggingClips && (
+                      <div
+                        className="absolute top-[4px] h-[64px] rounded-lg border-2 border-dashed border-cyan-400 bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.35)] z-25 pointer-events-none flex flex-col justify-between p-1.5 animate-pulse"
+                        style={{
+                          left: `${(draggingClips.calculatedTargetStart ?? 0) * zoom}px`,
+                          width: `${(draggingClips.clips[0]?.initialDuration ?? 2) * zoom}px`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between text-[9px] font-mono text-cyan-200">
+                          <span className="font-bold truncate flex items-center gap-1">
+                            <ArrowUpDown className="w-3 h-3 text-cyan-400" />
+                            Drop into {track.name}
+                          </span>
+                          <span>{((draggingClips.calculatedTargetStart ?? 0)).toFixed(2)}s</span>
+                        </div>
+                        <div className="text-[8px] font-mono text-cyan-300 text-center uppercase tracking-wider font-semibold">
+                          Release mouse to move clip here
+                        </div>
+                      </div>
+                    )}
 
                     {/* Clips list */}
                     {track.clips.map((clip, clipIdx) => {
@@ -2263,6 +2617,12 @@ export default function Timeline({
                                 <span className={`font-bold truncate text-[9.5px] ${isSelected ? 'text-amber-200' : 'text-white'}`} title={clip.name}>
                                   {clip.name}
                                 </span>
+                                {/* Compound Clip / Group Badge */}
+                                {clip.groupId && (
+                                  <span className="px-1 py-0.1 rounded text-[6.5px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-500/60 shrink-0 uppercase flex items-center gap-0.5" title="Grouped Clip (Ctrl+G / Cmd+G)">
+                                    <Layers className="w-2 h-2 text-amber-300" /> Group
+                                  </span>
+                                )}
                                 {/* Ayah Alignment Badge */}
                                 {syncItem && (
                                   <div className="shrink-0 flex items-center ml-0.5 pointer-events-auto">
@@ -2404,8 +2764,9 @@ export default function Timeline({
                       );
                     })}
                   </div>
-                ))
-              )}
+                );
+              })
+            )}
 
               {/* Multi-Selection Bounding Box & Interactive Group Move Drag-Handle */}
               {multiSelectionBounds && (
@@ -2502,80 +2863,7 @@ export default function Timeline({
         </div>
       </div>
 
-      {/* Floating Multi-Selection Action Bar (When 2 or more clips are selected) */}
-      {activeSelectedIds.length > 1 && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 bg-[#161622]/95 backdrop-blur-xl border border-amber-500/40 rounded-full px-4 py-1.5 shadow-2xl flex items-center gap-3 text-xs text-gray-200 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <div className="flex items-center gap-1.5 font-semibold text-amber-300">
-            <CheckCheck className="w-4 h-4 text-amber-400" />
-            <span>{selectedCounts.total} Clips Selected</span>
-          </div>
 
-          <div className="h-3.5 w-px bg-white/10" />
-
-          {/* Breakdown tags */}
-          <div className="flex items-center gap-1 text-[10px] font-mono">
-            {selectedCounts.text > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-500/30">
-                {selectedCounts.text} Text
-              </span>
-            )}
-            {selectedCounts.audio > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-teal-950/80 text-teal-300 border border-teal-500/30">
-                {selectedCounts.audio} Audio
-              </span>
-            )}
-            {selectedCounts.video > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
-                {selectedCounts.video} Video
-              </span>
-            )}
-            {selectedCounts.image > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30">
-                {selectedCounts.image} Image
-              </span>
-            )}
-          </div>
-
-          <div className="h-3.5 w-px bg-white/10" />
-
-          {/* Actions */}
-          <div className="flex items-center gap-1">
-            {onSplitClip && (
-              <button
-                onClick={onSplitClip}
-                className="px-2 py-0.5 rounded bg-[#252538] hover:bg-[#303046] text-cyan-300 hover:text-cyan-200 transition text-[11px] flex items-center gap-1"
-                title="Split Selected Clips at Playhead"
-              >
-                <Scissors className="w-3 h-3" />
-                <span>Split All</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                if (onDeleteSelectedClips) {
-                  onDeleteSelectedClips();
-                } else if (selectedClipId) {
-                  onDeleteClip(selectedClipId);
-                }
-              }}
-              className="px-2 py-0.5 rounded bg-red-950/60 hover:bg-red-900/80 text-red-300 hover:text-red-200 transition text-[11px] flex items-center gap-1 border border-red-500/30"
-              title="Delete all selected clips (Del)"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>Delete</span>
-            </button>
-
-            <button
-              onClick={handleClearSelection}
-              className="p-1 rounded-full hover:bg-white/10 text-gray-400 hover:text-gray-200 transition ml-1"
-              title="Deselect All (Esc)"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Floating Right-Click Context Menu */}
       {contextMenu.isOpen && (
@@ -2595,6 +2883,7 @@ export default function Timeline({
           {/* Clip Actions (When right-clicked on clip) */}
           {contextMenu.clip && (
             <div className="py-1">
+
               {/* Split at Playhead */}
               <button
                 type="button"
@@ -2744,6 +3033,17 @@ export default function Timeline({
                   <button
                     type="button"
                     onClick={() => {
+                      onAutoSegmentAudio(contextMenu.clip!.id, 'smart-waqf', { gapHandling: 'label-pauses' });
+                      setContextMenu(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-amber-600 hover:text-white text-amber-300 font-bold transition border-b border-gray-800 bg-amber-500/10"
+                  >
+                    <span>🧠 Smart Pause (Waqf) + Label Breaths</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       onAutoSegmentAudio(contextMenu.clip!.id, 'quran-ayah');
                       setContextMenu(prev => ({ ...prev, isOpen: false }));
                     }}
@@ -2873,6 +3173,36 @@ export default function Timeline({
               </button>
             )}
 
+            {/* Move Track Up / Down */}
+            {contextMenu.track && onMoveTrack && sortedTracks.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  disabled={tracks.findIndex(t => t.id === contextMenu.track!.id) === 0}
+                  onClick={() => {
+                    onMoveTrack(contextMenu.track!.id, 'up');
+                    setContextMenu(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-cyan-500 hover:text-black transition text-gray-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                >
+                  <ChevronUp className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Move Track Up (Upar)</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={tracks.findIndex(t => t.id === contextMenu.track!.id) === sortedTracks.length - 1}
+                  onClick={() => {
+                    onMoveTrack(contextMenu.track!.id, 'down');
+                    setContextMenu(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-cyan-500 hover:text-black transition text-gray-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                >
+                  <ChevronDown className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Move Track Down (Neeche)</span>
+                </button>
+              </>
+            )}
+
             {/* Select All on Track */}
             {contextMenu.track && onSelectClips && (
               <button
@@ -2978,6 +3308,24 @@ export default function Timeline({
 
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* SMART PAUSE (WAQF) DETECTION & ACCENTED PAUSE LABELING SUITE CONFIG MODAL */}
+      {/* ========================================================================= */}
+      <SmartPauseConfigModal
+        isOpen={showSmartPauseModal}
+        onClose={() => setShowSmartPauseModal(false)}
+        onConfirm={(options) => {
+          if (onAutoSegmentAudio) {
+            onAutoSegmentAudio(selectedClipId || undefined, 'smart-waqf', {
+              customThresholdDb: options.rmsThresholdDb,
+              minSilenceMs: options.minSilenceMs,
+              gapHandling: options.gapHandling,
+              paddingMs: options.paddingMs,
+            });
+          }
+        }}
+      />
 
       {/* ========================================================================= */}
       {/* QURAN TILAWAT & AYAH SUBTITLE ALIGNMENT INSPECTOR & AUTO-FIX MODAL       */}

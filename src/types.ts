@@ -71,6 +71,7 @@ export interface Clip {
   confidenceScore?: number; // Tasmeea alignment confidence match ratio (0-100%)
   textAnimation?: TextAnimationConfig;
   linkedClipId?: string; // Two-Track Anchor Lock: Links Arabic clip and Translation clip together on timeline
+  groupId?: string; // Unified Group Container / Compound Clip ID for synchronized selection & movement
 
   // Video adjustments and filters
   transform?: {
@@ -213,7 +214,7 @@ export interface VisualStylePreset {
   id: string;
   userId?: string;
   name: string;
-  category: 'quranic_calligraphy' | 'caption_style' | 'relighting_effects' | 'full_theme';
+  category: 'quranic' | 'viral_reels' | 'cinematic' | 'quranic_calligraphy' | 'caption_style' | 'relighting_effects' | 'full_theme';
   createdAt: string;
   updatedAt: string;
   isFirestoreSynced?: boolean;

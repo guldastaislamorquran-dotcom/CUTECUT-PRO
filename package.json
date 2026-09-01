@@ -1,21 +1,22 @@
 {
   "name": "cutecut-pro",
+  "productName": "CuteCut Pro",
   "private": true,
   "version": "2.3.7",
   "license": "MIT",
-  "description": "CUTECUT PRO Professional Video Editor Suite",
+  "description": "CuteCut Pro is a powerful desktop video editing application featuring multi-track timeline management, real-time audio visualization, and precise Quranic audio-to-text synchronization.",
   "homepage": "https://github.com",
   "author": {
     "name": "Asmatullah Developer",
     "email": "asmatullahdevolper@gmail.com"
   },
   "type": "module",
-  "main": "dist/main.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --external:child_process --external:fs --external:path --external:url --outfile=dist/main.js && esbuild src/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/main.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --external:child_process --external:fs --external:path --external:url --outfile=dist-electron/main.js && esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --external:child_process --external:fs --external:path --external:url --outfile=dist/main.js && esbuild src/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/main.cjs",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist dist-electron server.js",
     "lint": "tsc --noEmit",
     "test": "tsc --noEmit",
     "electron:dev": "electron .",
@@ -28,8 +29,9 @@
     "tauri:build": "tauri build"
   },
   "build": {
-    "appId": "com.guldastaislamorquran.cutecutpro",
-    "productName": "CUTECUT PRO",
+    "appId": "com.cutecutpro.app",
+    "productName": "CuteCut Pro",
+    "executableName": "cutecut-pro",
     "copyright": "Copyright © 2026 Asmatullah Developer",
     "npmRebuild": false,
     "asar": true,
@@ -40,6 +42,7 @@
     "icon": "icon.png",
     "files": [
       "dist/**/*",
+      "dist-electron/**/*",
       "build-resources/**/*",
       "public/**/*",
       "assets/**/*",
@@ -48,7 +51,7 @@
     ],
     "linux": {
       "target": [
-        "AppImage",
+        "appimage",
         "deb",
         "snap"
       ],
@@ -57,22 +60,17 @@
       "executableName": "cutecut-pro"
     },
     "snap": {
-      "confinement": "strict",
       "grade": "stable",
-      "summary": "CUTECUT PRO Professional Video Editor Suite",
+      "confinement": "strict",
+      "summary": "Professional Multi-Track Video Editor",
       "plugs": [
         "desktop",
         "desktop-legacy",
-        "wayland",
         "x11",
-        "opengl",
-        "audio-playback",
-        "audio-record",
-        "camera",
-        "removable-media",
+        "wayland",
         "home",
         "network",
-        "network-bind"
+        "audio-playback"
       ]
     },
     "deb": {
@@ -97,10 +95,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CUTECUT PRO"
+      "shortcutName": "CuteCut Pro"
     },
     "portable": {
-      "artifactName": "CUTECUT-PRO-Portable-${version}.${ext}"
+      "artifactName": "cutecut-pro-Portable-${version}.${ext}"
     },
     "mac": {
       "target": [
