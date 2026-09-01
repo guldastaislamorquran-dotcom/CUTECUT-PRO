@@ -261,7 +261,32 @@ export default function App() {
   };
 
   // View switcher: 'portal' (CapCut/Filmora style landing page) or 'editor' (Full Timeline Workspace)
-  const [currentView, setCurrentView] = useState<'portal' | 'editor'>('portal');
+  const isNativeShell = (() => {
+    try {
+      const isElectron = typeof window !== 'undefined' && (!!(window as any).process?.versions?.electron || /electron/i.test(navigator.userAgent) || !!(window as any).ipcRenderer);
+      const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+      const isCapacitor = typeof window !== 'undefined' && !!(window as any).Capacitor;
+      const isLocalFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
+      return !!(isElectron || isTauri || isCapacitor || isLocalFile);
+    } catch {
+      return false;
+    }
+  })();
+
+  const [currentView, setCurrentView] = useState<'portal' | 'editor'>(() => {
+    try {
+      const isElectron = typeof window !== 'undefined' && (!!(window as any).process?.versions?.electron || /electron/i.test(navigator.userAgent) || !!(window as any).ipcRenderer);
+      const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+      const isCapacitor = typeof window !== 'undefined' && !!(window as any).Capacitor;
+      const isLocalFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
+      if (isElectron || isTauri || isCapacitor || isLocalFile) {
+        return 'editor';
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return 'portal';
+  });
 
   // Timeline Loop Playback & Grid Snapping state
   const [isLooping, setIsLooping] = useState(true);
@@ -1667,6 +1692,7 @@ export default function App() {
   const audioElementRef = useRef<Record<string, HTMLAudioElement>>({});
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const lastDriftCheckRef = useRef<number>(0);
 
   // Web Audio API context & dedicated master routing buses for live preview and video export
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1949,6 +1975,15 @@ export default function App() {
 
     // Sync and control playheads of hidden files
   useEffect(() => {
+    const now = Date.now();
+    const isPlayingActive = isPlaying;
+    
+    // Throttling: if playing, we only run drift sync checks every 500ms
+    const shouldCheckDrift = !isPlayingActive || (now - lastDriftCheckRef.current >= 500);
+    if (isPlayingActive && shouldCheckDrift) {
+      lastDriftCheckRef.current = now;
+    }
+
     tracks.forEach((track) => {
       track.clips.forEach((clip) => {
         const isActive = currentTime >= clip.start && currentTime <= clip.start + clip.duration;
@@ -1958,7 +1993,7 @@ export default function App() {
         // Normalize volume (clip.volume is 0..100, HTML5 media expects 0.0..1.0)
         const rawVol = clip.volume !== undefined ? clip.volume : 80;
         const safeVolume = Math.max(0, Math.min(1, rawVol > 1 ? rawVol / 100 : rawVol));
-        const isAudible = !isMuted && !track.muted && isActive && (isPlaying || exporting);
+        const isAudible = !isMuted && !track.muted && isActive && (isPlayingActive || exporting);
         const targetGain = isAudible ? safeVolume : 0;
 
         if (audioSourceNodesRef.current[clip.id]?.gainNode) {
@@ -1975,15 +2010,17 @@ export default function App() {
             video.muted = false;
 
             if (isActive) {
-              if (isPlaying || exporting) {
+              if (isPlayingActive || exporting) {
                 if (video.paused) {
                   video.play().catch(() => {});
                 }
                 // Sync drift check with clamping to avoid crashes on huge streams
-                const durationLimit = video.duration || clip.duration || 999999;
-                const clampedTarget = Math.max(0, Math.min(durationLimit, targetSrcTime));
-                if (Math.abs(video.currentTime - clampedTarget) > 0.3) {
-                  video.currentTime = clampedTarget;
+                if (shouldCheckDrift) {
+                  const durationLimit = video.duration || clip.duration || 999999;
+                  const clampedTarget = Math.max(0, Math.min(durationLimit, targetSrcTime));
+                  if (Math.abs(video.currentTime - clampedTarget) > 0.6) {
+                    video.currentTime = clampedTarget;
+                  }
                 }
                 syncAudioEffectsForClip(video, clip);
               } else {
@@ -2015,15 +2052,17 @@ export default function App() {
             audio.muted = false;
 
             if (isActive) {
-              if (isPlaying || exporting) {
+              if (isPlayingActive || exporting) {
                 if (audio.paused) {
                   audio.play().catch(() => {});
                 }
                 // Sync drift check with clamping
-                const durationLimit = audio.duration || clip.duration || 999999;
-                const clampedTarget = Math.max(0, Math.min(durationLimit, targetSrcTime));
-                if (Math.abs(audio.currentTime - clampedTarget) > 0.3) {
-                  audio.currentTime = clampedTarget;
+                if (shouldCheckDrift) {
+                  const durationLimit = audio.duration || clip.duration || 999999;
+                  const clampedTarget = Math.max(0, Math.min(durationLimit, targetSrcTime));
+                  if (Math.abs(audio.currentTime - clampedTarget) > 0.6) {
+                    audio.currentTime = clampedTarget;
+                  }
                 }
                 syncAudioEffectsForClip(audio, clip);
               } else {
@@ -5344,15 +5383,17 @@ export default function App() {
         {/* Top Header Action Buttons */}
         <div className="flex items-center gap-2">
           {/* Home Portal Button */}
-          <button
-            id="btn-back-to-portal-header"
-            onClick={() => setCurrentView('portal')}
-            className="flex items-center gap-1.5 px-3 h-9 bg-[#161622] hover:bg-[#202030] border border-[#2e2e42] hover:border-cyan-500/40 text-gray-300 text-xs font-bold rounded-lg transition shadow-sm active:scale-95 cursor-pointer"
-            title="Return to home landing portal & video templates"
-          >
-            <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden md:inline">Home Portal</span>
-          </button>
+          {!isNativeShell && (
+            <button
+              id="btn-back-to-portal-header"
+              onClick={() => setCurrentView('portal')}
+              className="flex items-center gap-1.5 px-3 h-9 bg-[#161622] hover:bg-[#202030] border border-[#2e2e42] hover:border-cyan-500/40 text-gray-300 text-xs font-bold rounded-lg transition shadow-sm active:scale-95 cursor-pointer"
+              title="Return to home landing portal & video templates"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden md:inline">Home Portal</span>
+            </button>
+          )}
 
           {/* Gemini Live Voice Conversation Button */}
           <button

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { generateWaveformPeaks, normalizeMediaUrl, calculateAudioPeakDb, calculateFrequencySpectrumAtOffset } from '../utils/editorUtils';
+import { generateWaveformPeaks, normalizeMediaUrl, calculateAudioPeakDb, calculateFrequencySpectrumAtOffset, analyzeVoiceActivityRMS, computeBreathMarkersFromSpeech, globalBreathMarkersRegistry } from '../utils/editorUtils';
 
 interface AudioWaveformGraphProps {
   clipId: string;
@@ -22,7 +22,7 @@ interface AudioWaveformGraphProps {
 const decodedAudioCache = new Map<string, Float32Array>();
 const pendingDecodes = new Map<string, Promise<Float32Array | null>>();
 
-export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
+export const AudioWaveformGraph = React.memo<AudioWaveformGraphProps>(({
   clipId,
   url,
   width,
@@ -120,6 +120,33 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     };
   }, [url]);
 
+  // Analyze voice activity to generate and register breath/silence markers for timeline snapping & overlays
+  useEffect(() => {
+    if (channelData && channelData.length > 0 && clipDuration > 0) {
+      try {
+        const speech = analyzeVoiceActivityRMS(channelData, 44100, {
+          noiseFloorSensitivity: 'quran-ayah',
+        });
+        const breaths = computeBreathMarkersFromSpeech(speech, clipDuration, clipId);
+        globalBreathMarkersRegistry.set(clipId, breaths);
+      } catch (err) {
+        console.warn('[AudioWaveformGraph] Failed to extract breath markers:', err);
+      }
+    } else if (clipDuration > 0) {
+      // Procedural fallback if channel data isn't loaded yet, so snapping has initial targets
+      const proceduralBreaths = [
+        { id: `${clipId}-proc-1`, startTime: clipDuration * 0.2, endTime: clipDuration * 0.2 + 0.5, duration: 0.5 },
+        { id: `${clipId}-proc-2`, startTime: clipDuration * 0.5, endTime: clipDuration * 0.5 + 0.6, duration: 0.6 },
+        { id: `${clipId}-proc-3`, startTime: clipDuration * 0.8, endTime: clipDuration * 0.8 + 0.5, duration: 0.5 }
+      ];
+      globalBreathMarkersRegistry.set(clipId, proceduralBreaths);
+    }
+
+    return () => {
+      globalBreathMarkersRegistry.delete(clipId);
+    };
+  }, [channelData, clipId, clipDuration]);
+
   // Render Canvas Waveform
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -139,19 +166,15 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, renderWidth, renderHeight);
 
-    // 1. Container backdrop (Solid dark purple for audio, translucent dark slate for video overlay)
-    const backdropGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
-    if (overlayMode) {
-      backdropGradient.addColorStop(0, 'rgba(10, 15, 28, 0.55)');
-      backdropGradient.addColorStop(0.5, 'rgba(15, 23, 42, 0.45)');
-      backdropGradient.addColorStop(1, 'rgba(10, 15, 28, 0.55)');
-    } else {
+    // 1. Container backdrop (Solid dark purple for audio, fully clear for video overlay to let thumbnails shine through!)
+    if (!overlayMode) {
+      const backdropGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
       backdropGradient.addColorStop(0, '#1c0d2e');
       backdropGradient.addColorStop(0.5, '#150924');
       backdropGradient.addColorStop(1, '#1c0d2e');
+      ctx.fillStyle = backdropGradient;
+      ctx.fillRect(0, 0, renderWidth, renderHeight);
     }
-    ctx.fillStyle = backdropGradient;
-    ctx.fillRect(0, 0, renderWidth, renderHeight);
 
     // 2. Compute Peak Amplitudes & RMS Silence Flags (downsampled per bar)
     const volFactor = Math.min(2.0, Math.max(0.1, volume));
@@ -208,8 +231,8 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       }
     }
 
-    // 3. Draw Background Highlight Bands & Text Guides for Silence Regions
-    if (showSilenceHighlights) {
+    // 3. Draw Background Highlight Bands & Text Guides for Silence Regions (Only for pure audio, not video overlays)
+    if (showSilenceHighlights && !overlayMode) {
       let silenceStartBar: number | null = null;
       for (let i = 0; i <= totalBars; i++) {
         const isSil = i < totalBars ? isSilenceFlags[i] : false;
@@ -246,14 +269,16 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       }
     }
 
-    // 4. Center Baseline Reference Line
+    // 4. Center Baseline Reference Line (Only for pure audio tracks, not video overlay mode)
     const centerY = renderHeight / 2;
-    ctx.strokeStyle = isSelected ? 'rgba(216, 180, 254, 0.5)' : 'rgba(168, 85, 247, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, centerY);
-    ctx.lineTo(renderWidth, centerY);
-    ctx.stroke();
+    if (!overlayMode) {
+      ctx.strokeStyle = isSelected ? 'rgba(216, 180, 254, 0.5)' : 'rgba(168, 85, 247, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, centerY);
+      ctx.lineTo(renderWidth, centerY);
+      ctx.stroke();
+    }
 
     // 5. Speech vs Silence Waveform Bar Gradients
     const speechGradient = ctx.createLinearGradient(0, 0, 0, renderHeight);
@@ -293,7 +318,7 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       silenceGradient.addColorStop(1, 'rgba(217, 119, 6, 0.8)');
     }
 
-    const maxAmplitude = (renderHeight / 2) * 0.88;
+    const maxAmplitude = overlayMode ? (renderHeight * 0.25) : ((renderHeight / 2) * 0.88);
 
     // 6. Draw Main Waveform Bars & Beat Transient Markers
     for (let i = 0; i < totalBars; i++) {
@@ -302,8 +327,14 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       const amp = Math.max(0.04, peaks[i] || 0.04);
       const barHeight = amp * maxAmplitude;
 
-      const topY = centerY - barHeight;
-      const h = barHeight * 2;
+      let topY = centerY - barHeight;
+      let h = barHeight * 2;
+
+      if (overlayMode) {
+        // Bottom-aligned mini-waveform for video track overlays (growing upwards from the bottom)
+        topY = renderHeight - barHeight - 2.5;
+        h = barHeight;
+      }
 
       ctx.fillStyle = (showSilenceHighlights && isSil) ? silenceGradient : speechGradient;
 
@@ -318,7 +349,7 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       // 6.5 Beat / Transient Spike Dot Indicator
       const prevPeak = i > 0 ? peaks[i - 1] : 0;
       const isBeatTransient = showBeatMarkers && !isSil && amp > 0.42 && (amp > prevPeak * 1.2 + 0.08);
-      if (isBeatTransient && renderHeight >= 20) {
+      if (isBeatTransient && renderHeight >= 20 && !overlayMode) {
         ctx.save();
         ctx.fillStyle = overlayMode ? '#fbbf24' : '#22d3ee';
         ctx.shadowBlur = 4;
@@ -365,7 +396,17 @@ export const AudioWaveformGraph: React.FC<AudioWaveformGraphProps> = ({
       />
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  return prevProps.clipId === nextProps.clipId &&
+         prevProps.url === nextProps.url &&
+         prevProps.width === nextProps.width &&
+         prevProps.height === nextProps.height &&
+         prevProps.isSelected === nextProps.isSelected &&
+         prevProps.volume === nextProps.volume &&
+         prevProps.showSilenceHighlights === nextProps.showSilenceHighlights &&
+         prevProps.showBeatMarkers === nextProps.showBeatMarkers &&
+         prevProps.overlayMode === nextProps.overlayMode;
+});
 
 export default AudioWaveformGraph;
 

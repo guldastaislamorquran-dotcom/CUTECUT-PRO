@@ -1,4 +1,4 @@
-name: cutecute-pro
+name: cutecut-pro
 base: core22
 version: '2.3.7'
 summary: CUTECUT PRO Professional Video Editor Suite
@@ -11,7 +11,7 @@ grade: stable
 confinement: strict
 
 apps:
-  cutecute-pro:
+  cutecut-pro:
     command: cutecut-pro --no-sandbox --disable-gpu-sandbox --ozone-platform-hint=auto
     extensions: [gnome]
     plugs: [desktop, desktop-legacy, wayland, x11, opengl, audio-playback, home]

@@ -815,6 +815,76 @@ export function generateWaveformPeaks(seedStr: string, count: number): number[] 
   return peaks;
 }
 
+export interface BreathMarker {
+  id: string;
+  startTime: number; // In seconds
+  endTime: number;   // In seconds
+  duration: number;  // In seconds
+}
+
+// Global registry of breath/silence markers for active audio clips
+export const globalBreathMarkersRegistry = new Map<string, BreathMarker[]>();
+
+export function computeBreathMarkersFromSpeech(
+  speechSegments: Array<{ start: number; end: number }>,
+  clipDuration: number,
+  clipId: string
+): BreathMarker[] {
+  const markers: BreathMarker[] = [];
+  if (!speechSegments || speechSegments.length === 0) {
+    if (clipDuration > 0) {
+      markers.push({
+        id: `${clipId}-silence-0`,
+        startTime: 0,
+        endTime: clipDuration,
+        duration: clipDuration,
+      });
+    }
+    return markers;
+  }
+
+  // Sort segments by start time
+  const sorted = [...speechSegments].sort((a, b) => a.start - b.start);
+
+  // 1. Before first speech segment
+  if (sorted[0].start > 0.05) {
+    markers.push({
+      id: `${clipId}-silence-init`,
+      startTime: 0,
+      endTime: sorted[0].start,
+      duration: sorted[0].start,
+    });
+  }
+
+  // 2. Gaps between speech segments
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const currentEnd = sorted[i].end;
+    const nextStart = sorted[i + 1].start;
+    const duration = nextStart - currentEnd;
+    if (duration > 0.05) { // Minimum 50ms to be a valid gap
+      markers.push({
+        id: `${clipId}-silence-${i}`,
+        startTime: currentEnd,
+        endTime: nextStart,
+        duration,
+      });
+    }
+  }
+
+  // 3. After last speech segment
+  const lastSpeechEnd = sorted[sorted.length - 1].end;
+  if (clipDuration - lastSpeechEnd > 0.05) {
+    markers.push({
+      id: `${clipId}-silence-final`,
+      startTime: lastSpeechEnd,
+      endTime: clipDuration,
+      duration: clipDuration - lastSpeechEnd,
+    });
+  }
+
+  return markers;
+}
+
 /**
  * Enhanced Multi-Scale Acoustic Voice Activity & Pause Detection Engine
  * Uses adaptive noise-floor estimation (10th percentile energy baseline),
@@ -844,15 +914,15 @@ export function analyzeVoiceActivityRMS(
   let baselineFloorDb = -29;
 
   if (sensitivity === 'quran-ayah') {
-    defaultMinSilence = 250; // Lowed from 480ms to detect short, quick Waqf breathing pauses between Ayahs
-    defaultMinSpeech = 800;  // Capture shorter phrases
-    defaultPadding = 100;
-    baselineFloorDb = -29;   // Raised from -33 to tolerate background hiss/breathing inhalation noises
+    defaultMinSilence = 200; // Reduced from 250 to detect short, quick Waqf breathing pauses between Ayahs
+    defaultMinSpeech = 600;  // Capture shorter phrases
+    defaultPadding = 80;
+    baselineFloorDb = -28.5; // Raised from -29 to tolerate background hiss/breathing inhalation noises
   } else if (sensitivity === 'smart-waqf') {
-    defaultMinSilence = 400; // Natural breaths need at least 400ms pause to count as Waqf breathing points
-    defaultMinSpeech = 600;  // Capture slightly shorter verses or half-verse phrases
-    defaultPadding = 120;    // Spacious Tajweed padding to preserve quiet endings
-    baselineFloorDb = -32;   // Optimized floor for distinguishing natural breath in/out
+    defaultMinSilence = 220; // Reduced from 400ms to count quick breaths as Waqf breathing points
+    defaultMinSpeech = 500;  // Capture slightly shorter verses or half-verse phrases
+    defaultPadding = 100;    // Spacious Tajweed padding to preserve quiet endings
+    baselineFloorDb = -29.5; // Optimized floor for distinguishing natural breath in/out
   } else if (sensitivity === 'tartil') {
     defaultMinSilence = 350; // Slow, measured recitation but responsive to standard pause lengths
     defaultMinSpeech = 1000;
@@ -1816,8 +1886,19 @@ export function autoSyncVideoClipsToAyahs(
   const newVideoClips: Clip[] = [];
 
   sortedCaptions.forEach((cap, idx) => {
-    const clipStart = cap.start;
-    const clipDuration = Math.max(1.0, cap.duration);
+    let clipStart = cap.start;
+    const nextCap = sortedCaptions[idx + 1];
+    
+    // Stretch first clip to start at 0s to avoid initial black screen/gap during intro
+    if (idx === 0) {
+      clipStart = 0;
+    }
+
+    let clipDuration = cap.duration;
+    // Stretch clip to the start of the next subtitle to make transitions continuous (no black frames)
+    if (nextCap && nextCap.start > clipStart) {
+      clipDuration = nextCap.start - clipStart;
+    }
 
     // Alternate video source if multiple stock backgrounds available
     const urlToUse = (stockAlternativeUrls && stockAlternativeUrls.length > 0)

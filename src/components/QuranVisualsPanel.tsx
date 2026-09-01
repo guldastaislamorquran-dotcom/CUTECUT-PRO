@@ -403,8 +403,52 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   // Place single visual on timeline
   const handleAddVisualToTimeline = (item: AyahVisualItem) => {
     const isVid = item.mediaType === 'video';
-    const targetStart = (sourceMode === 'timeline' && item.start !== undefined) ? item.start : currentTime;
-    const targetDuration = item.duration || 5.0;
+    
+    // Helper to parse verse numbers for matching
+    const getVerseKeyNumbers = (str: string) => {
+      const colonMatch = str.match(/(\d+)[:.](\d+)/);
+      if (colonMatch) {
+        return { surah: parseInt(colonMatch[1], 10), verse: parseInt(colonMatch[2], 10) };
+      }
+      const numMatch = str.match(/\d+/);
+      if (numMatch) {
+        return { surah: null, verse: parseInt(numMatch[0], 10) };
+      }
+      return null;
+    };
+
+    const isMatch = (keyA: string, keyB: string) => {
+      const cleanA = keyA.toLowerCase();
+      const cleanB = keyB.toLowerCase();
+      if (cleanA.includes('tawuz') || cleanA.includes('ta\'awwuz') || cleanA.includes('auzubillah')) {
+        return cleanB.includes('tawuz') || cleanB.includes('ta\'awwuz') || cleanB.includes('auzubillah') || cleanB.includes('refuge');
+      }
+      if (cleanA.includes('tasmiyah') || cleanA.includes('bismillah')) {
+        return cleanB.includes('tasmiyah') || cleanB.includes('bismillah') || cleanB.includes('name of allah');
+      }
+
+      const nA = getVerseKeyNumbers(keyA);
+      const nB = getVerseKeyNumbers(keyB);
+      if (nA && nB) {
+        if (nA.surah !== null && nB.surah !== null) {
+          return nA.surah === nB.surah && nA.verse === nB.verse;
+        }
+        return nA.verse === nB.verse;
+      }
+      return false;
+    };
+
+    const matchedSeg = timelineAyahs.find(t => isMatch(item.verse_key, t.verse_key));
+    
+    let targetStart = currentTime;
+    let targetDuration = item.duration || 5.0;
+
+    if (matchedSeg) {
+      targetStart = matchedSeg.start;
+      targetDuration = matchedSeg.duration;
+    } else if (sourceMode === 'timeline' && item.start !== undefined) {
+      targetStart = item.start;
+    }
 
     onAddClip({
       name: `Scene: ${item.verse_key} [${item.theme}]`,
@@ -447,51 +491,116 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
       });
     });
 
-    // Determine target segments from timeline
+    // Helper functions to parse verse numbers and check for match
+    const getVerseKeyNumbers = (str: string) => {
+      const colonMatch = str.match(/(\d+)[:.](\d+)/);
+      if (colonMatch) {
+        return { surah: parseInt(colonMatch[1], 10), verse: parseInt(colonMatch[2], 10) };
+      }
+      const numMatch = str.match(/\d+/);
+      if (numMatch) {
+        return { surah: null, verse: parseInt(numMatch[0], 10) };
+      }
+      return null;
+    };
+
+    const isMatch = (keyA: string, keyB: string) => {
+      const cleanA = keyA.toLowerCase();
+      const cleanB = keyB.toLowerCase();
+      if (cleanA.includes('tawuz') || cleanA.includes('ta\'awwuz') || cleanA.includes('auzubillah')) {
+        return cleanB.includes('tawuz') || cleanB.includes('ta\'awwuz') || cleanB.includes('auzubillah') || cleanB.includes('refuge');
+      }
+      if (cleanA.includes('tasmiyah') || cleanA.includes('bismillah')) {
+        return cleanB.includes('tasmiyah') || cleanB.includes('bismillah') || cleanB.includes('name of allah');
+      }
+
+      const nA = getVerseKeyNumbers(keyA);
+      const nB = getVerseKeyNumbers(keyB);
+      if (nA && nB) {
+        if (nA.surah !== null && nB.surah !== null) {
+          return nA.surah === nB.surah && nA.verse === nB.verse;
+        }
+        return nA.verse === nB.verse;
+      }
+      return false;
+    };
+
+    // Build the segments list with exact timing matched to the timeline
     let segments: Array<{ verse_key: string; start: number; duration: number; text_arabic?: string; translation?: string }> = [];
 
-    if (sourceMode === 'timeline' && timelineAyahs.length === generatedVisuals.length) {
-      // 1-to-1 perfect match with the timeline subtitle segments
-      segments = timelineAyahs;
-    } else if (sourceMode === 'timeline' && totalAudioDur > 0) {
-      // Evenly distribute all generated scenes across the complete duration of the recitation audio
-      const segmentDur = totalAudioDur / generatedVisuals.length;
-      segments = generatedVisuals.map((g, i) => ({
-        verse_key: g.verse_key || `Ayah ${i + 1}`,
-        start: Number((i * segmentDur).toFixed(2)),
-        duration: Number(segmentDur.toFixed(2)),
-        text_arabic: g.text_arabic,
-        translation: g.translation,
-      }));
-    } else {
-      // Manual incremental layout
-      segments = generatedVisuals.map((g, i) => ({
-        verse_key: g.verse_key,
-        start: g.start !== undefined ? g.start : Number((i * 5.0).toFixed(2)),
-        duration: g.duration !== undefined ? g.duration : 5.0,
-        text_arabic: g.text_arabic,
-        translation: g.translation,
-      }));
+    // Attempt intelligent matching with timeline subtitles first, regardless of sourceMode
+    if (timelineAyahs.length > 0) {
+      segments = generatedVisuals.map((g) => {
+        // Find a matching subtitle segment in timelineAyahs
+        const matchedSeg = timelineAyahs.find(t => isMatch(g.verse_key, t.verse_key));
+        if (matchedSeg) {
+          return {
+            verse_key: g.verse_key,
+            start: matchedSeg.start,
+            duration: matchedSeg.duration,
+            text_arabic: matchedSeg.text_arabic || g.text_arabic,
+            translation: matchedSeg.translation || g.translation,
+          };
+        }
+        return null;
+      }).filter((s): s is NonNullable<typeof s> => s !== null);
+    }
+
+    // Fallback: If no matches were found, or match count is too low, use standard heuristic strategies
+    if (segments.length === 0) {
+      if (sourceMode === 'timeline' && timelineAyahs.length === generatedVisuals.length) {
+        segments = timelineAyahs;
+      } else if (sourceMode === 'timeline' && totalAudioDur > 0) {
+        const segmentDur = totalAudioDur / generatedVisuals.length;
+        segments = generatedVisuals.map((g, i) => ({
+          verse_key: g.verse_key || `Ayah ${i + 1}`,
+          start: Number((i * segmentDur).toFixed(2)),
+          duration: Number(segmentDur.toFixed(2)),
+          text_arabic: g.text_arabic,
+          translation: g.translation,
+        }));
+      } else {
+        segments = generatedVisuals.map((g, i) => ({
+          verse_key: g.verse_key,
+          start: g.start !== undefined ? g.start : Number((i * 5.0).toFixed(2)),
+          duration: g.duration !== undefined ? g.duration : 5.0,
+          text_arabic: g.text_arabic,
+          translation: g.translation,
+        }));
+      }
     }
 
     let runningMarker = 0;
 
+    // Ensure we map each generated visual to its matched segment or fallback segment
     const clipsToPlace: Partial<Clip>[] = generatedVisuals.map((item, idx) => {
       const isVid = item.mediaType === 'video';
-      const seg = segments[idx] || {
-        start: item.start !== undefined ? item.start : runningMarker,
-        duration: item.duration || 5.0,
-        verse_key: item.verse_key,
-      };
+      
+      // Try to find matching segment by verse_key
+      let seg = segments.find(s => isMatch(item.verse_key, s.verse_key));
+      if (!seg) {
+        // Fallback to sequential index
+        seg = segments[idx] || {
+          start: item.start !== undefined ? item.start : runningMarker,
+          duration: item.duration || 5.0,
+          verse_key: item.verse_key,
+        };
+      }
 
       let clipStart = Number(seg.start.toFixed(2));
       let clipDur = Number(seg.duration.toFixed(2));
 
+      // Stretch scene until the start of next verse so there are zero black gaps
       if (syncTimingMode === 'continuous') {
-        // Stretch scene until the start of next verse so there are zero black gaps
-        const nextSeg = segments[idx + 1];
+        // Sort segments chronologically to get the next one
+        const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
+        const currentSegIdx = sortedSegs.findIndex(s => s.verse_key === seg!.verse_key);
+        const nextSeg = sortedSegs[currentSegIdx + 1];
         if (nextSeg && nextSeg.start > clipStart) {
           clipDur = Number((nextSeg.start - clipStart).toFixed(2));
+        } else if (!nextSeg && totalAudioDur > clipStart + clipDur) {
+          // Stretch final segment to cover remaining audio duration
+          clipDur = Number((totalAudioDur - clipStart).toFixed(2));
         }
       }
 
@@ -521,6 +630,18 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
         }
       };
     });
+
+    // Post-processing: If we are in continuous mode, make sure the first clip stretches back to 0s to avoid intro black screen!
+    if (syncTimingMode === 'continuous' && clipsToPlace.length > 0) {
+      const sortedClips = [...clipsToPlace].sort((a, b) => (a.start || 0) - (b.start || 0));
+      const firstClip = sortedClips[0];
+      if (firstClip && firstClip.start && firstClip.start > 0) {
+        const offset = firstClip.start;
+        firstClip.duration = Number(((firstClip.duration || 5.0) + offset).toFixed(2));
+        firstClip.sourceDuration = firstClip.duration;
+        firstClip.start = 0;
+      }
+    }
 
     if (onReplaceVideoTrackClips) {
       onReplaceVideoTrackClips(clipsToPlace);

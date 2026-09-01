@@ -31,8 +31,8 @@ export const SmartPauseConfigModal: React.FC<SmartPauseConfigModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
-  initialRmsThresholdDb = -32,
-  initialMinSilenceMs = 400,
+  initialRmsThresholdDb = -29,
+  initialMinSilenceMs = 240,
   initialGapHandling = 'label-pauses',
   initialPaddingMs = 120,
 }) => {

@@ -10,7 +10,7 @@ import {
   GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
 } from 'lucide-react';
 import { Track, Clip, ClipType, TransitionType } from '../types';
-import { formatTimeCode, inspectQuranAyahAlignment, QuranSyncInspectionReport, QuranSyncInspectionItem, generateAutoFixQuranTextClips, extractAyahNumberFromClip } from '../utils/editorUtils';
+import { formatTimeCode, inspectQuranAyahAlignment, QuranSyncInspectionReport, QuranSyncInspectionItem, generateAutoFixQuranTextClips, extractAyahNumberFromClip, globalBreathMarkersRegistry } from '../utils/editorUtils';
 import { SURAHS } from './MediaPanel';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById } from '../utils/quranTranslations';
 import AudioWaveformGraph from './AudioWaveformGraph';
@@ -342,6 +342,7 @@ export default function Timeline({
   const [showAutoSegmentMenu, setShowAutoSegmentMenu] = useState(false);
   const [showSmartPauseModal, setShowSmartPauseModal] = useState(false);
   const [showSilenceGuide, setShowSilenceGuide] = useState(true);
+  const [showVideoWaveforms, setShowVideoWaveforms] = useState(true);
   const [followPlayheadMode, setFollowPlayheadMode] = useState<'page' | 'smooth' | 'off'>('page');
   const lastAutoScrollRef = useRef<number>(0);
 
@@ -349,6 +350,33 @@ export default function Timeline({
   const quranSyncReport = useMemo(() => {
     return inspectQuranAyahAlignment(tracks);
   }, [tracks]);
+
+  // Extract all timeline-absolute breath markers across all audio clips for snapping and overlays
+  const activeBreathMarkers = useMemo(() => {
+    const list: Array<{ id: string; startTime: number; endTime: number; duration: number; clipId: string }> = [];
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url)) {
+          const clipBreaths = globalBreathMarkersRegistry.get(clip.id);
+          if (clipBreaths && clipBreaths.length > 0) {
+            for (const marker of clipBreaths) {
+              list.push({
+                id: `${clip.id}-${marker.id}`,
+                startTime: clip.start + marker.startTime,
+                endTime: clip.start + marker.endTime,
+                duration: marker.duration,
+                clipId: clip.id
+              });
+            }
+          }
+        }
+      }
+    }
+    return list;
+  }, [tracks]);
+
+  const activeBreathMarkersRef = useRef(activeBreathMarkers);
+  activeBreathMarkersRef.current = activeBreathMarkers;
 
   const [showQuranInspectorModal, setShowQuranInspectorModal] = useState(false);
   const [isFixingText, setIsFixingText] = useState(false);
@@ -897,10 +925,8 @@ export default function Timeline({
   }, []);
 
   // Dragging and resizing clips & Marquee selection drag listener
+  // Unconditional Window Mouse & Touch Events for Dragging, Resizing, Scrubbing, and Marquee Selection
   useEffect(() => {
-    const hasActiveDrag = isScrubbing || draggingClips !== null || marquee !== null;
-    if (!hasActiveDrag) return;
-
     let autoScrollRaf: number | null = null;
     let latestClientX = 0;
     let latestClientY = 0;
@@ -908,9 +934,14 @@ export default function Timeline({
     // Edge Auto-Scroll function when dragging near viewport boundaries
     const checkEdgeAutoScroll = () => {
       const container = tracksContainerRef.current;
-      if (!container || (!draggingClipsRef.current && (!marqueeRef.current || !marqueeRef.current.isSelecting))) {
-        return;
-      }
+      if (!container) return;
+
+      const isDraggingActive = Boolean(
+        draggingClipsRef.current || 
+        isScrubbingRef.current || 
+        (marqueeRef.current && marqueeRef.current.isSelecting)
+      );
+      if (!isDraggingActive) return;
 
       const rect = container.getBoundingClientRect();
       const edgeMargin = 60;
@@ -1022,6 +1053,48 @@ export default function Timeline({
                   time: clipEnd,
                   label: `${clp.name || 'Clip'} End (${clipEnd.toFixed(2)}s)`,
                   type: 'clip-edge',
+                };
+              }
+            }
+          }
+
+          // 4. Breath / Silence Markers Snapping
+          if (isSnapping && activeBreathMarkersRef.current) {
+            for (const marker of activeBreathMarkersRef.current) {
+              // Snap to start of silence (pause start)
+              const startDist = Math.abs(candidateTime - marker.startTime);
+              if (startDist <= bestDist) {
+                bestDist = startDist;
+                bestTime = marker.startTime;
+                bestSnapInfo = {
+                  time: marker.startTime,
+                  label: `Pause Start (${marker.startTime.toFixed(2)}s)`,
+                  type: 'breath' as any,
+                };
+              }
+
+              // Snap to end of silence (pause end / recitation start)
+              const endDist = Math.abs(candidateTime - marker.endTime);
+              if (endDist <= bestDist) {
+                bestDist = endDist;
+                bestTime = marker.endTime;
+                bestSnapInfo = {
+                  time: marker.endTime,
+                  label: `Pause End (${marker.endTime.toFixed(2)}s)`,
+                  type: 'breath' as any,
+                };
+              }
+
+              // Snap to midpoint of silence (pause center)
+              const midTime = (marker.startTime + marker.endTime) / 2;
+              const midDist = Math.abs(candidateTime - midTime);
+              if (midDist <= bestDist) {
+                bestDist = midDist;
+                bestTime = midTime;
+                bestSnapInfo = {
+                  time: midTime,
+                  label: `Pause Center (${midTime.toFixed(2)}s)`,
+                  type: 'breath' as any,
                 };
               }
             }
@@ -1143,18 +1216,34 @@ export default function Timeline({
             };
           });
 
-          // If dragging within same track, perform real-time position updates
-          if (currentTargetTrackId === activeDragging.sourceTrackId) {
+          // Real-time position and track updates across all selected/dragged clips
+          const targetTrack = tracksRef.current.find(t => t.id === currentTargetTrackId);
+          if (targetTrack && !targetTrack.locked) {
+            // Calculate track index delta to move other selected clips proportionally
+            const sourceTrackIdx = tracksRef.current.findIndex(t => t.id === activeDragging.sourceTrackId);
+            const trackIdxDelta = currentTargetTrackIdx - sourceTrackIdx;
+
             const updates = activeDragging.clips.map(item => {
               let targetStart = Math.max(0, item.initialStart + effectiveDelta);
               if (snapToGridRef.current && !snapStart.snapInfo && !snapEnd.snapInfo) {
                 targetStart = Math.round(targetStart * 30) / 30; // 1/30s frame boundary precision
               }
+
+              // Determine target track for each individual clip in selection group
+              let clipTargetTrackId = item.sourceTrackId || item.trackId;
+              if (trackIdxDelta !== 0) {
+                const clipSourceTrackIdx = tracksRef.current.findIndex(t => t.id === (item.sourceTrackId || item.trackId));
+                if (clipSourceTrackIdx !== -1) {
+                  const clipTargetTrackIdx = Math.max(0, Math.min(tracksRef.current.length - 1, clipSourceTrackIdx + trackIdxDelta));
+                  clipTargetTrackId = tracksRef.current[clipTargetTrackIdx].id;
+                }
+              }
+
               return {
                 id: item.id,
                 start: targetStart,
                 duration: item.initialDuration,
-                trackId: currentTargetTrackId,
+                trackId: clipTargetTrackId,
               };
             });
 
@@ -1503,6 +1592,7 @@ export default function Timeline({
             initialStart: c.start,
             initialDuration: c.duration,
             trackId: track.id,
+            sourceTrackId: track.id,
           });
         }
       });
@@ -2074,57 +2164,34 @@ export default function Timeline({
             <Magnet className="w-3.5 h-3.5" />
           </button>
 
-          {/* Snap-to-Grid (1/30s Frame Boundaries) Toggle */}
+          {/* Video Waveforms Toggle */}
           <button
-            id="btn-snap-grid-toggle"
-            onClick={() => {
-              if (onToggleSnapToGrid) {
-                onToggleSnapToGrid();
-              } else {
-                setSnapToGrid(prev => !prev);
-              }
-            }}
+            id="btn-video-waveforms-toggle"
+            onClick={() => setShowVideoWaveforms(prev => !prev)}
             className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1 ${
-              snapToGrid
+              showVideoWaveforms
                 ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-xs ring-1 ring-cyan-500/30'
                 : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532]'
             }`}
-            title={`Snap to Frame Grid (1/30s): ${snapToGrid ? 'ENABLED (Restricts clip placement to 30 FPS frame boundaries to prevent AV desync)' : 'DISABLED'}`}
+            title={`Video Waveforms Display: ${showVideoWaveforms ? 'ENABLED (Displays CapCut-style mini waveforms on video clips)' : 'DISABLED (Hides waveforms on video clips entirely)'}`}
           >
-            <Grid className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-[10px]">Grid (1/30s)</span>
+            <Radio className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-[10px]">Video Waves</span>
           </button>
 
-          {/* Auto Ripple / Link Tracks Toggle */}
+          {/* Visual Breath / Silence Guides Toggle */}
           <button
-            id="btn-ripple-tracks-toggle"
-            className="p-1.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-500/50 shadow-xs transition"
-            title="Auto Ripple / Track Synchronization (ON)"
+            id="btn-silence-guide-toggle"
+            onClick={() => setShowSilenceGuide(prev => !prev)}
+            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1 ${
+              showSilenceGuide
+                ? 'bg-amber-950/90 text-amber-300 border border-amber-500/50 shadow-xs ring-1 ring-amber-500/30'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532]'
+            }`}
+            title={`Visual Breath/Silence Mapping Guidelines: ${showSilenceGuide ? 'ENABLED (Renders yellow guide columns on timeline pauses)' : 'DISABLED'}`}
           >
-            <Link2 className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Linked Editing */}
-          <button
-            id="btn-linked-editing"
-            className="p-1.5 rounded hover:bg-[#252532] text-gray-300 transition"
-            title="Linked Editing"
-          >
-            <Link className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Align / Center Playhead */}
-          <button
-            id="btn-center-playhead"
-            onClick={() => {
-              if (tracksContainerRef.current) {
-                tracksContainerRef.current.scrollLeft = Math.max(0, currentTime * zoom - tracksContainerRef.current.clientWidth / 2);
-              }
-            }}
-            className="p-1.5 rounded hover:bg-[#252532] text-gray-300 transition"
-            title="Center Playhead in View"
-          >
-            <Crosshair className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline text-[10px]">Breath Guide</span>
           </button>
 
           {/* Follow Playhead Mode Switcher (Page / Smooth / Off) */}
@@ -2485,6 +2552,29 @@ export default function Timeline({
               {/* Clean Ruler without top overlays */}
             </div>
 
+            {/* Visual Breath Mapping Overlay Guidelines across the entire tracks background */}
+            {showSilenceGuide && activeBreathMarkers.map((marker) => {
+              const left = marker.startTime * zoom;
+              const width = (marker.endTime - marker.startTime) * zoom;
+              if (width < 2) return null; // Avoid tiny zero-width guidelines
+              return (
+                <div
+                  key={marker.id}
+                  className="absolute top-8 bottom-0 pointer-events-none bg-amber-500/[0.04] border-x border-amber-500/[0.12] z-10 flex flex-col items-center justify-start overflow-hidden"
+                  style={{
+                    left: `${left}px`,
+                    width: `${width}px`
+                  }}
+                  title={`Breath Pause: ${marker.duration.toFixed(2)}s`}
+                >
+                  {/* Subtle top indicator bar */}
+                  <div className="w-full h-[3px] bg-amber-500/35" />
+                  {/* Glowing thin center vertical line */}
+                  <div className="w-[1px] h-full bg-amber-500/10 border-dashed border-r border-amber-500/10" />
+                </div>
+              );
+            })}
+
             {/* Visual Grid rows */}
             <div ref={gridScrollRef} onScroll={handleVerticalScroll} className="absolute top-8 bottom-0 left-0 right-0 flex flex-col p-1.5 gap-2 overflow-y-auto custom-scrollbar min-w-full w-full">
               {sortedTracks.length === 0 ? (
@@ -2554,6 +2644,10 @@ export default function Timeline({
                     {/* Clips list */}
                     {track.clips.map((clip, clipIdx) => {
                       const isSelected = activeSelectedIds.includes(clip.id);
+                      const isDraggingThisClip = Boolean(
+                        draggingClips &&
+                        draggingClips.clips.some(c => c.id === clip.id)
+                      );
                       const left = clip.start * zoom;
                       const width = clip.duration * zoom;
 
@@ -2597,7 +2691,7 @@ export default function Timeline({
                             onMouseDown={(e) => startClipDrag(e, clip)}
                             onTouchStart={(e) => startClipDrag(e, clip)}
                             onContextMenu={(e) => handleContextMenu(e, clip, track)}
-                            className={`absolute top-[4px] h-[64px] rounded-lg flex flex-col justify-between cursor-pointer transition-all select-none group border shadow-sm overflow-hidden ${clipStyleClass}`}
+                            className={`absolute top-[4px] h-[64px] rounded-lg flex flex-col justify-between cursor-pointer transition-colors duration-100 select-none group border shadow-sm overflow-hidden ${clipStyleClass} ${isDraggingThisClip ? 'pointer-events-none opacity-60' : ''}`}
                             style={{
                               left: `${left}px`,
                               width: `${width}px`,
@@ -2666,7 +2760,7 @@ export default function Timeline({
                               )}
 
                               {/* Real-time Audio Waveform Graph Visualizer for Audio & Video Clips */}
-                              {(clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url)) && (
+                              {(clip.type === ClipType.AUDIO || (clip.type === ClipType.VIDEO && clip.url && showVideoWaveforms)) && (
                                 <AudioWaveformGraph
                                   clipId={clip.id}
                                   url={clip.url}
@@ -2831,20 +2925,34 @@ export default function Timeline({
             {timelineSnapInfo && (
               <div
                 id="timeline-vertical-time-guide"
-                className="absolute top-0 bottom-0 w-[2px] bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,1),0_0_4px_rgba(251,191,36,0.9)] z-40 pointer-events-none transition-all duration-75"
+                className={`absolute top-0 bottom-0 w-[2px] z-40 pointer-events-none transition-all duration-75 ${
+                  timelineSnapInfo.type === ('breath' as any)
+                    ? 'bg-amber-400 shadow-[0_0_12px_rgba(245,158,11,1)] animate-pulse'
+                    : 'bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,1),0_0_4px_rgba(251,191,36,0.9)]'
+                }`}
                 style={{ left: `${timelineSnapInfo.time * zoom}px` }}
               >
                 {/* Top Arrow Cap */}
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-[6px] border-t-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,1)]" />
+                <div className={`absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-[6px] ${
+                  timelineSnapInfo.type === ('breath' as any) ? 'border-t-amber-400' : 'border-t-cyan-400'
+                }`} />
                 
                 {/* Synchronized Time Badge Pill at Top */}
-                <div className="absolute top-1 -left-16 bg-[#091520]/95 border border-cyan-400 text-cyan-200 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-2xl flex items-center gap-1.5 backdrop-blur-md whitespace-nowrap z-50">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                <div className={`absolute top-1 -left-16 bg-[#091520]/95 border text-[9px] px-2.5 py-0.5 rounded-full font-mono font-bold shadow-2xl flex items-center gap-1.5 backdrop-blur-md whitespace-nowrap z-50 ${
+                  timelineSnapInfo.type === ('breath' as any)
+                    ? 'border-amber-400 text-amber-200'
+                    : 'border-cyan-400 text-cyan-200'
+                }`}>
+                  <div className={`w-1.5 h-1.5 rounded-full animate-ping ${
+                    timelineSnapInfo.type === ('breath' as any) ? 'bg-amber-400' : 'bg-cyan-400'
+                  }`} />
                   <span>{timelineSnapInfo.label}</span>
                 </div>
 
                 {/* Bottom Arrow Cap */}
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-b-[6px] border-b-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,1)]" />
+                <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-b-[6px] ${
+                  timelineSnapInfo.type === ('breath' as any) ? 'border-b-amber-400' : 'border-b-cyan-400'
+                }`} />
               </div>
             )}
 

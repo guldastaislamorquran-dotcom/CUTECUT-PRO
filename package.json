@@ -21,10 +21,9 @@
     "test": "tsc --noEmit",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
-    "electron:pack": "npm run build && electron-packager . CUTECUT-PRO --out=dist-desktop --overwrite --asar",
-    "pack:win": "npm run build && electron-packager . CUTECUT-PRO --platform=win32 --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:linux": "npm run build && electron-packager . CUTECUT-PRO --platform=linux --arch=x64 --out=dist-desktop --overwrite --asar",
-    "pack:mac": "npm run build && electron-packager . CUTECUT-PRO --platform=darwin --arch=x64 --out=dist-desktop --overwrite --asar",
+    "pack:win": "npm run build && electron-builder --win",
+    "pack:linux": "npm run build && electron-builder --linux",
+    "pack:mac": "npm run build && electron-builder --mac",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
