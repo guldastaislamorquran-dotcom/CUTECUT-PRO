@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, Scissors, Trash2, Download, RefreshCw, Film, Volume2, Music, Type, Code, Terminal, Save, User, Crown, FolderOpen, Brain, Mic, Heart, Cloud, CloudUpload, CheckCircle2, Minimize2, Maximize2, X, LogOut, Check, ChevronDown, Loader2, Keyboard, Cpu, Zap, Wifi, WifiOff } from 'lucide-react';
+import { Sparkles, Scissors, Trash2, Download, RefreshCw, Film, Volume2, Music, Type, Code, Terminal, Save, User, Crown, FolderOpen, Brain, Mic, Heart, Cloud, CloudUpload, CheckCircle2, Minimize2, Maximize2, X, LogOut, Check, ChevronDown, Loader2, Keyboard, Cpu, Zap, Wifi, WifiOff, Settings } from 'lucide-react';
 import { Clip, ClipType, Track, TimelineState, WatermarkSettings, VisualStylePreset } from './types';
 import MediaPanel from './components/MediaPanel';
 import PreviewPlayer from './components/PreviewPlayer';
@@ -23,6 +23,8 @@ import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } fr
 
 // Default initial timeline state with Zero Initial Tracks / Clips
 const INITIAL_TRACKS: Track[] = DEFAULT_INITIAL_TRACKS;
+
+import { PreferencesModal } from "./components/PreferencesModal";
 
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>(INITIAL_TRACKS);
@@ -306,6 +308,7 @@ export default function App() {
   const [authModalError, setAuthModalError] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showGeminiIntelligenceModal, setShowGeminiIntelligenceModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
@@ -5393,6 +5396,11 @@ export default function App() {
           isOpen={showUpdateModal}
           onClose={() => setShowUpdateModal(false)}
         />
+        
+        <PreferencesModal 
+          isOpen={showPreferencesModal} 
+          onClose={() => setShowPreferencesModal(false)} 
+        />
 
         {/* Voice Assistant Modal */}
         <VoiceAssistantModal
@@ -5407,17 +5415,6 @@ export default function App() {
   return (
     <div id="video-editor-workspace" className="h-screen bg-[#0e0e11] text-gray-200 flex flex-col font-sans overflow-hidden">
       
-      {/* Application Main Menu (Native OS Bar Style) */}
-      <div className="flex bg-[#000000] border-b border-[#181820] items-center px-2 py-0.5 text-[11.5px] text-[#a0a0b0] select-none z-50">
-        {['File', 'Edit', 'Media', 'Playback', 'Audio', 'Video', 'Subtitle', 'Tools', 'View', 'Window', 'Help'].map((menuItem) => (
-          <button
-            key={menuItem}
-            className="px-2.5 py-1 rounded-sm hover:bg-[#1a1a24] hover:text-[#f0f0f0] transition-colors cursor-default"
-          >
-            {menuItem}
-          </button>
-        ))}
-      </div>
 
       {/* Top Header */}
       <header className="h-14 bg-[#121217] border-b border-[#242430] flex items-center justify-between px-5 z-10 select-none shadow-md">
@@ -5526,6 +5523,16 @@ export default function App() {
             <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
             <span>Shortcuts</span>
             <kbd className="hidden lg:inline-block px-1.5 py-0.2 bg-[#252535] text-[10px] text-cyan-300 font-mono rounded border border-cyan-500/30">?</kbd>
+          </button>
+
+          {/* Preferences Button */}
+          <button
+            id="btn-preferences-modal"
+            onClick={() => setShowPreferencesModal(true)}
+            className="hidden sm:flex items-center justify-center w-9 h-9 bg-[#181822] hover:bg-[#222232] border border-[#2c2c3e] hover:border-gray-400 text-gray-300 text-xs font-semibold rounded-lg transition shadow-sm cursor-pointer"
+            title="System Preferences"
+          >
+            <Settings className="w-4 h-4" />
           </button>
 
           {/* Dynamic Hardware Performance & Network Status Badge */}
@@ -5982,6 +5989,11 @@ export default function App() {
       <UpdateCheckerModal
         isOpen={showUpdateModal}
         onClose={() => setShowUpdateModal(false)}
+      />
+
+      <PreferencesModal 
+        isOpen={showPreferencesModal} 
+        onClose={() => setShowPreferencesModal(false)} 
       />
 
       {/* Voice Assistant Modal (gemini-3.1-flash-live-preview Live API) */}
