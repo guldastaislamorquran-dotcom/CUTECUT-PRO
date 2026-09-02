@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=CUTECUT PRO
-Comment=CUTECUT PRO Professional Video Editor Suite
+Name=CuteCut Pro
+Comment=CuteCut Pro Professional Video Editor Suite
 Exec=cutecut-pro %U
 Icon=org.guldasta.cutecutpro
 Terminal=false

@@ -3,12 +3,12 @@
 ; Professional AI Quran & Multi-Track Video Production Suite
 ; =====================================================================
 
-#define MyAppName "CuteCut Video Editor"
-#define MyAppShortName "CuteCutVideoEditor"
-#define MyAppVersion "2.1.0"
+#define MyAppName "CuteCut Pro"
+#define MyAppShortName "CuteCutPro"
+#define MyAppVersion "2.3.8"
 #define MyAppPublisher "Asmatullah Developer"
 #define MyAppURL "https://github.com"
-#define MyAppExeName "CuteCutVideoEditor.exe"
+#define MyAppExeName "cutecut-pro.exe"
 
 [Setup]
 ; Basic Application Info
@@ -25,9 +25,9 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppShortName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=no
-OutputBaseFilename=CuteCutVideoEditor_Setup_v{#MyAppVersion}
+OutputBaseFilename=CuteCutPro_Setup_v{#MyAppVersion}
 OutputDir=dist-installer
-SetupIconFile=src-tauri\icons\icon.ico
+SetupIconFile=build-resources\icon.ico
 
 ; Compression & Performance Optimization
 Compression=lzma2/ultra64

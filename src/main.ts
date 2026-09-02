@@ -48,14 +48,25 @@ function resolveEntryHtml(): string {
 }
 
 function createWindow() {
-  const iconPath = path.join(app.getAppPath(), 'public', 'icon.png');
+  const iconCandidates = [
+    path.join(app.getAppPath(), 'public', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(app.getAppPath(), 'build-resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(app.getAppPath(), process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(process.cwd(), 'public', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(process.cwd(), 'build-resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(process.cwd(), process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    path.join(app.getAppPath(), 'public', 'icon.png'),
+    path.join(app.getAppPath(), 'icon.png')
+  ];
+  const windowIcon = iconCandidates.find(p => fs.existsSync(p));
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'CUTECUT PRO',
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    title: 'CuteCut Pro',
+    icon: windowIcon,
     backgroundColor: '#0a0a12',
     show: true,
     webPreferences: {

@@ -85,7 +85,6 @@
         }
       ],
       "icon": "build-resources/icon.ico",
-      "signAndEditExecutable": false,
       "signExecutable": false,
       "verifyUpdateCodeSignature": false
     },
@@ -94,7 +93,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CuteCut Pro"
+      "shortcutName": "CuteCut Pro",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico"
     },
     "portable": {
       "artifactName": "cutecut-pro-Portable-${version}.${ext}"
