@@ -667,6 +667,41 @@ export default function Timeline({
     }
   }, [currentTime, isPlaying, zoom, followPlayheadMode]);
 
+  // Mouse wheel smooth timeline zoom with Ctrl / Cmd key (CapCut / Premiere standard)
+  useEffect(() => {
+    const container = tracksContainerRef.current;
+    if (!container) return;
+
+    const handleWheelZoom = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 1 : -1;
+        const currentZoom = zoomRef.current;
+        const step = currentZoom < 20 ? 2 : currentZoom < 50 ? 5 : 10;
+        const nextZoom = Math.max(4, Math.min(150, currentZoom + delta * step));
+        
+        if (nextZoom !== currentZoom) {
+          const rect = container.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left + container.scrollLeft;
+          const timeAtMouse = mouseX / currentZoom;
+
+          onZoomChange(nextZoom);
+
+          requestAnimationFrame(() => {
+            if (container) {
+              container.scrollLeft = Math.max(0, timeAtMouse * nextZoom - (e.clientX - rect.left));
+            }
+          });
+        }
+      }
+    };
+
+    container.addEventListener('wheel', handleWheelZoom, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheelZoom);
+    };
+  }, [onZoomChange]);
+
   const selectedClip = selectedClipId ? tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId) : null;
 
   // Selection statistics by clip type for multi-selection
@@ -1495,39 +1530,60 @@ export default function Timeline({
     });
   };
 
-  // Render ticks on Timeline Ruler
+  // Render ticks on Timeline Ruler (CapCut Desktop Pro dynamic adaptive spacing)
   const renderRulerTicks = () => {
     const ticks: React.ReactNode[] = [];
-    const step = zoom < 20 ? 5 : zoom < 50 ? 2 : 1; // Notch interval based on zoom
-    const totalSecs = Math.max(Math.ceil(duration), 300);
+    
+    // Choose optimal step size so major timestamp labels are spaced comfortably (~80px - 150px apart)
+    // exactly like CapCut Pro NLE
+    const candidateSteps = [
+      0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600
+    ];
+    const targetPx = 95;
+    const idealSec = targetPx / Math.max(1, zoom);
+    
+    let step = candidateSteps[0];
+    for (const s of candidateSteps) {
+      if (s >= idealSec * 0.72) {
+        step = s;
+        break;
+      }
+    }
+    if (step < candidateSteps[0]) step = candidateSteps[0];
 
-    for (let s = 0; s <= totalSecs; s += step) {
+    // Determine sub-ticks (minor notches) subdivision count per step
+    let subDivisions = 5;
+    if (step === 10) subDivisions = 10; // 1s ticks between 10s marks (CapCut default)
+    else if (step === 5) subDivisions = 5; // 1s ticks between 5s marks
+    else if (step === 2) subDivisions = 4; // 0.5s ticks between 2s marks
+    else if (step === 1) subDivisions = 5; // 0.2s ticks
+    else if (step === 0.5) subDivisions = 5; // 0.1s ticks
+    else if (step === 0.2) subDivisions = 4;
+    else if (step === 0.1) subDivisions = 2;
+    else if (step === 15) subDivisions = 5; // 3s ticks
+    else if (step === 30) subDivisions = 6; // 5s ticks
+    else if (step >= 60) subDivisions = 6; // 10s or minute ticks
+
+    const subStep = step / subDivisions;
+    const containerWidth = tracksContainerRef.current?.clientWidth || 1600;
+    const maxVisibleSecs = Math.ceil((containerWidth + 1200) / zoom);
+    const totalSecs = Math.max(Math.ceil(duration) + 120, maxVisibleSecs, 300);
+
+    for (let s = 0; s <= totalSecs; s = Math.round((s + step) * 1000) / 1000) {
       const left = s * zoom;
+      
+      // Major tick mark with timestamp label and full tick notch
       ticks.push(
         <div
-          key={s}
-          className="absolute top-0 h-full border-l border-[#2e2e34] flex flex-col justify-between"
+          key={`major-${s}`}
+          className="absolute top-0 h-full border-l border-[#3a3a48] flex items-center pointer-events-none select-none z-10"
           style={{ left: `${left}px` }}
         >
-          <span className="text-[9px] font-mono text-gray-500 pl-1 pt-1 select-none">
-            {formatTimeCode(s, false)}
+          <span className="text-[9.5px] font-mono font-medium text-gray-400 pl-1.5 tracking-tight">
+            {formatTimeCode(s, step < 1)}
           </span>
-          <div className="h-2 w-px bg-[#3e3e44]" />
         </div>
       );
-
-      // Minor tick marks
-      if (step > 1) {
-        for (let sub = s + step / 2; sub < s + step && sub <= totalSecs; sub += step / 2) {
-          ticks.push(
-            <div
-              key={`sub-${sub}`}
-              className="absolute bottom-0 h-3 border-l border-[#1e1e24]"
-              style={{ left: `${sub * zoom}px` }}
-            />
-          );
-        }
-      }
     }
     return ticks;
   };
@@ -2296,42 +2352,49 @@ export default function Timeline({
           <div className="h-4 w-px bg-[#2a2a35] mx-0.5" />
 
           {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-[#181822] px-2 py-0.5 rounded border border-[#2a2a34]">
+          <div className="flex items-center gap-1.5 bg-[#181822] px-2 py-0.5 rounded-lg border border-[#2a2a34]">
             <button
-              onClick={() => onZoomChange(Math.max(10, zoom - 5))}
-              className="text-gray-400 hover:text-white transition"
-              title="Zoom Out"
+              onClick={() => onZoomChange(Math.max(4, zoom - (zoom <= 20 ? 2 : 5)))}
+              className="text-gray-400 hover:text-white transition p-0.5 cursor-pointer"
+              title="Zoom Out (Ctrl + Scroll Down / -)"
             >
               <Minus className="w-3 h-3" />
             </button>
             <input
               type="range"
-              min="10"
-              max="100"
+              min="4"
+              max="150"
               value={zoom}
               onChange={(e) => onZoomChange(Number(e.target.value))}
-              className="w-16 h-1 bg-[#2b2b36] rounded appearance-none cursor-pointer accent-cyan-400"
-              title={`Zoom level: ${zoom}`}
+              className="w-20 h-1 bg-[#2b2b36] rounded appearance-none cursor-pointer accent-cyan-400"
+              title={`Zoom Scale: ${zoom} px/s (Ctrl + Mouse Wheel to Zoom)`}
             />
             <button
-              onClick={() => onZoomChange(Math.min(100, zoom + 5))}
-              className="text-gray-400 hover:text-white transition"
-              title="Zoom In"
+              onClick={() => onZoomChange(Math.min(150, zoom + (zoom < 20 ? 2 : 5)))}
+              className="text-gray-400 hover:text-white transition p-0.5 cursor-pointer"
+              title="Zoom In (Ctrl + Scroll Up / +)"
             >
               <Plus className="w-3 h-3" />
             </button>
             <button
               onClick={() => {
                 if (tracksContainerRef.current) {
-                  const availableWidth = tracksContainerRef.current.clientWidth - 50;
-                  const optimalZoom = Math.max(10, Math.min(100, Math.floor(availableWidth / duration)));
+                  const availableWidth = tracksContainerRef.current.clientWidth - 80;
+                  const allClips = tracks.flatMap(t => t.clips);
+                  const maxClipEnd = allClips.length > 0 
+                    ? Math.max(...allClips.map(c => c.start + c.duration))
+                    : duration;
+                  const targetDuration = Math.max(maxClipEnd, duration, 5);
+                  const optimalZoom = Math.max(4, Math.min(150, Math.floor(availableWidth / targetDuration)));
                   onZoomChange(optimalZoom);
+                  tracksContainerRef.current.scrollLeft = 0;
                 }
               }}
-              className="p-1 rounded bg-[#1c1c22] hover:bg-[#25252e] text-gray-400 hover:text-cyan-400 transition ml-0.5"
-              title="Fit Project to Screen"
+              className="p-1 rounded bg-[#1c1c24] hover:bg-cyan-500/20 text-gray-400 hover:text-cyan-300 border border-white/5 transition ml-0.5 cursor-pointer flex items-center gap-1 text-[10px]"
+              title="Fit Project to Screen (Shift + Z)"
             >
               <Maximize2 className="w-3 h-3" />
+              <span className="hidden xl:inline text-[9px] font-mono">Fit</span>
             </button>
           </div>
         </div>
@@ -2347,16 +2410,16 @@ export default function Timeline({
         
         {/* Track Headers (Left sidebar of Timeline with CapCut Pro Mute, Lock, Hide controls) */}
         <div className="w-36 sm:w-44 bg-[#15151a] border-r border-[#2a2a30] flex flex-col z-20 shadow-md shrink-0 select-none">
-          <div className="h-8 border-b border-[#2a2a30] flex items-center justify-between px-2 text-[10px] font-semibold text-gray-500 tracking-wider">
+          <div className="h-5 border-b border-[#2a2a30] flex items-center justify-between px-2 text-[9px] font-semibold text-gray-500 tracking-wider">
             <span>TRACKS ({sortedTracks.length})</span>
             {onAddTrack && (
               <div className="relative">
                 <button
                   onClick={() => setShowAddTrackMenu(!showAddTrackMenu)}
-                  className="p-1 rounded bg-[#202028] hover:bg-cyan-500 hover:text-black text-gray-300 transition flex items-center gap-0.5 text-[9px]"
+                  className="p-0.5 rounded bg-[#202028] hover:bg-cyan-500 hover:text-black text-gray-300 transition flex items-center gap-0.5 text-[8px]"
                   title="Add New Track"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-2.5 h-2.5" />
                   <span>Track</span>
                 </button>
                 {showAddTrackMenu && (
@@ -2543,7 +2606,10 @@ export default function Timeline({
           {/* Scrollable Tracks Canvas Wrapper */}
           <div
             ref={gridWrapperRef}
-            style={{ width: `${Math.max(100, duration * zoom + 100)}px`, minWidth: '100%' }}
+            style={{ 
+              width: `${Math.max(1200, Math.max((duration + 30) * zoom, (tracksContainerRef.current?.clientWidth || 1000) + 400))}px`, 
+              minWidth: '100%' 
+            }}
             className="h-full relative min-w-full"
             onMouseDown={handleGridMouseDown}
             onContextMenu={(e) => handleContextMenu(e, null, null)}
@@ -2555,7 +2621,7 @@ export default function Timeline({
               onMouseDown={handleRulerMouseDown}
               onTouchStart={handleRulerTouchStart}
               onContextMenu={(e) => handleContextMenu(e, null, null)}
-              className="h-8 bg-[#18181d] border-b border-[#2a2a30] relative cursor-ew-resize select-none overflow-hidden"
+              className="h-5 bg-[#18181d] border-b border-[#2a2a30] relative cursor-ew-resize select-none overflow-hidden"
             >
               {renderRulerTicks()}
               {/* Clean Ruler without top overlays */}
@@ -2971,11 +3037,18 @@ export default function Timeline({
             {/* Playhead vertical red line */}
             <div
               id="timeline-playhead"
-              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30 pointer-events-none"
+              className="absolute top-0 bottom-0 w-[1.5px] bg-red-500 z-30 pointer-events-none shadow-[0_0_6px_rgba(239,68,68,0.7)]"
               style={{ left: `${currentTime * zoom}px` }}
             >
-              {/* Playhead head icon */}
-              <div className="w-3 h-3 bg-red-500 rounded-b-sm absolute -top-1.5 -left-1.5 transform rotate-45" />
+              {/* CapCut Pro Downward Pentagon Playhead Head on Ruler */}
+              <div 
+                className="absolute top-0 -left-[5.5px] w-[12px] h-[15px] bg-red-500 flex items-center justify-center shadow-lg pointer-events-none"
+                style={{
+                  clipPath: 'polygon(0% 0%, 100% 0%, 100% 65%, 50% 100%, 0% 65%)'
+                }}
+              >
+                <div className="w-1 h-1 bg-white rounded-full opacity-90 -mt-1 shadow-xs" />
+              </div>
             </div>
 
           </div>

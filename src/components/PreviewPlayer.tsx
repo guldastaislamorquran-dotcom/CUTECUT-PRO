@@ -284,14 +284,11 @@ export default function PreviewPlayer({
                 if (video.crossOrigin) {
                   video.removeAttribute('crossorigin');
                   video.src = normUrl;
-                  try {
-                    video.load();
-                  } catch {
-                    // ignore
-                  }
+                } else {
+                  (video as any).hasError = true;
                 }
               };
-              video.addEventListener('error', handleVideoErr);
+              video.addEventListener('error', handleVideoErr, { once: true });
 
               try {
                 video.load();
@@ -303,74 +300,149 @@ export default function PreviewPlayer({
             }
           }
 
+          // Resolve primary or fallback visual target (video or poster image)
+          let drawTarget: CanvasImageSource | null = null;
+          let isFallbackMotion = false;
+
           if (media) {
             const isImg = clip.isImage || (media instanceof HTMLImageElement);
             const videoEl = media as HTMLVideoElement;
 
-            const isReady = isImg
-              ? ((media as HTMLImageElement).complete && (media as HTMLImageElement).naturalWidth > 0)
-              : (videoEl.readyState >= 1 || videoEl.videoWidth > 0 || videoEl.duration > 0 || videoEl.currentTime > 0 || videoEl.seeking);
+            const isVideoReady = !isImg && !(videoEl as any).hasError && (videoEl.readyState >= 2 || (videoEl.videoWidth > 0 && videoEl.currentTime > 0));
+            const isImageReady = isImg && ((media as HTMLImageElement).complete && (media as HTMLImageElement).naturalWidth > 0);
 
-            if (isReady) {
-              if (!isImg && !isPlaying) {
-                const video = media as HTMLVideoElement;
-                const elapsed = currentTime - clip.start;
-                const srcTime = clip.sourceStart + elapsed * clip.playbackRate;
-                const durationLimit = (video.duration && !isNaN(video.duration) && isFinite(video.duration)) ? video.duration : (clip.duration || 999999);
-                const clampedSrcTime = Math.max(0, Math.min(durationLimit, srcTime));
-                if (Math.abs(video.currentTime - clampedSrcTime) > 0.08 && !video.seeking) {
+            if (isVideoReady) {
+              drawTarget = videoEl;
+              const elapsed = currentTime - clip.start;
+              const srcTime = clip.sourceStart + elapsed * clip.playbackRate;
+              const durationLimit = (videoEl.duration && !isNaN(videoEl.duration) && isFinite(videoEl.duration)) ? videoEl.duration : (clip.duration || 999999);
+              const clampedSrcTime = Math.max(0, Math.min(durationLimit, srcTime));
+              
+              if (isPlaying) {
+                if (videoEl.paused) videoEl.play().catch(() => {});
+                if (Math.abs(videoEl.currentTime - clampedSrcTime) > 0.25 && !videoEl.seeking) {
                   try {
-                    video.currentTime = clampedSrcTime;
-                  } catch {
-                    // ignore seek error
-                  }
+                    videoEl.currentTime = clampedSrcTime;
+                  } catch {}
+                }
+              } else {
+                if (!videoEl.paused) videoEl.pause();
+                if (Math.abs(videoEl.currentTime - clampedSrcTime) > 0.08 && !videoEl.seeking) {
+                  try {
+                    videoEl.currentTime = clampedSrcTime;
+                  } catch {}
                 }
               }
-
-              // Transform, Keyframe & Transition parameters
-              const interpolated = getInterpolatedClipProperties(clip, currentTime);
-              const transState = computeClipTransitionState(clip, currentTime, dimensions.width, dimensions.height);
-
-              const scale = (interpolated.scale / 100) * transState.scaleMultiplier;
-              const posX = interpolated.posX + transState.offsetX;
-              const posY = interpolated.posY + transState.offsetY;
-              const rotationDeg = interpolated.rotation;
-              const rad = (rotationDeg * Math.PI) / 180;
-
-              // Render video/image onto canvas with safe matrix transforms
-              ctx.save();
-              ctx.globalAlpha = Math.max(0, Math.min(1, interpolated.opacity * transState.alphaMultiplier));
-              
-              if (transState.wipeProgress !== null) {
-                ctx.beginPath();
-                ctx.rect(-dimensions.width / 2, -dimensions.height / 2, dimensions.width * transState.wipeProgress, dimensions.height);
-                ctx.clip();
+            } else if (isImageReady) {
+              drawTarget = media as HTMLImageElement;
+              if (!clip.isImage) {
+                isFallbackMotion = true;
               }
+            }
+          }
 
-              // Apply GPU-level filters
-              let filterStr = 'none';
-              if (clip.videoEffects?.blur) {
-                filterStr = `blur(${clip.videoEffects.blur}px)`;
+          // If primary video source is buffering or errored, load & render clip poster / fallbackUrl
+          if (!drawTarget) {
+            const fallbackUrl = clip.poster || clip.thumbnailUrl || clip.fallbackUrl || (clip.url && !clip.url.includes('.mp4') ? clip.url : undefined);
+            if (fallbackUrl) {
+              const fbKey = `${clip.id}_fb_poster`;
+              let fbImg = fallbackMediaRef.current[fbKey] as HTMLImageElement;
+              if (!fbImg) {
+                fbImg = document.createElement('img');
+                fbImg.crossOrigin = getSafeCrossOrigin(fallbackUrl) || 'anonymous';
+                fbImg.src = normalizeMediaUrl(fallbackUrl);
+                fbImg.addEventListener('error', () => {
+                  if (fbImg.crossOrigin) {
+                    fbImg.removeAttribute('crossorigin');
+                    fbImg.src = normalizeMediaUrl(fallbackUrl);
+                  }
+                });
+                fallbackMediaRef.current[fbKey] = fbImg;
               }
-              ctx.filter = filterStr;
+              if (fbImg.complete && fbImg.naturalWidth > 0) {
+                drawTarget = fbImg;
+                isFallbackMotion = true;
+              }
+            }
+          }
 
-              // Matrix transform: Translate -> Rotate -> Scale
-              ctx.translate(dimensions.width / 2 + posX, dimensions.height / 2 + posY);
-              if (rotationDeg !== 0) {
-                ctx.rotate(rad);
-              }
-              if (scale !== 1) {
-                ctx.scale(scale, scale);
-              }
+          if (drawTarget) {
+            // Transform, Keyframe & Transition parameters
+            const interpolated = getInterpolatedClipProperties(clip, currentTime);
+            const transState = computeClipTransitionState(clip, currentTime, dimensions.width, dimensions.height);
 
-              try {
-                ctx.drawImage(media, -dimensions.width / 2, -dimensions.height / 2, dimensions.width, dimensions.height);
-              } catch {
-                ctx.fillStyle = '#1e293b';
-                ctx.fillRect(-dimensions.width / 2, -dimensions.height / 2, dimensions.width, dimensions.height);
+            // Subtle cinematic Ken Burns float for animated poster fallback
+            let motionScale = 1.0;
+            let motionPosY = 0;
+            if (isFallbackMotion && clip.duration > 0) {
+              const progress = Math.max(0, Math.min(1, (currentTime - clip.start) / clip.duration));
+              motionScale = 1.0 + progress * 0.04;
+              motionPosY = (progress - 0.5) * 8;
+            }
+
+            const scale = (interpolated.scale / 100) * transState.scaleMultiplier * motionScale;
+            const posX = interpolated.posX + transState.offsetX;
+            const posY = interpolated.posY + transState.offsetY + motionPosY;
+            const rotationDeg = interpolated.rotation;
+            const rad = (rotationDeg * Math.PI) / 180;
+
+            // Render video/image onto canvas with safe matrix transforms
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, interpolated.opacity * transState.alphaMultiplier));
+            
+            if (transState.wipeProgress !== null) {
+              ctx.beginPath();
+              ctx.rect(-dimensions.width / 2, -dimensions.height / 2, dimensions.width * transState.wipeProgress, dimensions.height);
+              ctx.clip();
+            }
+
+            // Apply GPU-level filters (Hardware-accelerated)
+            const filterParts: string[] = [];
+            if (clip.videoEffects?.blur) {
+              filterParts.push(`blur(${clip.videoEffects.blur}px)`);
+            }
+            if (clip.filters) {
+              if (clip.filters.brightness !== undefined && clip.filters.brightness !== 100) {
+                filterParts.push(`brightness(${clip.filters.brightness}%)`);
               }
-              
-              ctx.filter = 'none';
+              if (clip.filters.contrast !== undefined && clip.filters.contrast !== 100) {
+                filterParts.push(`contrast(${clip.filters.contrast}%)`);
+              }
+              if (clip.filters.saturation !== undefined && clip.filters.saturation !== 100) {
+                filterParts.push(`saturate(${clip.filters.saturation}%)`);
+              }
+              if (clip.filters.grayscale && clip.filters.grayscale > 0) {
+                filterParts.push(`grayscale(${clip.filters.grayscale}%)`);
+              }
+              if (clip.filters.sepia && clip.filters.sepia > 0) {
+                filterParts.push(`sepia(${clip.filters.sepia}%)`);
+              }
+              if (clip.filters.invert && clip.filters.invert > 0) {
+                filterParts.push(`invert(${clip.filters.invert}%)`);
+              }
+              if (clip.filters.hueRotate && clip.filters.hueRotate !== 0) {
+                filterParts.push(`hue-rotate(${clip.filters.hueRotate}deg)`);
+              }
+            }
+            ctx.filter = filterParts.length > 0 ? filterParts.join(' ') : 'none';
+
+            // Matrix transform: Translate -> Rotate -> Scale
+            ctx.translate(dimensions.width / 2 + posX, dimensions.height / 2 + posY);
+            if (rotationDeg !== 0) {
+              ctx.rotate(rad);
+            }
+            if (scale !== 1) {
+              ctx.scale(scale, scale);
+            }
+
+            try {
+              ctx.drawImage(drawTarget, -dimensions.width / 2, -dimensions.height / 2, dimensions.width, dimensions.height);
+            } catch {
+              ctx.fillStyle = '#0f172a';
+              ctx.fillRect(-dimensions.width / 2, -dimensions.height / 2, dimensions.width, dimensions.height);
+            }
+            
+            ctx.filter = 'none';
 
               // Apply additional video effects inside transformed context
               if (clip.videoEffects?.vignette) {
@@ -394,16 +466,43 @@ export default function PreviewPlayer({
                 }
               }
 
-              if (clip.videoEffects?.glitch && isPlaying && Math.random() < 0.18) {
-                const sliceCount = Math.floor(Math.random() * 3) + 2;
-                for (let s = 0; s < sliceCount; s++) {
-                  const sy = (Math.random() - 0.5) * dimensions.height;
-                  const sh = Math.random() * 30 + 10;
-                  const sx = (Math.random() - 0.5) * 12;
+              // VHS Glitch & Chromatic Shear Effect (Periodic RGB shift and horizontal shear)
+              if (clip.videoEffects?.glitch) {
+                const glitchPhase = (currentTime * 7) % 3;
+                const isGlitching = glitchPhase < 0.65 || (isPlaying && Math.random() < 0.22);
+                if (isGlitching) {
+                  const shiftAmp = (Math.sin(currentTime * 18) * 6) + (Math.random() * 8 - 4);
+                  const shearAmp = (Math.cos(currentTime * 14) * 0.04) + (Math.random() * 0.03 - 0.015);
+                  
+                  ctx.save();
+                  // Apply horizontal VHS shear
+                  ctx.transform(1, 0, shearAmp, 1, 0, 0);
+
+                  // RGB Shift: Cyan channel offset
+                  ctx.globalCompositeOperation = 'screen';
+                  ctx.filter = 'hue-rotate(180deg) saturate(200%)';
+                  ctx.globalAlpha = 0.45;
                   try {
-                    ctx.drawImage(canvas, 0, sy, dimensions.width, sh, sx, sy, dimensions.width, sh);
-                  } catch {
-                    // ignore glitch slice error
+                    ctx.drawImage(media, -dimensions.width / 2 + shiftAmp, -dimensions.height / 2, dimensions.width, dimensions.height);
+                  } catch {}
+
+                  // RGB Shift: Red/Magenta channel offset
+                  ctx.filter = 'hue-rotate(330deg) saturate(220%)';
+                  ctx.globalAlpha = 0.45;
+                  try {
+                    ctx.drawImage(media, -dimensions.width / 2 - shiftAmp, -dimensions.height / 2, dimensions.width, dimensions.height);
+                  } catch {}
+                  
+                  ctx.restore();
+
+                  // VHS Scanline Slices and noise jitter
+                  const sliceCount = Math.floor(Math.random() * 4) + 2;
+                  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+                  for (let s = 0; s < sliceCount; s++) {
+                    const sy = (Math.random() - 0.5) * dimensions.height;
+                    const sh = Math.random() * 18 + 4;
+                    const sx = (Math.random() - 0.5) * 16;
+                    ctx.fillRect(-dimensions.width / 2 + sx, sy, dimensions.width, sh);
                   }
                 }
               }
@@ -525,64 +624,23 @@ export default function PreviewPlayer({
                 ctx.restore();
               }
 
-              // Apply pixel-level LUT filters on untransformed canvas
-              if (clip.filters) {
+              // Apply pixel-level Chroma Key only when explicitly enabled
+              if (clip.filters?.chromaKey?.enabled) {
                 applyPixelFilters(ctx, dimensions.width, dimensions.height, clip.filters);
               }
             } else {
-              // High-quality non-blocking cinematic video slate fallback
+              // Seamless dark background fallback while media buffers
               ctx.save();
-              
               const grad = ctx.createLinearGradient(0, 0, dimensions.width, dimensions.height);
-              grad.addColorStop(0, '#0f172a');
-              grad.addColorStop(0.5, '#1e293b');
-              grad.addColorStop(1, '#090d16');
+              grad.addColorStop(0, '#0a0d14');
+              grad.addColorStop(0.5, '#121824');
+              grad.addColorStop(1, '#080a10');
               ctx.fillStyle = grad;
               ctx.fillRect(0, 0, dimensions.width, dimensions.height);
-
-              ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
-              ctx.lineWidth = 1;
-              const gridStep = 40;
-              for (let x = 0; x < dimensions.width; x += gridStep) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0); ctx.lineTo(x, dimensions.height);
-                ctx.stroke();
-              }
-              for (let y = 0; y < dimensions.height; y += gridStep) {
-                ctx.beginPath();
-                ctx.moveTo(0, y); ctx.lineTo(dimensions.width, y);
-                ctx.stroke();
-              }
-
-              const boxW = Math.min(480, dimensions.width * 0.8);
-              const boxH = 110;
-              const boxX = (dimensions.width - boxW) / 2;
-              const boxY = (dimensions.height - boxH) / 2;
-
-              ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-              ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-              ctx.lineWidth = 1.5;
-              ctx.beginPath();
-              ctx.roundRect(boxX, boxY, boxW, boxH, 12);
-              ctx.fill();
-              ctx.stroke();
-
-              ctx.fillStyle = '#38bdf8';
-              ctx.font = 'bold 20px sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(`🎬  ${clip.name}`, dimensions.width / 2, boxY + 40);
-
-              ctx.fillStyle = '#94a3b8';
-              ctx.font = '14px monospace';
-              const timeFormatted = formatTimeCode(currentTime - clip.start, false);
-              ctx.fillText(`STREAM ACTIVE  |  ${timeFormatted} / ${formatTimeCode(clip.duration, false)}`, dimensions.width / 2, boxY + 75);
-
               ctx.restore();
             }
           }
-        }
-      });
+        });
 
       // ------------------ TEXT LAYERS ------------------
       activeFrameClips.forEach((clip) => {
@@ -797,10 +855,19 @@ export default function PreviewPlayer({
             });
           }
 
-          // Render 'Viral Reels Style' or custom background box overlay if specified
-          if (clip.textStyle === ('viral-reels' as any) || (clip as any).backgroundColor) {
+          // Render background box overlay if specified
+          if (clip.textBackgroundColor && clip.textBackgroundColor !== 'transparent') {
+            const bgPad = clip.textBackgroundPadding ?? 8;
             ctx.save();
-            ctx.fillStyle = (clip as any).backgroundColor || 'rgba(0, 0, 0, 0.82)';
+            ctx.fillStyle = clip.textBackgroundColor;
+            ctx.beginPath();
+            ctx.roundRect(boxLeft - bgPad, boxTop - bgPad, blockW + (bgPad * 2), blockH + (bgPad * 2), 8);
+            ctx.fill();
+            ctx.restore();
+          } else if (clip.textStyle === ('viral-reels' as any)) {
+            // legacy viral-reels style background handling
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
             ctx.beginPath();
             ctx.roundRect(boxLeft - 6, boxTop - 4, blockW + 12, blockH + 8, 8);
             ctx.fill();

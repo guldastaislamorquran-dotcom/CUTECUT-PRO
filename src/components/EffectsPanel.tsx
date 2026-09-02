@@ -323,7 +323,7 @@ export default function EffectsPanel({
                   { name: '✨ Light Leaks Overlay', fx: 'lightLeak' },
                   { name: '🌌 Bokeh Dust Particles', fx: 'bokeh' },
                   { name: '🎞️ 35mm Vintage Grain', fx: 'filmGrain' },
-                  { name: '⚡ Glitch Slices FX', fx: 'glitch' },
+                  { name: '⚡ VHS Glitch & RGB Shear', fx: 'glitch' },
                 ].map((item, idx) => (
                   <button
                     key={idx}

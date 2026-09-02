@@ -1853,6 +1853,9 @@ export default function App() {
                 }
               };
               img.addEventListener('error', handleImgError);
+              if (typeof img.decode === 'function') {
+                img.decode().catch(() => {});
+              }
 
               videoElementsRef.current[clip.id] = img;
               mediaPool.appendChild(img);
@@ -2015,10 +2018,11 @@ export default function App() {
                   video.play().catch(() => {});
                 }
                 // Sync drift check with clamping to avoid crashes on huge streams
-                if (shouldCheckDrift) {
+                if (shouldCheckDrift && !video.seeking) {
                   const durationLimit = video.duration || clip.duration || 999999;
                   const clampedTarget = Math.max(0, Math.min(durationLimit, targetSrcTime));
-                  if (Math.abs(video.currentTime - clampedTarget) > 0.6) {
+                  const driftThreshold = (safeVolume === 0 || video.muted) ? 1.2 : 0.6;
+                  if (Math.abs(video.currentTime - clampedTarget) > driftThreshold) {
                     video.currentTime = clampedTarget;
                   }
                 }
@@ -4378,61 +4382,67 @@ export default function App() {
 
   const handleReplaceVideoTrackClips = (newClips: Partial<Clip>[]) => {
     setTracks(prevTracks => {
-      const videoTrackIdx = prevTracks.findIndex(t => t.type === ClipType.VIDEO || t.type === 'video' || t.name.toLowerCase().includes('video'));
-      if (videoTrackIdx === -1) {
-        const newTrackId = `track-video-${Date.now()}`;
+      // Find dedicated background track or pure video track that does NOT contain text clips
+      let bgTrackIdx = prevTracks.findIndex(t => 
+        (t.name.toLowerCase().includes('background') || t.id.includes('video-bg')) &&
+        !t.clips.some(c => c.type === ClipType.TEXT)
+      );
+
+      if (bgTrackIdx === -1) {
+        bgTrackIdx = prevTracks.findIndex(t => 
+          (t.type === ClipType.VIDEO || t.type === 'video') && 
+          !t.clips.some(c => c.type === ClipType.TEXT)
+        );
+      }
+
+      const formattedClips = (trackId: string): Clip[] => newClips.map((c, i) => ({
+        id: c.id || `clip-vid-${Date.now()}-${i}`,
+        name: c.name || `Scene ${i + 1}`,
+        type: ClipType.VIDEO,
+        trackId: trackId,
+        start: c.start !== undefined ? c.start : i * 5,
+        duration: c.duration || 5,
+        sourceStart: 0,
+        sourceDuration: c.duration || 5,
+        playbackRate: 1.0,
+        volume: 0,
+        url: c.url,
+        isImage: c.isImage,
+        filters: c.filters || {
+          brightness: 100, contrast: 100, saturation: 100,
+          grayscale: 0, sepia: 0, invert: 0, hueRotate: 0,
+          chromaKey: { enabled: false, color: '#00ff00', threshold: 40, smoothness: 10 }
+        }
+      }));
+
+      // If no suitable pure video track exists, create a new background track at the VERY BOTTOM visual layer
+      if (bgTrackIdx === -1) {
+        const newTrackId = `track-video-bg-${Date.now()}`;
         const newTrack: Track = {
           id: newTrackId,
           name: 'Video Background',
           type: ClipType.VIDEO,
-          clips: newClips.map((c, i) => ({
-            id: c.id || `clip-vid-${Date.now()}-${i}`,
-            name: c.name || `Scene ${i + 1}`,
-            type: ClipType.VIDEO,
-            trackId: newTrackId,
-            start: c.start !== undefined ? c.start : i * 5,
-            duration: c.duration || 5,
-            sourceStart: 0,
-            sourceDuration: c.duration || 5,
-            playbackRate: 1.0,
-            volume: 0,
-            url: c.url,
-            isImage: c.isImage,
-            filters: c.filters || {
-              brightness: 100, contrast: 100, saturation: 100,
-              grayscale: 0, sepia: 0, invert: 0, hueRotate: 0,
-              chromaKey: { enabled: false, color: '#00ff00', threshold: 40, smoothness: 10 }
-            }
-          }))
+          clips: formattedClips(newTrackId)
         };
+        // Put new background track at index 0 (bottom layer) so it renders BEHIND all text overlays
         return [newTrack, ...prevTracks];
       }
 
-      return prevTracks.map((track, idx) => {
-        if (idx !== videoTrackIdx) return track;
+      // Update existing pure background track and move it to index 0 if text tracks are below it
+      const updatedTracks = prevTracks.map((track, idx) => {
+        if (idx !== bgTrackIdx) return track;
         return {
           ...track,
-          clips: newClips.map((c, i) => ({
-            id: c.id || `clip-vid-${Date.now()}-${i}`,
-            name: c.name || `Scene ${i + 1}`,
-            type: ClipType.VIDEO,
-            trackId: track.id,
-            start: c.start !== undefined ? c.start : i * 5,
-            duration: c.duration || 5,
-            sourceStart: 0,
-            sourceDuration: c.duration || 5,
-            playbackRate: 1.0,
-            volume: 0,
-            url: c.url,
-            isImage: c.isImage,
-            filters: c.filters || {
-              brightness: 100, contrast: 100, saturation: 100,
-              grayscale: 0, sepia: 0, invert: 0, hueRotate: 0,
-              chromaKey: { enabled: false, color: '#00ff00', threshold: 40, smoothness: 10 }
-            }
-          }))
+          name: 'Video Background',
+          type: ClipType.VIDEO,
+          clips: formattedClips(track.id)
         };
       });
+
+      // Ensure background track stays before any text tracks in array order
+      const targetBgTrack = updatedTracks[bgTrackIdx];
+      const otherTracks = updatedTracks.filter((_, idx) => idx !== bgTrackIdx);
+      return [targetBgTrack, ...otherTracks];
     });
   };
 
@@ -5397,6 +5407,18 @@ export default function App() {
   return (
     <div id="video-editor-workspace" className="h-screen bg-[#0e0e11] text-gray-200 flex flex-col font-sans overflow-hidden">
       
+      {/* Application Main Menu (Native OS Bar Style) */}
+      <div className="flex bg-[#000000] border-b border-[#181820] items-center px-2 py-0.5 text-[11.5px] text-[#a0a0b0] select-none z-50">
+        {['File', 'Edit', 'Media', 'Playback', 'Audio', 'Video', 'Subtitle', 'Tools', 'View', 'Window', 'Help'].map((menuItem) => (
+          <button
+            key={menuItem}
+            className="px-2.5 py-1 rounded-sm hover:bg-[#1a1a24] hover:text-[#f0f0f0] transition-colors cursor-default"
+          >
+            {menuItem}
+          </button>
+        ))}
+      </div>
+
       {/* Top Header */}
       <header className="h-14 bg-[#121217] border-b border-[#242430] flex items-center justify-between px-5 z-10 select-none shadow-md">
         <div className="flex items-center gap-3">

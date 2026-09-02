@@ -50,6 +50,9 @@ export interface Clip {
   
   // Media source parameters
   url?: string; // Video/audio source URL
+  poster?: string; // Poster frame or preview image for video clips
+  thumbnailUrl?: string; // Thumbnail image for timeline filmstrip & fallback
+  fallbackUrl?: string; // Fallback image if video stream is unavailable or buffering
   color?: string; // For text layers (text color) or solid background video clips
   
   // Text specific properties
@@ -68,6 +71,8 @@ export interface Clip {
   textGlowColor?: string;
   textStrokeWidth?: number; // 0 to 20 px
   textStrokeColor?: string;
+  textBackgroundColor?: string; // e.g. '#000000', '#ffffff', 'transparent'
+  textBackgroundPadding?: number; // 0 to 40 px
   confidenceScore?: number; // Tasmeea alignment confidence match ratio (0-100%)
   textAnimation?: TextAnimationConfig;
   linkedClipId?: string; // Two-Track Anchor Lock: Links Arabic clip and Translation clip together on timeline

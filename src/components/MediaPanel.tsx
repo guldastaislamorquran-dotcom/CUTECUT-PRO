@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Film, Music, Type, Sliders, Play, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio, Square } from 'lucide-react';
+import { Upload, Film, Music, Type, Sliders, Play, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio, Square, LayoutGrid, List } from 'lucide-react';
 import { Clip, ClipType, Track, WatermarkSettings, QuranTranslationOption } from '../types';
 import { STOCK_VIDEOS, STOCK_AUDIOS, STOCK_IMAGES, TEXT_PRESETS, PRESET_LUTS } from '../data/presetAssets';
 import { AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, formatAyahSymbol } from '../utils/editorUtils';
@@ -356,6 +356,7 @@ export default function MediaPanel({
 }: MediaPanelProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'video' | 'audio' | 'image' | 'text' | 'quran-visuals' | 'quran' | 'effects' | 'background' | 'watermark'>('upload');
   const [customAssets, setCustomAssets] = useState<any[]>([]);
+  const [importsViewMode, setImportsViewMode] = useState<'list' | 'grid'>('list');
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -737,13 +738,86 @@ export default function MediaPanel({
     }
   };
 
+  // Helper to format file sizes accurately
+  const formatFileSize = (bytes: number): string => {
+    if (!bytes || isNaN(bytes) || bytes <= 0) return '0 KB';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  // Helper to extract a crisp video thumbnail image frame
+  const generateVideoThumbnail = (videoUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.src = videoUrl;
+
+      let resolved = false;
+      const captureFrame = () => {
+        if (resolved) return;
+        resolved = true;
+        try {
+          const canvas = document.createElement('canvas');
+          const width = video.videoWidth || 320;
+          const height = video.videoHeight || 180;
+          const targetWidth = Math.min(320, width);
+          const targetHeight = Math.round((height / (width || 1)) * targetWidth) || 180;
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx && canvas.width > 0 && canvas.height > 0) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            resolve(dataUrl);
+            return;
+          }
+        } catch (err) {
+          console.warn('Video thumbnail capture failed', err);
+        }
+        resolve('');
+      };
+
+      video.addEventListener('loadeddata', () => {
+        if (video.duration > 0.5) {
+          video.currentTime = Math.min(1.0, video.duration * 0.1);
+        } else {
+          captureFrame();
+        }
+      });
+
+      video.addEventListener('seeked', () => {
+        captureFrame();
+      });
+
+      video.addEventListener('error', () => {
+        if (!resolved) {
+          resolved = true;
+          resolve('');
+        }
+      });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve('');
+        }
+      }, 2500);
+    });
+  };
+
   // Process uploaded files and probe their duration locally
   const handleFiles = (files: FileList) => {
-    Array.from(files).forEach((file) => {
+    Array.from(files).forEach(async (file) => {
       const url = URL.createObjectURL(file);
-      const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/');
-      const isImage = file.type.startsWith('image/');
+      const fileNameLower = file.name.toLowerCase();
+      const isImage = file.type.startsWith('image/') || /\.(jfif|jpe?g|png|webp|gif|bmp|svg|avif|ico)$/i.test(fileNameLower);
+      const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi|flv|wmv|ts)$/i.test(fileNameLower);
+      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|wma|opus)$/i.test(fileNameLower);
 
       if (!isVideo && !isAudio && !isImage) {
         alert('Please upload a valid Video, Audio, or Image file.');
@@ -751,6 +825,7 @@ export default function MediaPanel({
       }
 
       const fileId = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      const formattedSize = formatFileSize(file.size);
 
       if (isImage) {
         // Images don't need duration probing, default to 10 seconds
@@ -760,31 +835,44 @@ export default function MediaPanel({
           type: 'video', // treated as video clip on timeline
           isImage: true,
           url: url,
+          thumbnailUrl: url,
           duration: 10.0,
           thumbnail: '🖼️',
-          size: (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+          size: formattedSize
         };
         setCustomAssets(prev => [newAsset, ...prev]);
         setActiveTab('upload');
-      } else {
-        // Probe duration by loading it briefly
-        const element = document.createElement(isVideo ? 'video' : 'audio');
+      } else if (isVideo) {
+        // Probe duration and capture video thumbnail
+        const element = document.createElement('video');
+        element.crossOrigin = 'anonymous';
+        element.muted = true;
+        element.playsInline = true;
         element.src = url;
 
         let resolved = false;
 
-        const handleSuccess = () => {
+        const handleSuccess = async () => {
           if (resolved) return;
           resolved = true;
           const duration = element.duration || 10;
+          let thumbUrl = '';
+          try {
+            thumbUrl = await generateVideoThumbnail(url);
+          } catch (e) {
+            console.warn('Video thumb generation error:', e);
+          }
+
           const newAsset = {
             id: fileId,
             name: file.name,
-            type: isVideo ? 'video' : 'audio',
+            type: 'video',
+            isImage: false,
             url: url,
+            thumbnailUrl: thumbUrl || undefined,
             duration: parseFloat(duration.toFixed(2)),
-            thumbnail: isVideo ? '📹' : '🎵',
-            size: (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+            thumbnail: '📹',
+            size: formattedSize
           };
 
           setCustomAssets(prev => [newAsset, ...prev]);
@@ -799,11 +887,12 @@ export default function MediaPanel({
           const newAsset = {
             id: fileId,
             name: file.name,
-            type: isVideo ? 'video' : 'audio',
+            type: 'video',
+            isImage: false,
             url: url,
             duration: 10.0,
-            thumbnail: isVideo ? '📹' : '🎵',
-            size: (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+            thumbnail: '📹',
+            size: formattedSize
           };
           setCustomAssets(prev => [newAsset, ...prev]);
           setActiveTab('upload');
@@ -818,12 +907,70 @@ export default function MediaPanel({
         element.addEventListener('loadedmetadata', handleSuccess);
         element.addEventListener('error', handleError);
 
-        // Safety timeout of 2.5 seconds in case loadedmetadata never fires
+        // Safety timeout of 3.0 seconds in case loadedmetadata never fires
         setTimeout(() => {
           if (!resolved) {
             handleError();
           }
-        }, 2500);
+        }, 3000);
+      } else if (isAudio) {
+        // Probe duration for audio
+        const element = document.createElement('audio');
+        element.src = url;
+
+        let resolved = false;
+
+        const handleSuccess = () => {
+          if (resolved) return;
+          resolved = true;
+          const duration = element.duration || 10;
+          const newAsset = {
+            id: fileId,
+            name: file.name,
+            type: 'audio',
+            isImage: false,
+            url: url,
+            duration: parseFloat(duration.toFixed(2)),
+            thumbnail: '🎵',
+            size: formattedSize
+          };
+
+          setCustomAssets(prev => [newAsset, ...prev]);
+          setActiveTab('upload');
+          cleanup();
+        };
+
+        const handleError = () => {
+          if (resolved) return;
+          resolved = true;
+          const newAsset = {
+            id: fileId,
+            name: file.name,
+            type: 'audio',
+            isImage: false,
+            url: url,
+            duration: 10.0,
+            thumbnail: '🎵',
+            size: formattedSize
+          };
+          setCustomAssets(prev => [newAsset, ...prev]);
+          setActiveTab('upload');
+          cleanup();
+        };
+
+        const cleanup = () => {
+          element.removeEventListener('loadedmetadata', handleSuccess);
+          element.removeEventListener('error', handleError);
+        };
+
+        element.addEventListener('loadedmetadata', handleSuccess);
+        element.addEventListener('error', handleError);
+
+        setTimeout(() => {
+          if (!resolved) {
+            handleError();
+          }
+        }, 3000);
       }
     });
   };
@@ -1314,8 +1461,12 @@ export default function MediaPanel({
                   id={`stock-img-${img.id}`}
                   className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-transparent hover:border-gray-700"
                 >
-                  <div className="w-14 h-14 bg-slate-800 rounded flex items-center justify-center text-2xl relative overflow-hidden shrink-0">
-                    {img.thumbnail}
+                  <div className="w-14 h-14 bg-slate-800 rounded-lg flex items-center justify-center text-2xl relative overflow-hidden shrink-0 border border-white/5">
+                    {img.url ? (
+                      <img src={img.url} alt={img.name} className="w-full h-full object-cover rounded-lg" />
+                    ) : (
+                      img.thumbnail
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-white truncate">{img.name}</p>
@@ -1380,7 +1531,7 @@ export default function MediaPanel({
             >
               <Upload className={`w-8 h-8 mb-2.5 transition ${dragActive ? 'text-cyan-400 animate-bounce' : 'text-gray-500'}`} />
               <p className="text-xs font-medium text-gray-300">Drag & drop files here</p>
-              <p className="text-[10px] text-gray-500 mt-1">Supports MP4, MP3, MOV, PNG, JPG (Max 50MB)</p>
+              <p className="text-[10px] text-gray-500 mt-1">Supports MP4, MP3, MOV, PNG, JPG, JFIF, WEBP (Max 50MB)</p>
               <button
                 id="browse-btn"
                 className="mt-3 text-[11px] bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-1 px-3 rounded-full transition"
@@ -1391,7 +1542,7 @@ export default function MediaPanel({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="video/*,audio/*,image/*"
+                accept="video/*,audio/*,image/*,.jfif,.jpg,.jpeg,.png,.webp,.gif,.bmp,.svg,.avif,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a"
                 onChange={handleFileInputChange}
                 className="hidden"
               />
@@ -1400,69 +1551,224 @@ export default function MediaPanel({
             {/* Custom Assets List */}
             {customAssets.length > 0 && (
               <div className="space-y-2.5 pt-2">
-                <h4 className="text-[11px] font-semibold text-gray-500 tracking-wider">YOUR IMPORTS</h4>
-                <div className="space-y-2">
-                  {customAssets.map((asset) => (
-                    <div
-                      key={asset.id}
-                      className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2 flex items-center gap-3 border border-gray-800 hover:border-gray-700 transition"
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="text-[11px] font-bold text-gray-400 tracking-wider">YOUR IMPORTS</h4>
+                    <span className="text-[10px] bg-cyan-950/80 text-cyan-400 font-mono px-1.5 py-0.2 rounded-full border border-cyan-800/40">
+                      {customAssets.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-[#14141a] p-0.5 rounded-md border border-white/5">
+                    <button
+                      type="button"
+                      onClick={() => setImportsViewMode('list')}
+                      className={`p-1 rounded text-xs transition ${importsViewMode === 'list' ? 'bg-[#2a2a38] text-cyan-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                      title="List View"
                     >
-                      <div className="w-10 h-10 bg-slate-800 rounded flex items-center justify-center text-lg">
-                        {asset.thumbnail}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-white truncate" title={asset.name}>{asset.name}</p>
-                        <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
-                          <span>{asset.size}</span>
-                          <span>•</span>
-                          <span>{asset.duration}s</span>
+                      <List className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportsViewMode('grid')}
+                      className={`p-1 rounded text-xs transition ${importsViewMode === 'grid' ? 'bg-[#2a2a38] text-cyan-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                      title="Grid View"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {importsViewMode === 'list' ? (
+                  <div className="space-y-2">
+                    {customAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg p-2 flex items-center gap-3 border border-gray-800 hover:border-cyan-500/40 transition shadow-sm"
+                      >
+                        {/* Thumbnail container */}
+                        <div className="w-12 h-12 bg-[#101016] rounded-md overflow-hidden flex items-center justify-center shrink-0 border border-white/10 relative shadow-inner">
+                          {asset.thumbnailUrl ? (
+                            <img
+                              src={asset.thumbnailUrl}
+                              alt={asset.name}
+                              className="w-full h-full object-cover rounded-md"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="text-xl">
+                              {asset.type === 'audio' ? '🎵' : asset.isImage ? '🖼️' : '🎬'}
+                            </div>
+                          )}
+
+                          {/* Media Type Icon Badge */}
+                          {asset.type === 'video' && !asset.isImage && (
+                            <div className="absolute bottom-0.5 right-0.5 bg-black/80 rounded px-1 text-[8px] font-mono text-cyan-400 flex items-center gap-0.5 backdrop-blur-xs">
+                              <Film className="w-2.5 h-2.5" />
+                            </div>
+                          )}
+                          {asset.isImage && (
+                            <div className="absolute bottom-0.5 right-0.5 bg-black/80 rounded px-1 text-[8px] font-mono text-amber-400 flex items-center gap-0.5 backdrop-blur-xs">
+                              <ImageIcon className="w-2.5 h-2.5" />
+                            </div>
+                          )}
+                          {asset.type === 'audio' && (
+                            <div className="absolute bottom-0.5 right-0.5 bg-black/80 rounded px-1 text-[8px] font-mono text-emerald-400 flex items-center gap-0.5 backdrop-blur-xs">
+                              <Volume2 className="w-2.5 h-2.5" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-white truncate" title={asset.name}>{asset.name}</p>
+                          <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-1 font-mono">
+                            <span className="bg-gray-800/80 px-1.5 py-0.5 rounded text-gray-300">{asset.size}</span>
+                            <span>•</span>
+                            <span className="text-cyan-400">{asset.duration}s</span>
+                            {asset.isImage && (
+                              <span className="text-amber-400 bg-amber-950/40 px-1 py-0.5 rounded text-[9px]">IMG</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onAddClip({
+                                name: asset.name,
+                                type: asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO,
+                                url: asset.url,
+                                duration: asset.duration,
+                                sourceStart: 0,
+                                sourceDuration: asset.duration,
+                                playbackRate: 1.0,
+                                volume: 1.0,
+                                isImage: asset.isImage,
+                                filters: asset.type === 'video' ? {
+                                  brightness: 100,
+                                  contrast: 100,
+                                  saturation: 100,
+                                  grayscale: 0,
+                                  sepia: 0,
+                                  invert: 0,
+                                  hueRotate: 0,
+                                  chromaKey: {
+                                    enabled: false,
+                                    color: '#00ff00',
+                                    threshold: 30,
+                                    smoothness: 10
+                                  }
+                                } : undefined
+                              });
+                            }}
+                            className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition text-gray-200 flex items-center gap-1 text-xs font-medium"
+                            title="Add to Timeline"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => deleteCustomAsset(asset.id, e)}
+                            className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-red-500/20 hover:text-red-400 transition text-gray-400"
+                            title="Remove file"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => {
-                            onAddClip({
-                              name: asset.name,
-                              type: asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO,
-                              url: asset.url,
-                              duration: asset.duration,
-                              sourceStart: 0,
-                              sourceDuration: asset.duration,
-                              playbackRate: 1.0,
-                              volume: 1.0,
-                              isImage: asset.isImage,
-                              filters: asset.type === 'video' ? {
-                                brightness: 100,
-                                contrast: 100,
-                                saturation: 100,
-                                grayscale: 0,
-                                sepia: 0,
-                                invert: 0,
-                                hueRotate: 0,
-                                chromaKey: {
-                                  enabled: false,
-                                  color: '#00ff00',
-                                  threshold: 30,
-                                  smoothness: 10
-                                }
-                              } : undefined
-                            });
-                          }}
-                          className="p-1 rounded bg-[#2a2a34] hover:bg-cyan-500 hover:text-black transition text-gray-300"
-                          title="Add to Timeline"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => deleteCustomAsset(asset.id, e)}
-                          className="p-1 rounded bg-[#2a2a34] hover:bg-red-500/20 hover:text-red-400 transition text-gray-400"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                    ))}
+                  </div>
+                ) : (
+                  /* Grid View */
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {customAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg overflow-hidden border border-gray-800 hover:border-cyan-500/40 transition flex flex-col relative shadow-sm"
+                      >
+                        <div className="aspect-video w-full bg-[#101016] relative overflow-hidden flex items-center justify-center">
+                          {asset.thumbnailUrl ? (
+                            <img
+                              src={asset.thumbnailUrl}
+                              alt={asset.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="text-2xl">
+                              {asset.type === 'audio' ? '🎵' : asset.isImage ? '🖼️' : '🎬'}
+                            </div>
+                          )}
+
+                          {/* Top duration & format badge */}
+                          <div className="absolute top-1 right-1 bg-black/80 rounded px-1.5 py-0.5 text-[9px] font-mono text-cyan-300 flex items-center gap-1 backdrop-blur-xs">
+                            {asset.isImage ? <ImageIcon className="w-2.5 h-2.5 text-amber-400" /> : asset.type === 'video' ? <Film className="w-2.5 h-2.5 text-cyan-400" /> : <Volume2 className="w-2.5 h-2.5 text-emerald-400" />}
+                            <span>{asset.duration}s</span>
+                          </div>
+
+                          {/* Quick Add Overlay on Hover */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onAddClip({
+                                  name: asset.name,
+                                  type: asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO,
+                                  url: asset.url,
+                                  duration: asset.duration,
+                                  sourceStart: 0,
+                                  sourceDuration: asset.duration,
+                                  playbackRate: 1.0,
+                                  volume: 1.0,
+                                  isImage: asset.isImage,
+                                  filters: asset.type === 'video' ? {
+                                    brightness: 100,
+                                    contrast: 100,
+                                    saturation: 100,
+                                    grayscale: 0,
+                                    sepia: 0,
+                                    invert: 0,
+                                    hueRotate: 0,
+                                    chromaKey: {
+                                      enabled: false,
+                                      color: '#00ff00',
+                                      threshold: 30,
+                                      smoothness: 10
+                                    }
+                                  } : undefined
+                                });
+                              }}
+                              className="p-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black shadow-lg transition transform hover:scale-110"
+                              title="Add to Timeline"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => deleteCustomAsset(asset.id, e)}
+                              className="p-2 rounded-full bg-black/70 hover:bg-red-500 text-white shadow-lg transition transform hover:scale-110"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Title & Size in Grid */}
+                        <div className="p-2">
+                          <p className="text-[11px] font-semibold text-white truncate" title={asset.name}>{asset.name}</p>
+                          <p className="text-[9px] text-gray-400 font-mono mt-0.5">{asset.size}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2944,7 +3250,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-stars',
                         name: 'Stars & Galaxy Loop',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-background-of-stars-and-galaxy-in-the-space-34444-large.mp4',
+                        url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
                         duration: 13,
                         thumbnail: '🌌',
                         category: 'Space',
@@ -2953,7 +3259,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-rain',
                         name: 'Rain On Glass Window',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-rain-drops-falling-on-a-window-pane-41617-large.mp4',
+                        url: 'https://vjs.zencdn.net/v/oceans.mp4',
                         duration: 10,
                         thumbnail: '🌧️',
                         category: 'Nature',
@@ -2962,7 +3268,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-clouds',
                         name: 'Slow Motion Sunset Clouds',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-moving-slowly-in-the-sky-41619-large.mp4',
+                        url: 'https://vjs.zencdn.net/v/oceans.mp4',
                         duration: 15,
                         thumbnail: '☁️',
                         category: 'Clouds',
@@ -2971,7 +3277,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-particles',
                         name: 'Golden Divine Particles',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-dust-particles-flying-slowly-in-the-air-42516-large.mp4',
+                        url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
                         duration: 12,
                         thumbnail: '✨',
                         category: 'VFX',
@@ -2980,7 +3286,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-waves',
                         name: 'Ocean Waves Slow Mo',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-waves-breaking-and-splashing-in-slow-motion-41624-large.mp4',
+                        url: 'https://vjs.zencdn.net/v/oceans.mp4',
                         duration: 12,
                         thumbnail: '🌊',
                         category: 'Nature',
@@ -2989,7 +3295,7 @@ export default function MediaPanel({
                       {
                         id: 'bg-forest',
                         name: 'Misty Coniferous Forest',
-                        url: 'https://assets.mixkit.co/videos/preview/mixkit-dense-mist-in-a-coniferous-forest-41616-large.mp4',
+                        url: 'https://vjs.zencdn.net/v/oceans.mp4',
                         duration: 11,
                         thumbnail: '🌲',
                         category: 'Scenic',

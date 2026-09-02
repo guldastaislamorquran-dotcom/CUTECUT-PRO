@@ -246,9 +246,10 @@ export const VideoFilmstripVisual = React.memo<VideoFilmstripVisualProps>(({
     );
   }, [clip.url, clip.type, clip.isImage]);
 
+  const fallbackImg = clip.poster || clip.thumbnailUrl || clip.fallbackUrl || getFallbackImageForVideoUrl(clip.url);
   const posterKey = normalizedUrl ? `${normalizedUrl}_poster` : '';
   const initialPoster = posterKey ? globalThumbnailCache.get(posterKey) : null;
-  const [posterThumb, setPosterThumb] = useState<string | null>(initialPoster || null);
+  const [posterThumb, setPosterThumb] = useState<string | null>(initialPoster || fallbackImg || null);
   const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
 
   const crossOrigin = useMemo(() => getSafeCrossOrigin(clip.url), [clip.url]);

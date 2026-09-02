@@ -5,7 +5,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-makkah-madinah',
     name: 'Makkah/Madinah Ambient Loops',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    url: 'https://vjs.zencdn.net/v/oceans.mp4',
     duration: 15,
     thumbnail: '🕌',
     category: 'Islamic Stock'
@@ -14,7 +14,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-clouds-slow',
     name: 'Slow Floating Clouds Video',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    url: 'https://vjs.zencdn.net/v/oceans.mp4',
     duration: 12,
     thumbnail: '☁️',
     category: 'Islamic Stock'
@@ -23,7 +23,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-starry-night',
     name: 'Starry Night Sky Timelapses',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-starry-sky-at-night-42283-large.mp4',
+    url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
     duration: 14,
     thumbnail: '🌌',
     category: 'Islamic Stock'
@@ -32,7 +32,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-green-screen',
     name: 'Chroma Key Dino (Green Screen)',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-dinosaur-toy-bouncing-on-green-screen-42289-large.mp4',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
     duration: 10,
     thumbnail: '🦖',
     category: 'Green Screen'
@@ -41,7 +41,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-neon-city',
     name: 'Cyberpunk Retro Grid',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-digital-neon-mesh-background-with-loop-41566-large.mp4',
+    url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
     duration: 12,
     thumbnail: '🌆',
     category: 'VFX & Loop'
@@ -50,7 +50,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-nature',
     name: 'Cinematic Mountain Forest',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4',
+    url: 'https://vjs.zencdn.net/v/oceans.mp4',
     duration: 15,
     thumbnail: '🌲',
     category: 'Cinematic'
@@ -59,7 +59,7 @@ export const STOCK_VIDEOS: PresetMedia[] = [
     id: 'stock-abstract',
     name: 'Fluid Dynamic Color Wave',
     type: 'video',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-purple-and-blue-paint-blending-in-water-43303-large.mp4',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
     duration: 8,
     thumbnail: '🎨',
     category: 'Abstract'
@@ -298,5 +298,14 @@ export const PRESET_LUTS: ColorGradingPreset[] = [
     gradient: 'from-emerald-400 via-green-600 to-black',
     iconEmoji: '🟢',
     filters: { brightness: 100, contrast: 125, saturation: 90, grayscale: 0, sepia: 25, invert: 0, hueRotate: 125 }
+  },
+  {
+    id: 'lut-glitch-vhs',
+    name: 'Glitch VHS Chroma',
+    category: 'Stylized',
+    description: 'Periodic RGB chromatic shift with high contrast analog VHS CRT look',
+    gradient: 'from-fuchsia-500 via-cyan-400 to-rose-600',
+    iconEmoji: '⚡',
+    filters: { brightness: 110, contrast: 140, saturation: 160, grayscale: 0, sepia: 0, invert: 0, hueRotate: 280 }
   }
 ];

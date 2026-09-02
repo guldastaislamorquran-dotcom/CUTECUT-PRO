@@ -1280,8 +1280,8 @@ export default function Inspector({
                   {/* Glitch Effect Toggle */}
                   <div className="flex items-center justify-between p-2 bg-[#16161c] rounded border border-gray-800">
                     <div>
-                      <div className="text-xs font-semibold text-gray-200">Glitch Slices Distortion</div>
-                      <div className="text-[10px] text-gray-500">Live chromatic slice jumping during playback</div>
+                      <div className="text-xs font-semibold text-gray-200">VHS Glitch & RGB Shear</div>
+                      <div className="text-[10px] text-gray-500">Periodic RGB chromatic shift, horizontal shear & VHS jitter</div>
                     </div>
                     <input
                       type="checkbox"
@@ -2411,6 +2411,53 @@ export default function Inspector({
                     <span className="font-mono text-[9px] text-gray-500 uppercase">{selectedClip.textStrokeColor || '#000000'}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Background Color & Padding */}
+              <div className="space-y-2 pt-2 border-t border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-gray-300 uppercase tracking-wide">📦 Background Box</span>
+                  <button
+                    onClick={() => onUpdateClip(selectedClip.id, { textBackgroundColor: selectedClip.textBackgroundColor === 'transparent' ? '#000000' : 'transparent' })}
+                    className="text-[9px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded transition"
+                  >
+                    {selectedClip.textBackgroundColor === 'transparent' || !selectedClip.textBackgroundColor ? 'Enable' : 'Disable'}
+                  </button>
+                </div>
+                
+                {selectedClip.textBackgroundColor && selectedClip.textBackgroundColor !== 'transparent' && (
+                  <>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-gray-400">Background Color</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          id="bg-color-picker"
+                          type="color"
+                          value={selectedClip.textBackgroundColor || '#000000'}
+                          onChange={(e) => onUpdateClip(selectedClip.id, { textBackgroundColor: e.target.value })}
+                          className="w-5 h-5 rounded border-0 cursor-pointer bg-transparent"
+                        />
+                        <span className="font-mono text-[9px] text-gray-500 uppercase">{selectedClip.textBackgroundColor || '#000000'}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="pt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400">Padding</span>
+                        <span className="font-mono text-[9px] text-gray-500">{selectedClip.textBackgroundPadding ?? 8}px</span>
+                      </div>
+                      <input
+                        id="bg-padding-slider"
+                        type="range"
+                        min="0"
+                        max="40"
+                        value={selectedClip.textBackgroundPadding ?? 8}
+                        onChange={(e) => onUpdateClip(selectedClip.id, { textBackgroundPadding: parseInt(e.target.value) })}
+                        className="w-full h-1 mt-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-gray-400"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Preset glow styles */}

@@ -60,71 +60,71 @@ const VISUAL_STYLES = [
 // Comprehensive curated theme asset bank for instant, beautiful results in Web & Desktop Snap/PKG builds
 const LOCAL_THEMATIC_ASSETS: Record<string, { image: string; video: string; query: string; mood: string; prompt: string }> = {
   dawn: {
-    image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'sunrise golden dawn mountains',
     mood: 'golden-warm',
     prompt: 'Cinematic 4K golden morning sunbeams breaking through misty mountains, spiritual radiance and warm dawn light'
   },
   night: {
-    image: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-starry-sky-at-night-42283-large.mp4',
+    image: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
     query: 'starry night galaxy universe',
     mood: 'deep-blue-night',
     prompt: 'Majestic deep night cosmos, countless twinkling stars, celestial milky way galaxy over tranquil silhouetted hills'
   },
   mountains: {
-    image: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4',
+    image: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'majestic mountain peaks clouds',
     mood: 'emerald-majestic',
     prompt: 'Towering alpine mountain peaks bathed in ethereal sunlight, pine forest valley, pristine contemplation'
   },
   ocean: {
-    image: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-calm-sea-water-under-a-blue-sky-42999-large.mp4',
+    image: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'calm ocean waves turquoise sea',
     mood: 'aquatic-tranquil',
     prompt: 'Crystal turquoise ocean gently lapping against shore, rolling crystal-clear waves, peaceful horizon'
   },
   rain: {
-    image: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-rain-falling-on-water-surface-42948-large.mp4',
+    image: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'gentle rain falling fresh greenery',
     mood: 'tranquil-rain',
     prompt: 'Gentle blessing rain falling upon fresh green leaves, raindrops creating ripples on water surface'
   },
   gardens: {
-    image: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-sunlight-filtering-through-the-leaves-of-a-tree-42990-large.mp4',
+    image: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
     query: 'lush green garden paradise stream',
     mood: 'verdant-peace',
     prompt: 'Lush paradise garden, flowing crystal stream beneath ancient olive trees, blooming flowers in soft daylight'
   },
   desert: {
-    image: 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-sand-dunes-in-a-desert-41584-large.mp4',
+    image: 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'golden desert sand dunes horizon',
     mood: 'golden-desert',
     prompt: 'Vast sweeping golden sand dunes under a serene sunset horizon, gentle wind carving ripples in the sand'
   },
   light: {
-    image: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-golden-light-streaks-moving-in-space-42861-large.mp4',
+    image: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
     query: 'celestial golden rays beam of light',
     mood: 'heavenly-glow',
     prompt: 'Divine celestial light rays illuminating atmospheric particles in high dynamic range, majestic awe'
   },
   cosmos: {
-    image: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-spinning-around-the-earth-in-space-41558-large.mp4',
+    image: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
     query: 'earth planet stars nebula galaxy',
     mood: 'cosmic-depth',
     prompt: 'View of Earth from orbit, glowing atmosphere with deep starry nebula in background, cosmic wonder'
   },
   clouds: {
-    image: 'https://images.unsplash.com/photo-1534088568595-a066f410bcda?w=1200&auto=format&fit=crop&q=80',
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    image: 'https://images.unsplash.com/photo-1534088568595-a066f410bcda?w=1600&auto=format&fit=crop&q=85',
+    video: 'https://vjs.zencdn.net/v/oceans.mp4',
     query: 'epic timelapse clouds sunlight',
     mood: 'ethereal-sky',
     prompt: 'Dramatic cinematic cloudscape in golden hour, billowing white clouds drifting across deep azure sky'
@@ -454,6 +454,9 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
       name: `Scene: ${item.verse_key} [${item.theme}]`,
       type: ClipType.VIDEO,
       url: item.selectedUrl || (isVid ? item.videoUrl : item.imageUrl),
+      poster: item.imageUrl,
+      thumbnailUrl: item.imageUrl,
+      fallbackUrl: item.imageUrl,
       duration: targetDuration,
       sourceStart: 0,
       sourceDuration: targetDuration,
@@ -611,6 +614,9 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
         name: `Scene: ${seg.verse_key} [${item.theme}]`,
         type: ClipType.VIDEO,
         url: item.selectedUrl || (isVid ? item.videoUrl : item.imageUrl),
+        poster: item.imageUrl,
+        thumbnailUrl: item.imageUrl,
+        fallbackUrl: item.imageUrl,
         start: clipStart,
         duration: Math.max(1.0, clipDur),
         sourceStart: 0,
@@ -620,8 +626,8 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
         volume: 0, // Muted background video track
         filters: {
           brightness: 100,
-          contrast: 105,
-          saturation: 105,
+          contrast: 100,
+          saturation: 100,
           grayscale: 0,
           sepia: 0,
           invert: 0,
