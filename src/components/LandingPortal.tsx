@@ -326,14 +326,14 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
         <div className="flex flex-col items-center justify-center gap-3 mb-14 w-full max-w-5xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
             <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Download Desktop Native Apps (v2.3.7)</span>
+            <span>Download Desktop Native Apps (v2.3.8)</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 w-full">
             {/* Windows Download */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO.Setup.2.3.7.exe"
-              download="CUTECUT.PRO.Setup.2.3.7.exe"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.8/CUTECUT.PRO.Setup.2.3.8.exe"
+              download="CUTECUT.PRO.Setup.2.3.8.exe"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-cyan-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -348,8 +348,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* macOS Download */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO-2.3.7-arm64.dmg"
-              download="CUTECUT.PRO-2.3.7-arm64.dmg"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.8/CUTECUT.PRO-2.3.8-arm64.dmg"
+              download="CUTECUT.PRO-2.3.8-arm64.dmg"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-gray-200/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -364,8 +364,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* Linux AppImage */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/CUTECUT.PRO-2.3.7.AppImage"
-              download="CUTECUT.PRO-2.3.7.AppImage"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.8/CUTECUT.PRO-2.3.8.AppImage"
+              download="CUTECUT.PRO-2.3.8.AppImage"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-emerald-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"
@@ -380,8 +380,8 @@ export const LandingPortal: React.FC<LandingPortalProps> = ({
 
             {/* Linux DEB */}
             <a
-              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.7/cutecut-pro_2.3.7_amd64.deb"
-              download="cutecut-pro_2.3.7_amd64.deb"
+              href="https://github.com/guldastaislamorquran-dotcom/cutecut-pro/releases/download/v2.3.8/cutecut-pro_2.3.8_amd64.deb"
+              download="cutecut-pro_2.3.8_amd64.deb"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#14141f] hover:bg-[#1c1c2b] border border-[#28283c] hover:border-blue-400/60 text-gray-200 hover:text-white transition group cursor-pointer shadow-lg shadow-black/40"

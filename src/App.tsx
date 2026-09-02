@@ -2558,7 +2558,7 @@ export default function App() {
     }
   };
 
-  const batchUpdateClipTimes = (updates: { id: string; start: number; duration: number; trackId?: string }[]) => {
+  const batchUpdateClipTimes = (updates: { id: string; start: number; duration: number; trackId?: string }[], isDragEnd: boolean = false) => {
     const updateMap = new Map(updates.map(u => [u.id, u]));
 
     // Check if any clip is being moved across tracks
@@ -2571,13 +2571,17 @@ export default function App() {
     }
 
     if (!hasTrackChange) {
-      setTracks(prev => prev.map(t => ({
-        ...t,
-        clips: t.clips.map(c => {
-          const u = updateMap.get(c.id);
-          return u ? { ...c, start: u.start, duration: u.duration } : c;
-        })
-      })));
+      setTracks(prev => {
+        const result = prev.map(t => ({
+          ...t,
+          clips: t.clips.map(c => {
+            const u = updateMap.get(c.id);
+            return u ? { ...c, start: u.start, duration: u.duration } : c;
+          })
+        }));
+        if (isDragEnd) return result.filter(track => track.clips.length > 0 || track.id === '1');
+        return result;
+      });
       return;
     }
 
@@ -2612,7 +2616,8 @@ export default function App() {
         return updatedTracks;
       }
 
-      return updatedTracks.map(track => {
+      
+      const resultTracks = updatedTracks.map(track => {
         const incoming = movedClips.filter(m => m.targetTrackId === track.id).map(m => m.clip);
         if (incoming.length > 0) {
           return {
@@ -2622,6 +2627,56 @@ export default function App() {
         }
         return track;
       });
+      
+      // If there are clips targeted to a track that doesn't exist yet (like 'new-track-uuid'), create it.
+      const existingTrackIds = new Set(resultTracks.map(t => t.id));
+      const newTracksMap = new Map<string, Clip[]>();
+      movedClips.forEach(m => {
+        if (!existingTrackIds.has(m.targetTrackId)) {
+          if (!newTracksMap.has(m.targetTrackId)) newTracksMap.set(m.targetTrackId, []);
+          newTracksMap.get(m.targetTrackId)!.push(m.clip);
+        }
+      });
+      
+      newTracksMap.forEach((clips, targetTrackId) => {
+        // Group incoming clips by their type so mixed selections create separate tracks
+        const clipsByType = new Map<ClipType, Clip[]>();
+        clips.forEach(clip => {
+          if (!clipsByType.has(clip.type)) clipsByType.set(clip.type, []);
+          clipsByType.get(clip.type)!.push(clip);
+        });
+
+        let isFirst = true;
+        clipsByType.forEach((typeClips, clipType) => {
+          let trackName = 'New Track';
+          if (clipType === ClipType.VIDEO) trackName = 'Video Track';
+          if (clipType === ClipType.AUDIO) trackName = 'Audio Track';
+          if (clipType === ClipType.TEXT) trackName = 'Text Track';
+          if (clipType === ClipType.IMAGE) trackName = 'Image Track';
+          if (clipType === ClipType.EFFECT) trackName = 'Effect Track';
+          
+          let newTrackId = targetTrackId;
+          if (targetTrackId.startsWith('new-track')) {
+            newTrackId = crypto.randomUUID();
+          } else if (!isFirst) {
+            newTrackId = crypto.randomUUID(); // if reusing an ID, only reuse for the first one
+          }
+          isFirst = false;
+
+          const finalClips = typeClips.map(c => ({ ...c, trackId: newTrackId })).sort((a, b) => a.start - b.start);
+
+          resultTracks.push({
+            id: newTrackId,
+            name: trackName,
+            type: clipType,
+            clips: finalClips,
+          });
+        });
+      });
+      if (isDragEnd) {
+        return resultTracks.filter(track => track.clips.length > 0 || track.id === '1');
+      }
+      return resultTracks;
     });
   };
 

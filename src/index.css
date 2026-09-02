@@ -79,3 +79,30 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+
+/* Custom Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111115; 
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333344;
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444455;
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #333344 #111115;
+}

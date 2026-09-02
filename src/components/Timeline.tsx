@@ -61,7 +61,7 @@ interface TimelineProps {
   onDeleteSelectedClips?: () => void;
   onRippleDelete: (direction: 'left' | 'right') => void;
   onUpdateClipTimes: (clipId: string, start: number, duration: number) => void;
-  onBatchUpdateClipTimes?: (updates: { id: string; start: number; duration: number; trackId?: string }[]) => void;
+  onBatchUpdateClipTimes?: (updates: { id: string; start: number; duration: number; trackId?: string }[], isDragEnd?: boolean) => void;
   onZoomChange: (zoom: number) => void;
   height?: number;
   onUpdateDuration?: (newDuration: number) => void;
@@ -388,7 +388,6 @@ export default function Timeline({
 
   // Timeline Direct File Drag & Drop State
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const timelineFileInputRef = useRef<HTMLInputElement>(null);
 
   const processDroppedFiles = useCallback((files: FileList | File[]) => {
     // Calculate total audio duration currently on the timeline
@@ -1125,7 +1124,7 @@ export default function Timeline({
           });
 
           if (onBatchUpdateClipTimesRef.current) {
-            onBatchUpdateClipTimesRef.current(updates);
+            onBatchUpdateClipTimesRef.current(updates, false);
           } else if (onUpdateClipTimesRef.current) {
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
@@ -1151,7 +1150,7 @@ export default function Timeline({
           });
 
           if (onBatchUpdateClipTimesRef.current) {
-            onBatchUpdateClipTimesRef.current(updates);
+            onBatchUpdateClipTimesRef.current(updates, false);
           } else if (onUpdateClipTimesRef.current) {
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
@@ -1177,6 +1176,15 @@ export default function Timeline({
             if (calculatedIdx >= 0 && calculatedIdx < tracksRef.current.length) {
               currentTargetTrackId = tracksRef.current[calculatedIdx].id;
               currentTargetTrackIdx = calculatedIdx;
+            } else if (calculatedIdx >= tracksRef.current.length) {
+              // Create a new track placeholder ID if dragging below all tracks
+              // We need a stable ID for the drag session to group them together
+              if (!activeDragging.targetTrackId || !activeDragging.targetTrackId.startsWith('new-track-')) {
+                currentTargetTrackId = 'new-track-' + Date.now();
+              } else {
+                currentTargetTrackId = activeDragging.targetTrackId;
+              }
+              currentTargetTrackIdx = tracksRef.current.length;
             }
           }
 
@@ -1218,7 +1226,8 @@ export default function Timeline({
 
           // Real-time position and track updates across all selected/dragged clips
           const targetTrack = tracksRef.current.find(t => t.id === currentTargetTrackId);
-          if (targetTrack && !targetTrack.locked) {
+          const isNewTrack = currentTargetTrackId.startsWith('new-track-');
+          if ((targetTrack && !targetTrack.locked) || isNewTrack) {
             // Calculate track index delta to move other selected clips proportionally
             const sourceTrackIdx = tracksRef.current.findIndex(t => t.id === activeDragging.sourceTrackId);
             const trackIdxDelta = currentTargetTrackIdx - sourceTrackIdx;
@@ -1231,7 +1240,9 @@ export default function Timeline({
 
               // Determine target track for each individual clip in selection group
               let clipTargetTrackId = item.sourceTrackId || item.trackId;
-              if (trackIdxDelta !== 0) {
+              if (isNewTrack) {
+                clipTargetTrackId = currentTargetTrackId;
+              } else if (trackIdxDelta !== 0) {
                 const clipSourceTrackIdx = tracksRef.current.findIndex(t => t.id === (item.sourceTrackId || item.trackId));
                 if (clipSourceTrackIdx !== -1) {
                   const clipTargetTrackIdx = Math.max(0, Math.min(tracksRef.current.length - 1, clipSourceTrackIdx + trackIdxDelta));
@@ -1248,7 +1259,7 @@ export default function Timeline({
             });
 
             if (onBatchUpdateClipTimesRef.current) {
-              onBatchUpdateClipTimesRef.current(updates);
+              onBatchUpdateClipTimesRef.current(updates, false);
             } else if (onUpdateClipTimesRef.current) {
               updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
             }
@@ -1311,7 +1322,7 @@ export default function Timeline({
         const targetTrack = tracksRef.current.find(t => t.id === targetTrackId);
 
         // If dragging whole clip body to a new track
-        if (!activeDragging.handle && targetTrackId && targetTrack && !targetTrack.locked) {
+        if (!activeDragging.handle && targetTrackId && ((targetTrack && !targetTrack.locked) || targetTrackId.startsWith('new-track-'))) {
           const minInitialStart = Math.min(...activeDragging.clips.map(c => c.initialStart));
           const maxDeltaLeft = -minInitialStart;
           const effectiveDelta = Math.max(maxDeltaLeft, deltaTime);
@@ -1325,12 +1336,11 @@ export default function Timeline({
               id: item.id,
               start: targetStart,
               duration: item.initialDuration,
-              trackId: targetTrack.id,
+              trackId: targetTrackId,
             };
           });
-
           if (onBatchUpdateClipTimesRef.current) {
-            onBatchUpdateClipTimesRef.current(updates);
+            onBatchUpdateClipTimesRef.current(updates, true);
           } else if (onUpdateClipTimesRef.current) {
             updates.forEach(u => onUpdateClipTimesRef.current?.(u.id, u.start, u.duration));
           }
@@ -1420,6 +1430,10 @@ export default function Timeline({
   const handleGridMouseDown = (e: React.MouseEvent) => {
     if (!gridWrapperRef.current) return;
     if (e.button !== 0 && e.button !== 2) return;
+
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      handleScrub(e.clientX);
+    }
 
     const rect = gridWrapperRef.current.getBoundingClientRect();
     const startX = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
@@ -1565,6 +1579,12 @@ export default function Timeline({
     const isMultiSelect = 'ctrlKey' in e ? (e.ctrlKey || e.metaKey || e.shiftKey) : false;
 
     onSelectClip(clip.id, isMultiSelect);
+
+    // Jump playhead to click location when clicking a clip
+    if (!isMultiSelect && !handle) {
+      const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+      handleScrub(clientX);
+    }
 
     // Compute which clips to include in current move matrix
     let targetIds: string[];
@@ -2324,17 +2344,6 @@ export default function Timeline({
         onDrop={handleTimelineDrop}
         className="flex-1 flex min-h-0 relative"
       >
-        {/* Hidden File Input for Direct Media Import */}
-        <input
-          ref={timelineFileInputRef}
-          type="file"
-          multiple
-          accept="video/*,audio/*,image/*"
-          onChange={(e) => {
-            if (e.target.files) processDroppedFiles(e.target.files);
-          }}
-          className="hidden"
-        />
         
         {/* Track Headers (Left sidebar of Timeline with CapCut Pro Mute, Lock, Hide controls) */}
         <div className="w-36 sm:w-44 bg-[#15151a] border-r border-[#2a2a30] flex flex-col z-20 shadow-md shrink-0 select-none">
@@ -2377,7 +2386,7 @@ export default function Timeline({
                 <span className="text-[8px] text-gray-600">Drop files or click + Track</span>
               </div>
             ) : (
-              sortedTracks.map((track, trackIdx) => {
+                sortedTracks.map((track, trackIdx) => {
                 const isDraggingOver = dragOverTrackId === track.id;
                 const isBeingDragged = draggedTrackId === track.id;
 
@@ -2424,7 +2433,7 @@ export default function Timeline({
                       setDragOverTrackId(null);
                     }}
                     onContextMenu={(e) => handleContextMenu(e, null, track)}
-                    className={`h-[72px] min-h-[72px] border rounded-lg flex flex-col justify-between p-1.5 sm:p-2 bg-[#16161d] shadow-sm transition-all relative ${
+                    className={`border rounded-lg flex flex-col justify-between p-1.5 sm:p-2 bg-[#16161d] shadow-sm transition-all relative ${track.type === ClipType.TEXT ? 'h-[40px] min-h-[40px]' : 'h-[72px] min-h-[72px]'} ${
                       isDraggingOver
                         ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-400/50 scale-[1.02] z-30'
                         : isBeingDragged
@@ -2580,9 +2589,8 @@ export default function Timeline({
               {sortedTracks.length === 0 ? (
                 /* CapCut Pro Empty Timeline Dropzone */
                 <div 
-                  onClick={() => timelineFileInputRef.current?.click()}
-                  className={`h-full min-h-[180px] border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all ${
-                    isDraggingFiles ? 'border-cyan-400 bg-cyan-950/40 shadow-[0_0_25px_rgba(6,182,212,0.3)]' : 'border-[#262633] bg-[#121218]/60 hover:border-cyan-500/50 hover:bg-[#151520]'
+                  className={`h-full min-h-[180px] border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-6 text-center transition-all ${
+                    isDraggingFiles ? 'border-cyan-400 bg-cyan-950/40 shadow-[0_0_25px_rgba(6,182,212,0.3)]' : 'border-[#262633] bg-[#121218]/60'
                   }`}
                 >
                   <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-3 shadow-inner">
@@ -2610,7 +2618,7 @@ export default function Timeline({
                     data-track-id={track.id}
                     data-track-index={trackIdx}
                     onContextMenu={(e) => handleContextMenu(e, null, track)}
-                    className={`h-[72px] min-h-[72px] border rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden transition-all ${
+                    className={`border rounded-lg relative bg-[#131318] flex items-center shadow-sm overflow-hidden transition-all ${track.type === ClipType.TEXT ? 'h-[40px] min-h-[40px]' : 'h-[72px] min-h-[72px]'} ${
                       isCrossTrackTarget
                         ? 'border-cyan-400 bg-cyan-950/25 ring-2 ring-cyan-400/40 shadow-[inset_0_0_20px_rgba(6,182,212,0.15)] z-15'
                         : 'border-[#22222c]'
@@ -2622,7 +2630,7 @@ export default function Timeline({
                     {/* Ghost Drop Preview when dragging clips between tracks */}
                     {isCrossTrackTarget && draggingClips && (
                       <div
-                        className="absolute top-[4px] h-[64px] rounded-lg border-2 border-dashed border-cyan-400 bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.35)] z-25 pointer-events-none flex flex-col justify-between p-1.5 animate-pulse"
+                        className={`absolute top-[4px] rounded-lg border-2 border-dashed border-cyan-400 bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.35)] z-25 pointer-events-none flex flex-col justify-between p-1.5 animate-pulse ${track.type === ClipType.TEXT ? 'h-[32px]' : 'h-[64px]'}`}
                         style={{
                           left: `${(draggingClips.calculatedTargetStart ?? 0) * zoom}px`,
                           width: `${(draggingClips.clips[0]?.initialDuration ?? 2) * zoom}px`,
@@ -2691,18 +2699,21 @@ export default function Timeline({
                             onMouseDown={(e) => startClipDrag(e, clip)}
                             onTouchStart={(e) => startClipDrag(e, clip)}
                             onContextMenu={(e) => handleContextMenu(e, clip, track)}
-                            className={`absolute top-[4px] h-[64px] rounded-lg flex flex-col justify-between cursor-pointer transition-colors duration-100 select-none group border shadow-sm overflow-hidden ${clipStyleClass} ${isDraggingThisClip ? 'pointer-events-none opacity-60' : ''}`}
+                            className={`absolute top-[4px] ${clip.type === ClipType.TEXT ? 'h-[32px] rounded-full justify-center px-2 py-1 items-center font-bold' : 'h-[64px] rounded-lg justify-between flex-col'} flex cursor-pointer transition-colors duration-100 select-none group border shadow-sm overflow-hidden ${clipStyleClass} ${isDraggingThisClip ? 'pointer-events-none opacity-60' : ''}`}
                             style={{
                               left: `${left}px`,
                               width: `${width}px`,
                             }}
                           >
                             {/* Top Header Bar (~20px) */}
+                            {clip.type === ClipType.TEXT && (
+                              <div className="truncate w-full text-center text-[10px] text-white/90 drop-shadow-sm font-semibold">{clip.name}</div>
+                            )}
+                            {clip.type !== ClipType.TEXT && (
                             <div className={`h-5 w-full flex items-center justify-between px-1.5 text-[9.5px] font-mono border-b select-none z-10 shrink-0 ${
                               clip.type === ClipType.AUDIO 
                                 ? 'bg-[#042f2e]/90 text-teal-200 border-teal-800/60' 
-                                : clip.type === ClipType.TEXT 
-                                ? 'bg-[#2e1065]/90 text-purple-200 border-purple-800/60' 
+                                
                                 : clip.type === ClipType.IMAGE
                                 ? 'bg-[#064e3b]/90 text-emerald-200 border-emerald-800/60'
                                 : 'bg-[#0e3b43]/90 text-cyan-200 border-cyan-800/60'
@@ -2746,6 +2757,7 @@ export default function Timeline({
                                 {clip.duration.toFixed(1)}s
                               </span>
                             </div>
+                            )}
 
                             {/* Bottom Visual Body (~44px) */}
                             <div className="flex-1 w-full relative overflow-hidden bg-[#0c0c12]">

@@ -925,151 +925,97 @@ export default function MediaPanel({
   return (
     <div
       id="media-panel"
-      className="bg-[#141418] rounded-lg border border-[#23232b] flex flex-col h-full select-none overflow-hidden shadow-sm flex-shrink-0"
+      className="bg-[#141418] rounded-lg border border-[#23232b] flex flex-row h-full select-none overflow-hidden shadow-sm flex-shrink-0"
       style={{ width: width !== undefined ? `${width}px` : undefined }}
     >
-      {/* Tab Navigation with Bottom Slider & Scroll Controls */}
-      <div className="relative border-b border-[#2a2a30] bg-[#121216] flex flex-col">
-        <div className="relative flex items-center">
-          {/* Left Scroll Button */}
+      {/* Vertical Tab Navigation with Bottom Slider & Scroll Controls */}
+      <div className="relative border-r border-[#2a2a30] bg-[#121216] flex flex-col w-16 flex-shrink-0 custom-scrollbar overflow-y-auto">
+        <div className="flex flex-col items-center py-2 gap-2">
+
           <button
-            onClick={() => {
-              if (tabsRef.current) tabsRef.current.scrollBy({ left: -120, behavior: 'smooth' });
-            }}
-            className="absolute left-0 top-0 bottom-0 z-10 px-1 bg-gradient-to-r from-[#121216] via-[#121216]/90 to-transparent text-gray-400 hover:text-cyan-400 flex items-center justify-center transition"
-            title="Scroll Tabs Left"
+            id="tab-upload"
+            onClick={() => setActiveTab('upload')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'upload' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
           >
-            <ChevronLeft className="w-4 h-4" />
+            <Upload className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Upload</span>
           </button>
-
-          {/* Scrollable Tabs Container */}
-          <div
-            ref={tabsRef}
-            onScroll={handleTabScroll}
-            className="flex overflow-x-auto text-gray-400 text-[10px] select-none scroll-smooth px-5 py-1.5 gap-1 whitespace-nowrap custom-scrollbar"
-            style={{ scrollbarWidth: 'thin' }}
-          >
-            <button
-              id="tab-upload"
-              onClick={() => setActiveTab('upload')}
-              className={`shrink-0 px-3.5 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'upload' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Upload className="w-4 h-4 text-cyan-400" />
-              <span className="font-extrabold text-cyan-300">Upload</span>
-            </button>
-
-            <button
-              id="tab-video"
-              onClick={() => setActiveTab('video')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'video' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Film className="w-4 h-4" />
-              <span>Video</span>
-            </button>
-
-            <button
-              id="tab-audio"
-              onClick={() => setActiveTab('audio')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'audio' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Music className="w-4 h-4" />
-              <span>Audio</span>
-            </button>
-
-            <button
-              id="tab-image"
-              onClick={() => setActiveTab('image')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'image' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <ImageIcon className="w-4 h-4" />
-              <span>Image</span>
-            </button>
-
-            <button
-              id="tab-text"
-              onClick={() => setActiveTab('text')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'text' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Type className="w-4 h-4" />
-              <span>Text</span>
-            </button>
-
-            <button
-              id="tab-quran-visuals"
-              onClick={() => setActiveTab('quran-visuals')}
-              className={`shrink-0 px-3.5 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'quran-visuals' ? 'text-emerald-400 bg-emerald-950/50 font-bold border border-emerald-500/50 shadow-md shadow-emerald-500/20' : 'text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-950/20'}`}
-              title="AI Ayah Media & Background Scenery Generator"
-            >
-              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
-              <span className="font-extrabold text-emerald-300">Ayah Visuals</span>
-            </button>
-
-            <button
-              id="tab-quran"
-              onClick={() => setActiveTab('quran')}
-              className={`shrink-0 px-3.5 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'quran' ? 'text-amber-400 bg-amber-950/40 font-bold border border-amber-500/50 shadow-md shadow-amber-500/10' : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/20'}`}
-            >
-              <BookOpen className="w-4 h-4 text-amber-400" />
-              <span className="font-extrabold">Quran AI v4</span>
-            </button>
-
-            <button
-              id="tab-effects"
-              onClick={() => setActiveTab('effects')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'effects' ? 'text-pink-400 bg-[#22222a] font-bold border border-pink-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Wand2 className="w-4 h-4 text-pink-400" />
-              <span>Effect</span>
-            </button>
-
-            <button
-              id="tab-background"
-              onClick={() => setActiveTab('background')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'background' ? 'text-emerald-400 bg-[#22222a] font-bold border border-emerald-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Globe className="w-4 h-4" />
-              <span>Free BG</span>
-            </button>
-
-            <button
-              id="tab-watermark"
-              onClick={() => setActiveTab('watermark')}
-              className={`shrink-0 px-3 py-2 rounded-lg flex flex-col items-center gap-1 transition ${activeTab === 'watermark' ? 'text-amber-400 bg-[#22222a] font-bold border border-amber-500/30' : 'hover:text-white hover:bg-[#1a1a20]'}`}
-            >
-              <Shield className="w-4 h-4" />
-              <span>Watermark</span>
-            </button>
-          </div>
-
-          {/* Right Scroll Button */}
           <button
-            onClick={() => {
-              if (tabsRef.current) tabsRef.current.scrollBy({ left: 120, behavior: 'smooth' });
-            }}
-            className="absolute right-0 top-0 bottom-0 z-10 px-1 bg-gradient-to-l from-[#121216] via-[#121216]/90 to-transparent text-gray-400 hover:text-cyan-400 flex items-center justify-center transition"
-            title="Scroll Tabs Right"
+            id="tab-video"
+            onClick={() => setActiveTab('video')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'video' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
           >
-            <ChevronRight className="w-4 h-4" />
+            <Film className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Media</span>
           </button>
-        </div>
-
-        {/* Bottom Tab Navigation Slider */}
-        <div className="px-3 pb-1.5 pt-0.5 flex items-center gap-2 bg-[#0e0e12] border-t border-[#1e1e26]">
-          <span className="text-[9px] font-mono text-gray-500 uppercase tracking-wider shrink-0">SLIDE TABS</span>
-          <input
-            id="tab-bottom-slider"
-            type="range"
-            min="0"
-            max="100"
-            step="0.1"
-            value={tabScrollPercent}
-            onChange={handleBottomSliderChange}
-            className="w-full h-1 bg-[#22222c] rounded-lg appearance-none cursor-pointer accent-cyan-400 hover:accent-cyan-300 transition-all"
-            title="Slide to scroll navigation tabs"
-          />
+          <button
+            id="tab-audio"
+            onClick={() => setActiveTab('audio')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'audio' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <Music className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Audio</span>
+          </button>
+          <button
+            id="tab-image"
+            onClick={() => setActiveTab('image')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'image' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <ImageIcon className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Image</span>
+          </button>
+          <button
+            id="tab-text"
+            onClick={() => setActiveTab('text')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'text' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <Type className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Text</span>
+          </button>
+          <button
+            id="tab-quran"
+            onClick={() => setActiveTab('quran')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'quran' ? 'text-amber-400 bg-amber-950/40 font-bold border border-amber-500/50' : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/20'}`}
+            title="Quran AI v4"
+          >
+            <BookOpen className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Quran</span>
+          </button>
+          <button
+            id="tab-quran-visuals"
+            onClick={() => setActiveTab('quran-visuals')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'quran-visuals' ? 'text-emerald-400 bg-emerald-950/50 font-bold border border-emerald-500/50' : 'text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-950/20'}`}
+            title="AI Ayah Media & Background Scenery Generator"
+          >
+            <Sparkles className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px] leading-tight text-center">Visuals</span>
+          </button>
+          <button
+            id="tab-effects"
+            onClick={() => setActiveTab('effects')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'effects' ? 'text-pink-400 bg-[#22222a] font-bold border border-pink-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <Wand2 className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Effect</span>
+          </button>
+          <button
+            id="tab-background"
+            onClick={() => setActiveTab('background')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'background' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <Globe className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Free BG</span>
+          </button>
+          <button
+            id="tab-watermark"
+            onClick={() => setActiveTab('watermark')}
+            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'watermark' ? 'text-amber-400 bg-[#22222a] font-bold border border-amber-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+          >
+            <Shield className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Branding</span>
+          </button>
         </div>
       </div>
-
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         {activeTab === 'video' && (
