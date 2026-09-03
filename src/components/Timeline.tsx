@@ -4,10 +4,10 @@ import {
   Copy, Snowflake, Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Plus, Minus,
   Magnet, Gauge, Music, Maximize2, Sparkles, Smartphone, Monitor, Square,
   MousePointer, MousePointer2, CheckSquare, FastForward, Film, Check, ExternalLink, ChevronRight,
-  Zap, Split, Radio, ChevronDown, ChevronUp, GripVertical, ArrowUpDown, ArrowUp, ArrowDown,
+  Zap, Split, ChevronDown, ChevronUp, GripVertical, ArrowUpDown, ArrowUp, ArrowDown,
   Flag, UserCheck, Mic, Link, Link2, Crosshair, Repeat, Grid,
   Image as ImageIcon, Type as TypeIcon, BoxSelect, CheckCheck, X, Merge,
-  GripHorizontal, Move, LocateFixed, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
+  GripHorizontal, Move, AlertTriangle, CheckCircle2, Wand2, FileText, BookOpen
 } from 'lucide-react';
 import { Track, Clip, ClipType, TransitionType } from '../types';
 import { formatTimeCode, inspectQuranAyahAlignment, QuranSyncInspectionReport, QuranSyncInspectionItem, generateAutoFixQuranTextClips, extractAyahNumberFromClip, globalBreathMarkersRegistry } from '../utils/editorUtils';
@@ -477,13 +477,13 @@ export default function Timeline({
   };
 
   useEffect(() => {
-    if (quranSyncReport.detectedSurah) {
+    if (quranSyncReport.detectedSurah && quranSyncReport.detectedSurah !== inspectorSurah) {
       setInspectorSurah(quranSyncReport.detectedSurah);
     }
-    if (quranSyncReport.detectedStartAyah) {
+    if (quranSyncReport.detectedStartAyah && quranSyncReport.detectedStartAyah !== inspectorStartAyah) {
       setInspectorStartAyah(quranSyncReport.detectedStartAyah);
     }
-  }, [quranSyncReport.detectedSurah, quranSyncReport.detectedStartAyah]);
+  }, [quranSyncReport.detectedSurah, quranSyncReport.detectedStartAyah, inspectorSurah, inspectorStartAyah]);
 
   const handleExecuteFixText = async (targetClipIds?: string[], specificSurah?: number, specificStartAyah?: number) => {
     setIsFixingText(true);
@@ -719,54 +719,6 @@ export default function Timeline({
       total: selectedClipsList.length,
     };
   }, [selectedClipsList]);
-
-  // Calculate multi-selection bounding box encompassing all selected clips
-  const multiSelectionBounds = useMemo(() => {
-    if (selectedClipsList.length <= 1) return null;
-
-    let minTime = Infinity;
-    let maxTime = -Infinity;
-    const trackIndices: number[] = [];
-
-    sortedTracks.forEach((track, trkIdx) => {
-      let trackHasSelected = false;
-      track.clips.forEach(clip => {
-        if (activeSelectedIds.includes(clip.id)) {
-          minTime = Math.min(minTime, clip.start);
-          maxTime = Math.max(maxTime, clip.start + clip.duration);
-          trackHasSelected = true;
-        }
-      });
-      if (trackHasSelected) {
-        trackIndices.push(trkIdx);
-      }
-    });
-
-    if (minTime === Infinity || maxTime === -Infinity || trackIndices.length === 0) {
-      return null;
-    }
-
-    const minTrackIdx = Math.min(...trackIndices);
-    const maxTrackIdx = Math.max(...trackIndices);
-
-    const left = minTime * zoom;
-    const width = Math.max(24, (maxTime - minTime) * zoom);
-    // Track row height = 72px, gap = 8px, padding top = 6px (step = 80px)
-    const top = 6 + minTrackIdx * 80;
-    const height = (maxTrackIdx - minTrackIdx) * 80 + 72;
-
-    return {
-      minTime,
-      maxTime,
-      duration: maxTime - minTime,
-      left,
-      width,
-      top,
-      height,
-      clipCount: selectedClipsList.length,
-      trackCount: trackIndices.length,
-    };
-  }, [selectedClipsList, sortedTracks, activeSelectedIds, zoom]);
 
   // Quick Select Helper Handlers
   const handleSelectAllClips = useCallback(() => {
@@ -1693,53 +1645,6 @@ export default function Timeline({
     });
   };
 
-  // Start group dragging of all selected clips from the multi-selection drag-handle
-  const startGroupDrag = (e: React.MouseEvent | React.TouchEvent) => {
-    // Only respond to primary mouse button if mouse event
-    if ('button' in e && (e as React.MouseEvent).button !== 0) return;
-
-    e.stopPropagation();
-    e.preventDefault();
-
-    const clipsToMove: DraggingClipItem[] = [];
-    tracksRef.current.forEach(track => {
-      if (track.locked) return;
-      track.clips.forEach(c => {
-        if (activeSelectedIdsRef.current.includes(c.id)) {
-          clipsToMove.push({
-            id: c.id,
-            initialStart: c.start,
-            initialDuration: c.duration,
-            trackId: track.id,
-            sourceTrackId: track.id,
-          });
-        }
-      });
-    });
-
-    if (clipsToMove.length === 0) return;
-
-    const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-
-    // Sort to make the leftmost clip the primary reference
-    clipsToMove.sort((a, b) => a.initialStart - b.initialStart);
-
-    const primaryClip = clipsToMove[0];
-    const sourceTrackId = primaryClip ? primaryClip.trackId : tracksRef.current[0]?.id;
-
-    setDraggingClips({
-      primaryId: clipsToMove[0].id,
-      dragStartPos: clientX,
-      dragStartY: clientY,
-      clips: clipsToMove,
-      sourceTrackId,
-      targetTrackId: sourceTrackId,
-      targetTrackIdx: tracksRef.current.findIndex(t => t.id === sourceTrackId),
-      calculatedTargetStart: primaryClip?.initialStart || 0,
-    });
-  };
-
   const getTrackIcon = (type: ClipType) => {
     switch (type) {
       case ClipType.VIDEO:
@@ -2240,58 +2145,6 @@ export default function Timeline({
             <Magnet className="w-3.5 h-3.5" />
           </button>
 
-          {/* Video Waveforms Toggle */}
-          <button
-            id="btn-video-waveforms-toggle"
-            onClick={() => setShowVideoWaveforms(prev => !prev)}
-            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1 ${
-              showVideoWaveforms
-                ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-xs ring-1 ring-cyan-500/30'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532]'
-            }`}
-            title={`Video Waveforms Display: ${showVideoWaveforms ? 'ENABLED (Displays CapCut-style mini waveforms on video clips)' : 'DISABLED (Hides waveforms on video clips entirely)'}`}
-          >
-            <Radio className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-[10px]">Video Waves</span>
-          </button>
-
-          {/* Visual Breath / Silence Guides Toggle */}
-          <button
-            id="btn-silence-guide-toggle"
-            onClick={() => setShowSilenceGuide(prev => !prev)}
-            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1 ${
-              showSilenceGuide
-                ? 'bg-amber-950/90 text-amber-300 border border-amber-500/50 shadow-xs ring-1 ring-amber-500/30'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532]'
-            }`}
-            title={`Visual Breath/Silence Mapping Guidelines: ${showSilenceGuide ? 'ENABLED (Renders yellow guide columns on timeline pauses)' : 'DISABLED'}`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline text-[10px]">Breath Guide</span>
-          </button>
-
-          {/* Follow Playhead Mode Switcher (Page / Smooth / Off) */}
-          <button
-            id="btn-follow-playhead"
-            onClick={() => {
-              setFollowPlayheadMode(prev => {
-                if (prev === 'page') return 'smooth';
-                if (prev === 'smooth') return 'off';
-                return 'page';
-              });
-            }}
-            className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              followPlayheadMode !== 'off'
-                ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-xs'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-[#252532] border border-[#333342]'
-            }`}
-            title={`Follow Playhead: ${followPlayheadMode.toUpperCase()} (Click to toggle: Page -> Smooth -> Off)`}
-          >
-            <LocateFixed className={`w-3.5 h-3.5 ${followPlayheadMode !== 'off' ? 'text-cyan-400 animate-pulse' : 'text-gray-500'}`} />
-            <span className="hidden sm:inline text-[10px]">
-              {followPlayheadMode === 'page' ? 'Page Follow' : followPlayheadMode === 'smooth' ? 'Smooth' : 'Follow Off'}
-            </span>
-          </button>
 
           {/* Quran Tilawat & Ayah Subtitle Sync Inspector & Auto-Fixer Toolbar Widget */}
           {quranSyncReport.isQuranAudioPresent && (
@@ -2938,44 +2791,6 @@ export default function Timeline({
                   </div>
                 );
               })
-            )}
-
-              {/* Multi-Selection Bounding Box & Interactive Group Move Drag-Handle */}
-              {multiSelectionBounds && (
-                <div
-                  id="timeline-multi-selection-bounding-box"
-                  className="absolute border-2 border-amber-400/90 rounded-xl bg-amber-500/5 shadow-[0_0_25px_rgba(251,191,36,0.2)] ring-2 ring-amber-400/30 transition-all pointer-events-none z-35"
-                  style={{
-                    left: `${multiSelectionBounds.left}px`,
-                    top: `${multiSelectionBounds.top}px`,
-                    width: `${multiSelectionBounds.width}px`,
-                    height: `${multiSelectionBounds.height}px`,
-                  }}
-                >
-                  {/* Corner Accent Markers */}
-                  <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
-                  <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
-                  <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
-                  <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-amber-400 border-2 border-[#121218] rounded-sm shadow-md" />
-
-                  {/* Interactive Group Drag-Handle Bar */}
-                  <div
-                    id="multi-selection-group-drag-handle"
-                    onMouseDown={startGroupDrag}
-                    onTouchStart={startGroupDrag}
-                    className="absolute -top-7 left-1/2 -translate-x-1/2 pointer-events-auto cursor-grab active:cursor-grabbing bg-[#151206]/95 hover:bg-amber-400 text-amber-300 hover:text-black border border-amber-400/90 px-2.5 py-0.5 rounded-md shadow-2xl flex items-center gap-1.5 backdrop-blur-md transition-all group/handle z-40 select-none"
-                    title="Click and drag to move all selected clips together across the timeline"
-                  >
-                    <GripHorizontal className="w-3.5 h-3.5 text-amber-400 group-hover/handle:text-black" />
-                    <Move className="w-3 h-3 text-amber-400/80 group-hover/handle:text-black" />
-                    <span className="text-[10px] font-mono font-bold whitespace-nowrap">
-                      {multiSelectionBounds.clipCount} Clips ({multiSelectionBounds.duration.toFixed(2)}s)
-                    </span>
-                    <span className="text-[9px] font-mono opacity-80 whitespace-nowrap border-l border-amber-400/40 pl-1.5 ml-0.5">
-                      Drag Group
-                    </span>
-                  </div>
-                </div>
               )}
             </div>
 

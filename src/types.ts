@@ -6,6 +6,24 @@ export enum ClipType {
   IMAGE = 'image'
 }
 
+export interface ColorWheelSetting {
+  master: number; // -100 to +100, default 0 (Lift offset, Gamma power, Gain multiplier)
+  r: number;      // -100 to +100, default 0
+  g: number;      // -100 to +100, default 0
+  b: number;      // -100 to +100, default 0
+  hue: number;    // 0 to 360 (deg), default 0
+  saturation: number; // 0 to 100 (%), default 0
+}
+
+export interface ColorGrading {
+  enabled: boolean;
+  lift: ColorWheelSetting;   // Shadows (blacks)
+  gamma: ColorWheelSetting;  // Midtones
+  gain: ColorWheelSetting;   // Highlights (whites)
+  temperature: number;       // -100 (Cool) to +100 (Warm), default 0
+  tint: number;              // -100 (Green) to +100 (Magenta), default 0
+}
+
 export interface VideoFilters {
   brightness: number; // 0 to 200, default 100
   contrast: number;   // 0 to 200, default 100
@@ -20,6 +38,7 @@ export interface VideoFilters {
     threshold: number; // 0 to 100
     smoothness: number; // 0 to 100
   };
+  colorGrading?: ColorGrading;
 }
 
 export interface Keyframe {
@@ -91,6 +110,8 @@ export interface Clip {
     vignette?: boolean;
     filmGrain?: boolean;
     glitch?: boolean;
+    shake?: boolean;
+    rgbSplit?: boolean;
     blur?: number; // 0 to 20
     relighting?: {
       enabled: boolean;
@@ -123,6 +144,38 @@ export interface Clip {
     voiceEnhancer?: boolean; // Voice Clarity Enhancer
     noiseGateThreshold?: number; // dB threshold, e.g. -40
   };
+  blendMode?: string;
+  mask?: {
+    type: 'none' | 'split' | 'filmstrip' | 'circle' | 'rectangle' | 'heart' | 'star';
+    feather?: number;
+    roundness?: number;
+    inverted?: boolean;
+    size?: number;
+    posX?: number;
+    posY?: number;
+    rotate?: number;
+  };
+  retouch?: {
+    smooth?: number;
+    brightEye?: number;
+    teethWhite?: number;
+    contours?: number;
+  };
+  audioSettings?: {
+    volumeDb?: number;
+    fadeIn?: number;
+    fadeOut?: number;
+    loudnessNorm?: boolean;
+    enhanceVoice?: boolean;
+    reduceNoise?: boolean;
+    fillChannel?: 'dual' | 'left' | 'right';
+    voiceFilter?: string;
+    voiceCharacter?: string;
+    speechToSong?: string;
+    pitchShift?: boolean;
+  };
+  textBubble?: string;
+  textEffectPreset?: string;
   transition?: ClipTransition;
 }
 

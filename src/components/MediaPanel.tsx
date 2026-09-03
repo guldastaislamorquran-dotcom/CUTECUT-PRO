@@ -1,11 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Film, Music, Type, Sliders, Play, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio, Square, LayoutGrid, List } from 'lucide-react';
+import { Upload, Film, Music, Type, Sliders, Play, Pause, Plus, Trash2, BookOpen, Sparkles, Terminal, Globe, ExternalLink, Search, Download, Shield, Image as ImageIcon, Brain, ChevronLeft, ChevronRight, Wand2, Zap, Eye, Flame, Cpu, Scissors, Activity, CheckCircle2, Layers, Volume2, Mic, RefreshCw, Languages, Check, Radio, Square, LayoutGrid, List, Smile, Blend, Palette } from 'lucide-react';
 import { Clip, ClipType, Track, WatermarkSettings, QuranTranslationOption } from '../types';
 import { STOCK_VIDEOS, STOCK_AUDIOS, STOCK_IMAGES, TEXT_PRESETS, PRESET_LUTS } from '../data/presetAssets';
+import {
+  CAPCUT_AUDIO_TRACKS,
+  CAPCUT_STICKERS,
+  CAPCUT_EFFECTS,
+  CAPCUT_TRANSITIONS,
+  CAPCUT_FILTERS,
+  CapCutAudioItem,
+} from '../data/capcutAssets';
 import { AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, formatAyahSymbol } from '../utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, SUPPORTED_TRANSLATION_FONTS, getSuggestedFontsForLanguage } from '../utils/quranTranslations';
 import OrnateAyahMedallion from './OrnateAyahMedallion';
-import EffectsPanel from './EffectsPanel';
 import { QuranVisualsPanel } from './QuranVisualsPanel';
 
 /**
@@ -354,20 +361,40 @@ export default function MediaPanel({
   onReplaceVideoTrackClips,
   currentTime = 0,
 }: MediaPanelProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'video' | 'audio' | 'image' | 'text' | 'quran-visuals' | 'quran' | 'effects' | 'background' | 'watermark'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'video' | 'audio' | 'image' | 'text' | 'stickers' | 'effects' | 'transitions' | 'filters' | 'adjustment' | 'quran-visuals' | 'quran' | 'background' | 'watermark'>('upload');
+  const [addedFeedback, setAddedFeedback] = useState<string | null>(null);
+  const showAddedToast = (name: string) => {
+    setAddedFeedback(name);
+    setTimeout(() => {
+      setAddedFeedback((prev) => (prev === name ? null : prev));
+    }, 2500);
+  };
   const [customAssets, setCustomAssets] = useState<any[]>([]);
   const [importsViewMode, setImportsViewMode] = useState<'list' | 'grid'>('list');
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Acoustic Sensitivity State
-  const [audioSensitivity, setAudioSensitivity] = useState<'quran-ayah' | 'studio' | 'mosque' | 'tartil' | 'hadr' | 'custom' | 'smart-waqf'>('smart-waqf');
-  const [customMinSilenceMs, setCustomMinSilenceMs] = useState(480);
-  const [customStartAyah, setCustomStartAyah] = useState(1);
-  const [gapHandlingMode, setGapHandlingMode] = useState<'preserve-gaps' | 'bridge-seamless' | 'label-pauses'>('label-pauses');
-  const [silencePaddingMs, setSilencePaddingMs] = useState(120);
-  const [isSegmentingAudio, setIsSegmentingAudio] = useState(false);
-  const [isSyncingVideo, setIsSyncingVideo] = useState(false);
+  // CapCut Audio Preview Player State (from video at 1:25 - 1:36)
+  const [previewAudioTrack, setPreviewAudioTrack] = useState<CapCutAudioItem | null>(null);
+  const [isPlayingAudioPreview, setIsPlayingAudioPreview] = useState(false);
+  const [previewAudioCurrentTime, setPreviewAudioCurrentTime] = useState(0);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // CapCut Audio Subtab & Filter category
+  const [audioSubTab, setAudioSubTab] = useState<'music' | 'sfx' | 'record'>('music');
+  const [audioCategory, setAudioCategory] = useState<string>('Trending');
+
+  // CapCut Sticker category
+  const [stickerCategory, setStickerCategory] = useState<'trending' | 'emoji' | 'emphasis' | 'arrows' | 'celebration'>('trending');
+
+  // CapCut Effect category
+  const [effectCategory, setEffectCategory] = useState<'trending' | 'opening' | 'lens' | 'retro' | 'party' | 'glitch'>('trending');
+
+  // CapCut Transition category
+  const [transitionCategory, setTransitionCategory] = useState<'trending' | 'basic' | 'overlay' | 'light' | 'camera' | '3d'>('trending');
+
+  // CapCut Filter category
+  const [filterCategory, setFilterCategory] = useState<'featured' | 'life' | 'scenery' | 'movie' | 'retro' | 'night'>('featured');
 
   // Live Microphone Voiceover Recorder State
   const [isRecordingMic, setIsRecordingMic] = useState(false);
@@ -976,6 +1003,7 @@ export default function MediaPanel({
   };
 
   const addPresetVideo = (video: typeof STOCK_VIDEOS[0]) => {
+    showAddedToast(video.name);
     onAddClip({
       name: video.name,
       type: ClipType.VIDEO,
@@ -1004,6 +1032,7 @@ export default function MediaPanel({
   };
 
   const addPresetAudio = (audio: typeof STOCK_AUDIOS[0]) => {
+    showAddedToast(audio.name);
     onAddClip({
       name: audio.name,
       type: ClipType.AUDIO,
@@ -1017,6 +1046,7 @@ export default function MediaPanel({
   };
 
   const addPresetImage = (image: typeof STOCK_IMAGES[0]) => {
+    showAddedToast(image.name);
     onAddClip({
       name: image.name,
       type: ClipType.IMAGE,
@@ -1046,6 +1076,7 @@ export default function MediaPanel({
   };
 
   const addPresetText = (preset: typeof TEXT_PRESETS[0]) => {
+    showAddedToast(preset.name);
     onAddClip({
       name: preset.name,
       type: ClipType.TEXT,
@@ -1064,6 +1095,150 @@ export default function MediaPanel({
     });
   };
 
+  const addCapCutAudio = (track: CapCutAudioItem) => {
+    showAddedToast(track.name);
+    onAddClip({
+      name: track.name,
+      type: ClipType.AUDIO,
+      url: track.url,
+      duration: Math.min(track.duration, 30),
+      sourceStart: 0,
+      sourceDuration: track.duration,
+      volume: 1.0,
+      playbackRate: 1.0,
+    });
+  };
+
+  const addDefaultText = () => {
+    showAddedToast('Default text');
+    onAddClip({
+      name: 'Default text',
+      type: ClipType.TEXT,
+      text: 'Default text',
+      fontSize: 48,
+      color: '#FFFFFF',
+      fontFamily: 'Montserrat',
+      textX: 50,
+      textY: 50,
+      duration: 5,
+      sourceStart: 0,
+      sourceDuration: 5,
+      playbackRate: 1.0,
+      volume: 1.0,
+    });
+  };
+
+  const addSticker = (sticker: typeof CAPCUT_STICKERS[0]) => {
+    showAddedToast(`Sticker: ${sticker.emoji}`);
+    onAddClip({
+      name: `Sticker - ${sticker.name}`,
+      type: ClipType.TEXT,
+      text: sticker.emoji,
+      fontSize: 72,
+      color: '#FFFFFF',
+      textX: 50,
+      textY: 50,
+      duration: 4,
+      sourceStart: 0,
+      sourceDuration: 4,
+      playbackRate: 1.0,
+      volume: 1.0,
+    });
+  };
+
+  const addCapCutEffect = (eff: typeof CAPCUT_EFFECTS[0]) => {
+    showAddedToast(eff.name);
+    onAddClip({
+      name: `Effect: ${eff.name}`,
+      type: ClipType.VIDEO,
+      url: '',
+      duration: 4,
+      sourceStart: 0,
+      sourceDuration: 4,
+      blendMode: 'screen',
+      videoEffects: {
+        blur: eff.category === 'opening' ? 4 : 0,
+        shake: eff.id === 'eff-prickle-warp',
+        glitch: eff.id === 'eff-vhs-glitch',
+        filmGrain: eff.id === 'eff-film-grain',
+        rgbSplit: eff.category === 'party',
+        vignette: true,
+      },
+      playbackRate: 1.0,
+      volume: 0,
+    });
+  };
+
+  const addCapCutFilter = (filt: typeof CAPCUT_FILTERS[0]) => {
+    showAddedToast(filt.name);
+    onAddClip({
+      name: `Filter: ${filt.name}`,
+      type: ClipType.VIDEO,
+      url: '',
+      duration: 5,
+      sourceStart: 0,
+      sourceDuration: 5,
+      blendMode: 'soft-light',
+      filters: {
+        brightness: filt.settings.brightness ?? 100,
+        contrast: filt.settings.contrast ?? 100,
+        saturation: filt.settings.saturation ?? 100,
+        sepia: filt.settings.sepia ?? 0,
+        grayscale: 0,
+        invert: 0,
+        hueRotate: 0,
+        chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+      },
+      playbackRate: 1.0,
+      volume: 0,
+    });
+  };
+
+  const addAdjustmentLayer = () => {
+    showAddedToast('Adjustment Layer');
+    onAddClip({
+      name: 'Adjustment Layer 1',
+      type: ClipType.VIDEO,
+      url: '',
+      duration: 6,
+      sourceStart: 0,
+      sourceDuration: 6,
+      blendMode: 'normal',
+      filters: {
+        brightness: 100,
+        contrast: 105,
+        saturation: 110,
+        grayscale: 0,
+        sepia: 0,
+        invert: 0,
+        hueRotate: 0,
+        chromaKey: { enabled: false, color: '#00ff00', threshold: 30, smoothness: 10 }
+      },
+      playbackRate: 1.0,
+      volume: 0,
+    });
+  };
+
+  const togglePlayAudioPreview = (track: CapCutAudioItem) => {
+    if (previewAudioTrack?.id === track.id) {
+      if (isPlayingAudioPreview) {
+        previewAudioRef.current?.pause();
+        setIsPlayingAudioPreview(false);
+      } else {
+        previewAudioRef.current?.play().catch(() => {});
+        setIsPlayingAudioPreview(true);
+      }
+    } else {
+      setPreviewAudioTrack(track);
+      setIsPlayingAudioPreview(true);
+      if (previewAudioRef.current) {
+        previewAudioRef.current.src = track.url;
+        previewAudioRef.current.currentTime = 0;
+        previewAudioRef.current.play().catch(() => {});
+      }
+    }
+  };
+
   const deleteCustomAsset = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setCustomAssets(prev => prev.filter(a => a.id !== id));
@@ -1077,12 +1252,12 @@ export default function MediaPanel({
     >
       {/* Vertical Tab Navigation with Bottom Slider & Scroll Controls */}
       <div className="relative border-r border-[#2a2a30] bg-[#121216] flex flex-col w-16 flex-shrink-0 custom-scrollbar overflow-y-auto">
-        <div className="flex flex-col items-center py-2 gap-2">
-
+        <div className="flex flex-col items-center py-2 gap-1.5">
           <button
             id="tab-upload"
             onClick={() => setActiveTab('upload')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'upload' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'upload' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Upload Local Files"
           >
             <Upload className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Upload</span>
@@ -1090,7 +1265,8 @@ export default function MediaPanel({
           <button
             id="tab-video"
             onClick={() => setActiveTab('video')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'video' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'video' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Media"
           >
             <Film className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Media</span>
@@ -1098,31 +1274,71 @@ export default function MediaPanel({
           <button
             id="tab-audio"
             onClick={() => setActiveTab('audio')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'audio' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'audio' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Audio"
           >
             <Music className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Audio</span>
           </button>
           <button
-            id="tab-image"
-            onClick={() => setActiveTab('image')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'image' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
-          >
-            <ImageIcon className="w-4 h-4 mb-0.5" />
-            <span className="text-[9px]">Image</span>
-          </button>
-          <button
             id="tab-text"
             onClick={() => setActiveTab('text')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'text' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'text' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Text"
           >
             <Type className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Text</span>
           </button>
           <button
+            id="tab-stickers"
+            onClick={() => setActiveTab('stickers')}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'stickers' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Stickers"
+          >
+            <Smile className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Stickers</span>
+          </button>
+          <button
+            id="tab-effects"
+            onClick={() => setActiveTab('effects')}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'effects' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Effects"
+          >
+            <Wand2 className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Effects</span>
+          </button>
+          <button
+            id="tab-transitions"
+            onClick={() => setActiveTab('transitions')}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'transitions' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Transitions"
+          >
+            <Blend className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Transition</span>
+          </button>
+          <button
+            id="tab-filters"
+            onClick={() => setActiveTab('filters')}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'filters' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Filters"
+          >
+            <Palette className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Filters</span>
+          </button>
+          <button
+            id="tab-adjustment"
+            onClick={() => setActiveTab('adjustment')}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'adjustment' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            title="Adjustment"
+          >
+            <Sliders className="w-4 h-4 mb-0.5" />
+            <span className="text-[9px]">Adjust</span>
+          </button>
+          <div className="w-8 h-px bg-gray-800 my-1" />
+          <button
             id="tab-quran"
             onClick={() => setActiveTab('quran')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'quran' ? 'text-amber-400 bg-amber-950/40 font-bold border border-amber-500/50' : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/20'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'quran' ? 'text-amber-400 bg-amber-950/40 font-bold border border-amber-500/50' : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/20'}`}
             title="Quran AI v4"
           >
             <BookOpen className="w-4 h-4 mb-0.5" />
@@ -1131,24 +1347,16 @@ export default function MediaPanel({
           <button
             id="tab-quran-visuals"
             onClick={() => setActiveTab('quran-visuals')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'quran-visuals' ? 'text-emerald-400 bg-emerald-950/50 font-bold border border-emerald-500/50' : 'text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-950/20'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'quran-visuals' ? 'text-emerald-400 bg-emerald-950/50 font-bold border border-emerald-500/50' : 'text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-950/20'}`}
             title="AI Ayah Media & Background Scenery Generator"
           >
             <Sparkles className="w-4 h-4 mb-0.5" />
             <span className="text-[9px] leading-tight text-center">Visuals</span>
           </button>
           <button
-            id="tab-effects"
-            onClick={() => setActiveTab('effects')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'effects' ? 'text-pink-400 bg-[#22222a] font-bold border border-pink-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
-          >
-            <Wand2 className="w-4 h-4 mb-0.5" />
-            <span className="text-[9px]">Effect</span>
-          </button>
-          <button
             id="tab-background"
             onClick={() => setActiveTab('background')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'background' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'background' ? 'text-cyan-400 bg-[#22222a] font-bold border border-cyan-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
           >
             <Globe className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Free BG</span>
@@ -1156,7 +1364,7 @@ export default function MediaPanel({
           <button
             id="tab-watermark"
             onClick={() => setActiveTab('watermark')}
-            className={`w-12 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition ${activeTab === 'watermark' ? 'text-amber-400 bg-[#22222a] font-bold border border-amber-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
+            className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${activeTab === 'watermark' ? 'text-amber-400 bg-[#22222a] font-bold border border-amber-500/30' : 'text-gray-400 hover:text-white hover:bg-[#1a1a20]'}`}
           >
             <Shield className="w-4 h-4 mb-0.5" />
             <span className="text-[9px]">Branding</span>
@@ -1173,16 +1381,17 @@ export default function MediaPanel({
                 <div
                   key={video.id}
                   id={`stock-video-${video.id}`}
-                  className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-transparent hover:border-gray-700"
+                  onClick={() => addPresetVideo(video)}
+                  className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-[#2b2b3a] hover:border-cyan-500/40 shadow-sm"
                 >
-                  <div className="w-14 h-14 bg-slate-800 rounded flex items-center justify-center text-2xl relative overflow-hidden">
+                  <div className="w-14 h-14 bg-slate-800 rounded flex items-center justify-center text-2xl relative overflow-hidden shrink-0">
                     {video.thumbnail}
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                      <Play className="w-4 h-4 text-white fill-current" />
+                      <Play className="w-4 h-4 text-white fill-current animate-pulse" />
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-white truncate">{video.name}</p>
+                    <p className="text-xs font-semibold text-white truncate">{video.name}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-cyan-400 bg-cyan-950/40 px-1.5 py-0.5 rounded uppercase font-mono">{video.category}</span>
                       <span className="text-[10px] text-gray-400 font-mono">{video.duration}s</span>
@@ -1190,7 +1399,10 @@ export default function MediaPanel({
                   </div>
                   <button
                     id={`add-btn-${video.id}`}
-                    onClick={() => addPresetVideo(video)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addPresetVideo(video);
+                    }}
                     className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition"
                     title="Add to Timeline"
                   >
@@ -1203,250 +1415,470 @@ export default function MediaPanel({
         )}
 
         {activeTab === 'audio' && (
-          <div className="space-y-4">
-            {/* Quran Ayah & Recitation Auto-Segmenter Tool */}
-            <div className="bg-[#121218] border border-amber-500/40 rounded-xl p-3.5 space-y-3 shadow-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white tracking-wide">QURAN AYAH AUTO-SEGMENTER</h4>
-                    <p className="text-[10px] text-amber-400/80">Acoustic Tajweed Waqf & Pause Detection</p>
-                  </div>
+          <div className="flex flex-col h-full space-y-3">
+            {/* Audio Hidden Preview Player Element */}
+            <audio
+              ref={previewAudioRef}
+              onEnded={() => setIsPlayingAudioPreview(false)}
+              onTimeUpdate={(e) => setPreviewAudioCurrentTime(e.currentTarget.currentTime)}
+            />
+
+            {/* Audio Subtabs: Music / Sound FX / Record */}
+            <div className="flex items-center gap-1.5 p-1 bg-[#18181e] rounded-lg border border-gray-800">
+              <button
+                onClick={() => setAudioSubTab('music')}
+                className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition ${audioSubTab === 'music' ? 'bg-[#272732] text-cyan-400 shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              >
+                Music
+              </button>
+              <button
+                onClick={() => setAudioSubTab('sfx')}
+                className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition ${audioSubTab === 'sfx' ? 'bg-[#272732] text-cyan-400 shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              >
+                Sound fx
+              </button>
+              <button
+                onClick={() => setAudioSubTab('record')}
+                className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition flex items-center justify-center gap-1 ${audioSubTab === 'record' ? 'bg-[#272732] text-cyan-400 shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              >
+                <Mic className="w-3 h-3" />
+                <span>Record</span>
+              </button>
+            </div>
+
+            {audioSubTab === 'record' ? (
+              <div className="space-y-4 p-3 bg-[#1c1c24] rounded-lg border border-gray-800 text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-red-950/40 text-red-400 border border-red-800/40 flex items-center justify-center">
+                  <Mic className="w-6 h-6 animate-pulse" />
                 </div>
-                <span className="text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">
-                  v4.0 Pro
-                </span>
+                <div>
+                  <h4 className="text-xs font-semibold text-white">Live Microphone Voiceover</h4>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Record clear commentary directly onto the audio track</p>
+                </div>
+                {isRecordingMic ? (
+                  <button
+                    onClick={stopMicRecording}
+                    className="w-full py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition flex items-center justify-center gap-2"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop Recording ({micRecordingTime}s)</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={startMicRecording}
+                    className="w-full py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs transition flex items-center justify-center gap-2"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Start Voiceover</span>
+                  </button>
+                )}
               </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-gray-300 font-semibold">Recitation Style & Sensitivity:</span>
-                  <span className="text-amber-400 font-mono text-[10px]">
-                    {audioSensitivity === 'smart-waqf' ? '🧠 Smart Waqf (Auto Breaths)' :
-                     audioSensitivity === 'quran-ayah' ? '🕌 Standard Ayah Waqf' :
-                     audioSensitivity === 'tartil' ? '📖 Tartil (Slow & Madd)' :
-                     audioSensitivity === 'hadr' ? '⚡ Hadr (Fast)' :
-                     audioSensitivity === 'mosque' ? '🏛️ Mosque / Reverb' :
-                     audioSensitivity === 'studio' ? '🎙️ Studio Speech' : '🎚️ Custom'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { id: 'smart-waqf', label: '🧠 Smart Waqf Pause', desc: 'Auto-detect & label breaths' },
-                    { id: 'quran-ayah', label: '🕌 Standard Ayah', desc: '480ms Waqf Gap' },
-                    { id: 'tartil', label: '📖 Slow Tartil', desc: '600ms Deep Pause' },
-                    { id: 'hadr', label: '⚡ Fast Hadr', desc: '340ms Short Pause' },
-                  ].map((preset) => (
+            ) : (
+              <>
+                {/* Category Filter Pills (Trending, Summer, Vlog, Travel, Lo-fi) */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+                  {['All', 'Trending', 'Summer', 'Vlog', 'Travel', 'Beat', 'Lo-fi', 'Pop'].map((cat) => (
                     <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => setAudioSensitivity(preset.id as any)}
-                      className={`p-2 rounded-lg text-left transition border cursor-pointer ${
-                        audioSensitivity === preset.id
-                          ? 'bg-amber-500/20 border-amber-400 text-white font-bold'
-                          : 'bg-[#1a1a24] border-gray-800 text-gray-300 hover:border-gray-700'
-                      }`}
+                      key={cat}
+                      onClick={() => setAudioCategory(cat)}
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap transition ${audioCategory === cat ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#202028] text-gray-400 hover:text-white border border-transparent'}`}
                     >
-                      <p className="text-[11px] leading-tight">{preset.label}</p>
-                      <p className={`text-[9px] mt-0.5 ${audioSensitivity === preset.id ? 'text-amber-300' : 'text-gray-500'}`}>
-                        {preset.desc}
-                      </p>
+                      {cat}
                     </button>
                   ))}
                 </div>
 
-                {/* Optional Custom Silence Threshold Slider */}
-                <div className="bg-[#0e0e14] p-2.5 rounded-lg border border-gray-800 space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-gray-400">Min Silence Gap:</span>
-                    <span className="text-amber-400 font-mono font-bold">{customMinSilenceMs} ms</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="200"
-                    max="1200"
-                    step="20"
-                    value={customMinSilenceMs}
-                    onChange={(e) => setCustomMinSilenceMs(parseInt(e.target.value, 10))}
-                    className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
-                  />
-                  <div className="flex justify-between text-[8px] text-gray-600 font-mono">
-                    <span>Fast (200ms)</span>
-                    <span>Standard (480ms)</span>
-                    <span>Long (1200ms)</span>
-                  </div>
+                {/* Track List */}
+                <div className="space-y-2 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                  {CAPCUT_AUDIO_TRACKS.filter(t => audioCategory === 'All' || t.category === audioCategory).map((track) => {
+                    const isCurrentPlaying = previewAudioTrack?.id === track.id && isPlayingAudioPreview;
+                    return (
+                      <div
+                        key={track.id}
+                        id={`capcut-audio-${track.id}`}
+                        onClick={() => togglePlayAudioPreview(track)}
+                        className={`group rounded-lg p-2 flex items-center gap-2.5 transition cursor-pointer border ${isCurrentPlaying ? 'bg-[#242430] border-cyan-500/40' : 'bg-[#1e1e26] hover:bg-[#252530] border-transparent hover:border-gray-700'}`}
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePlayAudioPreview(track);
+                          }}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center transition shrink-0 ${isCurrentPlaying ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30' : 'bg-[#2b2b36] group-hover:bg-[#343442] text-white'}`}
+                        >
+                          {isCurrentPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-medium truncate ${isCurrentPlaying ? 'text-cyan-300' : 'text-white'}`}>{track.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[9px] text-cyan-400 bg-cyan-950/50 px-1 rounded uppercase font-mono">{track.category}</span>
+                            <span className="text-[9px] text-gray-400 font-mono">{track.durationFormatted}</span>
+                          </div>
+                        </div>
+                        <button
+                          id={`add-capcut-audio-${track.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addCapCutAudio(track);
+                          }}
+                          className="p-1.5 rounded bg-[#2c2c38] hover:bg-cyan-500 hover:text-black text-gray-300 transition shrink-0"
+                          title="Add to Timeline"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* Silence Gap Handling Mode (وقف وسکوت) */}
-                <div className="bg-[#0e0e14] p-2.5 rounded-lg border border-gray-800 space-y-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-gray-300 font-semibold flex items-center gap-1">
-                      <span>Silence Gap Behavior:</span>
-                    </span>
-                    <span className="text-[10px] font-mono text-amber-400">
-                      {gapHandlingMode === 'preserve-gaps' ? '⏸️ Keep Silence Gaps' :
-                       gapHandlingMode === 'bridge-seamless' ? '🔗 Continuous Audio' : '🧠 Identify Waqf Pauses'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1">
+                {/* CapCut Sticky Audio Bottom Preview Bar (from video at 1:25 - 1:36) */}
+                {previewAudioTrack && (
+                  <div className="mt-auto p-2 bg-[#181820] border border-gray-800 rounded-lg shadow-lg flex items-center gap-2">
                     <button
-                      type="button"
-                      onClick={() => setGapHandlingMode('preserve-gaps')}
-                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
-                        gapHandlingMode === 'preserve-gaps'
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
-                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
-                      }`}
+                      onClick={() => togglePlayAudioPreview(previewAudioTrack)}
+                      className="w-7 h-7 rounded-full bg-cyan-500 text-black flex items-center justify-center shrink-0"
                     >
-                      <p className="text-[9px] font-bold flex items-center gap-1">
-                        <span>⏸️ Gaps</span>
-                      </p>
-                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
-                        Leaves empty silent spaces between clips
-                      </p>
+                      {isPlayingAudioPreview ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setGapHandlingMode('bridge-seamless')}
-                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
-                        gapHandlingMode === 'bridge-seamless'
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
-                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      <p className="text-[9px] font-bold flex items-center gap-1">
-                        <span>🔗 Seamless</span>
-                      </p>
-                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
-                        Bridges audio tail to next verse start
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setGapHandlingMode('label-pauses')}
-                      className={`p-1.5 rounded-lg text-left transition border cursor-pointer ${
-                        gapHandlingMode === 'label-pauses'
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
-                          : 'bg-[#161620] border-gray-800 text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      <p className="text-[9px] font-bold flex items-center gap-1">
-                        <span>🧠 Waqf Clips</span>
-                      </p>
-                      <p className="text-[7px] text-gray-400 mt-0.5 leading-tight">
-                        Splits, labels & colors pause points
-                      </p>
-                    </button>
-                  </div>
-
-                  {/* Silence Padding Slider */}
-                  <div className="pt-1 border-t border-gray-800/80 space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-gray-400">Silence Margin (Padding):</span>
-                      <span className="text-amber-400 font-mono font-bold">±{silencePaddingMs} ms</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-white truncate">{previewAudioTrack.name}</p>
+                      <div className="flex items-center gap-2">
+                        {/* Simulated Audio Waveform Bar */}
+                        <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden flex items-center">
+                          <div
+                            className="h-full bg-cyan-400 rounded-full transition-all"
+                            style={{ width: `${Math.min(100, (previewAudioCurrentTime / previewAudioTrack.duration) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] text-gray-400 font-mono">
+                          {Math.floor(previewAudioCurrentTime)}s / {previewAudioTrack.durationFormatted}
+                        </span>
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="400"
-                      step="20"
-                      value={silencePaddingMs}
-                      onChange={(e) => setSilencePaddingMs(parseInt(e.target.value, 10))}
-                      className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
-                    />
-                    <div className="flex justify-between text-[8px] text-gray-600 font-mono">
-                      <span>Tight (0ms)</span>
-                      <span>Default (120ms)</span>
-                      <span>Spacious (400ms)</span>
-                    </div>
+                    <button
+                      onClick={() => addCapCutAudio(previewAudioTrack)}
+                      className="p-1.5 rounded bg-cyan-500 hover:bg-cyan-400 text-black font-semibold text-[10px] flex items-center gap-1 shadow"
+                      title="Add to Timeline"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add</span>
+                    </button>
                   </div>
-                </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
-                {/* Starting Ayah Number input */}
-                <div className="flex items-center justify-between bg-[#0e0e14] p-2 rounded-lg border border-gray-800 text-[11px]">
-                  <span className="text-gray-300">First Ayah Number:</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-500 font-mono">Start at:</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="286"
-                      value={customStartAyah}
-                      onChange={(e) => setCustomStartAyah(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-14 bg-black border border-amber-500/40 rounded px-2 py-0.5 text-xs text-amber-300 font-mono text-center focus:outline-none"
-                    />
-                  </div>
+        {activeTab === 'text' && (
+          <div className="space-y-4">
+            {/* Top CapCut "Add text" Card with Plus Icon (from video at 0:08) */}
+            <div className="bg-gradient-to-br from-[#1e2028] to-[#161820] border border-cyan-500/20 rounded-xl p-3.5 relative overflow-hidden shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-white tracking-wide">ADD TEXT</h4>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Click + to insert default styled subtitle to track</p>
                 </div>
-
-                {/* Auto-Segment Action Button */}
                 <button
-                  type="button"
-                  id="btn-trigger-auto-segment-audio"
-                  onClick={async () => {
-                    if (onAutoSegmentAudio) {
-                      setIsSegmentingAudio(true);
-                      try {
-                        await onAutoSegmentAudio(selectedClip?.id, audioSensitivity, {
-                          minSilenceMs: customMinSilenceMs,
-                          startAyahNumber: customStartAyah,
-                          gapHandling: gapHandlingMode,
-                          paddingMs: silencePaddingMs,
-                        });
-                      } finally {
-                        setIsSegmentingAudio(false);
-                      }
-                    }
-                  }}
-                  disabled={isSegmentingAudio}
-                  className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold rounded-lg text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                  id="btn-add-default-text"
+                  onClick={addDefaultText}
+                  className="w-8 h-8 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black flex items-center justify-center transition shadow-lg shadow-cyan-500/30"
+                  title="Add Default Text to Timeline"
                 >
-                  {isSegmentingAudio ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Scanning Recitation & Segmenting Ayahs...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-3.5 h-3.5 fill-current" />
-                      <span>⚡ Auto-Segment Audio into Ayahs on Timeline</span>
-                    </>
-                  )}
+                  <Plus className="w-4 h-4 font-bold" />
                 </button>
+              </div>
+              <div
+                onClick={addDefaultText}
+                className="mt-3 p-3 bg-black/40 rounded-lg border border-dashed border-gray-700 hover:border-cyan-500 cursor-pointer flex items-center justify-center transition"
+              >
+                <span className="text-sm font-semibold text-gray-200 tracking-wider">Default text</span>
               </div>
             </div>
 
-            <h3 className="text-xs font-semibold text-gray-400 tracking-wider pt-2">STOCK AUDIO TRACKS</h3>
-            <div className="grid grid-cols-1 gap-3">
-              {STOCK_AUDIOS.map((audio) => (
-                <div
-                  key={audio.id}
-                  id={`stock-audio-${audio.id}`}
-                  className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-transparent hover:border-gray-700"
+            {/* CapCut Text Effects / Art Styles */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 tracking-wider mb-2">TEXT EFFECTS & ART PRESETS</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { name: 'Gold Luxury', color: '#fbbf24', font: 'Playfair Display' },
+                  { name: 'Cyan Glow', color: '#22d3ee', font: 'Montserrat' },
+                  { name: 'Neon Purple', color: '#c084fc', font: 'Space Grotesk' },
+                  { name: 'Bold Minimal', color: '#ffffff', font: 'Inter' },
+                ].map((eff) => (
+                  <div
+                    key={eff.name}
+                    onClick={() => {
+                      onAddClip({
+                        name: eff.name,
+                        type: ClipType.TEXT,
+                        text: eff.name,
+                        fontSize: 48,
+                        color: eff.color,
+                        fontFamily: eff.font,
+                        textX: 50,
+                        textY: 50,
+                        duration: 5,
+                        sourceStart: 0,
+                        sourceDuration: 5,
+                        playbackRate: 1.0,
+                        volume: 1.0,
+                      });
+                    }}
+                    className="p-3 bg-[#1e1e26] hover:bg-[#262632] border border-gray-800 hover:border-cyan-500/40 rounded-lg cursor-pointer flex flex-col items-center justify-center text-center transition group"
+                  >
+                    <span className="text-sm font-bold truncate max-w-full" style={{ color: eff.color, fontFamily: eff.font }}>
+                      {eff.name}
+                    </span>
+                    <span className="text-[9px] text-gray-500 mt-1 opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 text-cyan-400">
+                      <Plus className="w-2.5 h-2.5" /> Add
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Standard Text Presets */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 tracking-wider mb-2">TEXT TEMPLATES</h3>
+              <div className="grid grid-cols-1 gap-2">
+                {TEXT_PRESETS.map((preset) => (
+                  <div
+                    key={preset.id}
+                    id={`text-preset-${preset.id}`}
+                    className="bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center justify-between border border-transparent hover:border-gray-700 transition cursor-pointer"
+                  >
+                    <div className="flex-1 pr-3">
+                      <p className="text-[11px] font-medium text-gray-300">{preset.name}</p>
+                      <p className="text-xs font-bold mt-0.5 tracking-wide truncate" style={{ color: preset.color }}>
+                        {preset.text}
+                      </p>
+                    </div>
+                    <button
+                      id={`add-text-btn-${preset.id}`}
+                      onClick={() => addPresetText(preset)}
+                      className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'stickers' && (
+          <div className="space-y-3">
+            {/* Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {(['trending', 'emoji', 'emphasis', 'arrows', 'celebration'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setStickerCategory(cat)}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase whitespace-nowrap transition ${stickerCategory === cat ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#202028] text-gray-400 hover:text-white'}`}
                 >
-                  <div className="w-11 h-11 bg-teal-950/40 text-teal-400 border border-teal-800/40 rounded flex items-center justify-center text-xl">
-                    {audio.thumbnail}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-white truncate">{audio.name}</p>
-                    <p className="text-[10px] text-gray-400 mt-1 font-mono">Music • {Math.floor(audio.duration / 60)}m {Math.floor(audio.duration % 60)}s</p>
-                  </div>
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Sticker Grid */}
+            <div className="grid grid-cols-3 gap-2">
+              {CAPCUT_STICKERS.filter(s => s.category === stickerCategory).map((st) => (
+                <div
+                  key={st.id}
+                  id={`sticker-${st.id}`}
+                  onClick={() => addSticker(st)}
+                  className="group bg-[#1e1e26] hover:bg-[#252532] border border-gray-800 hover:border-cyan-500/50 rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer transition relative"
+                >
+                  <span className="text-3xl filter drop-shadow-md group-hover:scale-110 transition-transform">{st.emoji}</span>
+                  <span className="text-[9px] text-gray-400 mt-1.5 text-center truncate max-w-full">{st.name}</span>
                   <button
-                    id={`add-audio-btn-${audio.id}`}
-                    onClick={() => addPresetAudio(audio)}
-                    className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addSticker(st);
+                    }}
+                    className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-cyan-500 text-black transition"
                     title="Add to Timeline"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-2.5 h-2.5" />
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'effects' && (
+          <div className="space-y-3">
+            {/* Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {(['trending', 'opening', 'lens', 'retro', 'party', 'glitch'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setEffectCategory(cat)}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase whitespace-nowrap transition ${effectCategory === cat ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#202028] text-gray-400 hover:text-white'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Effects Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              {CAPCUT_EFFECTS.filter(e => e.category === effectCategory).map((eff) => (
+                <div
+                  key={eff.id}
+                  id={`effect-${eff.id}`}
+                  onClick={() => addCapCutEffect(eff)}
+                  className="group bg-[#1e1e26] hover:bg-[#252532] border border-gray-800 hover:border-cyan-500/50 rounded-xl p-2.5 flex flex-col justify-between cursor-pointer transition relative h-24"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl">{eff.icon}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addCapCutEffect(eff);
+                      }}
+                      className="p-1 rounded bg-[#2c2c38] hover:bg-cyan-500 hover:text-black text-gray-300 transition"
+                      title="Add Effect to Timeline"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white truncate">{eff.name}</p>
+                    <p className="text-[9px] text-gray-400 mt-0.5 line-clamp-1">{eff.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'transitions' && (
+          <div className="space-y-3">
+            {/* Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {(['trending', 'basic', 'overlay', 'light', 'camera', '3d'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setTransitionCategory(cat)}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase whitespace-nowrap transition ${transitionCategory === cat ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#202028] text-gray-400 hover:text-white'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Transitions Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              {CAPCUT_TRANSITIONS.filter(t => t.category === transitionCategory).map((trans) => (
+                <div
+                  key={trans.id}
+                  id={`transition-${trans.id}`}
+                  onClick={() => {
+                    onAddClip({
+                      name: `Transition: ${trans.name}`,
+                      type: ClipType.VIDEO,
+                      url: '',
+                      duration: 1.5,
+                      sourceStart: 0,
+                      sourceDuration: 1.5,
+                      blendMode: 'screen',
+                      playbackRate: 1.0,
+                      volume: 0,
+                    });
+                  }}
+                  className="group bg-[#1e1e26] hover:bg-[#252532] border border-gray-800 hover:border-cyan-500/50 rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer transition text-center relative"
+                >
+                  <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">{trans.icon}</span>
+                  <p className="text-xs font-bold text-white truncate max-w-full">{trans.name}</p>
+                  <button
+                    className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 p-1 rounded bg-cyan-500 text-black transition"
+                    title="Add Transition"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'filters' && (
+          <div className="space-y-3">
+            {/* Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {(['featured', 'life', 'scenery', 'movie', 'retro', 'night'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase whitespace-nowrap transition ${filterCategory === cat ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#202028] text-gray-400 hover:text-white'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Filters Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              {CAPCUT_FILTERS.filter(f => f.category === filterCategory).map((filt) => (
+                <div
+                  key={filt.id}
+                  id={`filter-${filt.id}`}
+                  onClick={() => addCapCutFilter(filt)}
+                  className="group bg-[#1e1e26] hover:bg-[#252532] border border-gray-800 hover:border-cyan-500/50 rounded-xl p-2.5 flex items-center gap-2.5 cursor-pointer transition"
+                >
+                  <div
+                    className="w-9 h-9 rounded-lg shrink-0 shadow-inner flex items-center justify-center font-bold text-black text-xs"
+                    style={{ backgroundColor: filt.previewColor }}
+                  >
+                    ✦
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{filt.name}</p>
+                    <p className="text-[9px] text-gray-400 capitalize">{filt.category}</p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addCapCutFilter(filt);
+                    }}
+                    className="p-1 rounded bg-[#2c2c38] hover:bg-cyan-500 hover:text-black text-gray-300 transition shrink-0"
+                    title="Apply Filter"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'adjustment' && (
+          <div className="space-y-4">
+            <div className="bg-gradient-to-br from-[#1e2028] to-[#161820] border border-cyan-500/20 rounded-xl p-4 shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-white tracking-wide">ADJUSTMENT LAYER</h4>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Apply color grades and filters across multiple underlying tracks</p>
+                </div>
+                <button
+                  onClick={addAdjustmentLayer}
+                  className="w-8 h-8 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black flex items-center justify-center transition shadow-lg shadow-cyan-500/30"
+                  title="Add Adjustment Layer"
+                >
+                  <Plus className="w-4 h-4 font-bold" />
+                </button>
+              </div>
+              <div
+                onClick={addAdjustmentLayer}
+                className="mt-3 p-3 bg-black/40 rounded-lg border border-dashed border-gray-700 hover:border-cyan-500 cursor-pointer flex items-center justify-center transition"
+              >
+                <span className="text-sm font-semibold text-gray-200 tracking-wider">+ Add adjustment</span>
+              </div>
             </div>
           </div>
         )}
@@ -1459,7 +1891,8 @@ export default function MediaPanel({
                 <div
                   key={img.id}
                   id={`stock-img-${img.id}`}
-                  className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-transparent hover:border-gray-700"
+                  onClick={() => addPresetImage(img)}
+                  className="group bg-[#202026] hover:bg-[#282830] rounded-lg p-2.5 flex items-center gap-3 transition cursor-pointer border border-[#2b2b3a] hover:border-cyan-500/40 shadow-sm"
                 >
                   <div className="w-14 h-14 bg-slate-800 rounded-lg flex items-center justify-center text-2xl relative overflow-hidden shrink-0 border border-white/5">
                     {img.url ? (
@@ -1469,7 +1902,7 @@ export default function MediaPanel({
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-white truncate">{img.name}</p>
+                    <p className="text-xs font-semibold text-white truncate">{img.name}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-cyan-400 bg-cyan-950/40 px-1.5 py-0.5 rounded uppercase font-mono">{img.category}</span>
                       <span className="text-[10px] text-gray-400 font-mono">{img.duration}s</span>
@@ -1477,7 +1910,10 @@ export default function MediaPanel({
                   </div>
                   <button
                     id={`add-img-btn-${img.id}`}
-                    onClick={() => addPresetImage(img)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addPresetImage(img);
+                    }}
                     className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition shrink-0"
                     title="Add to Timeline"
                   >
@@ -1497,17 +1933,21 @@ export default function MediaPanel({
                 <div
                   key={preset.id}
                   id={`text-preset-${preset.id}`}
-                  className="bg-[#202026] hover:bg-[#282830] rounded-lg p-3 flex items-center justify-between border border-transparent hover:border-gray-700 transition cursor-pointer"
+                  onClick={() => addPresetText(preset)}
+                  className="bg-[#202026] hover:bg-[#282830] rounded-lg p-3 flex items-center justify-between border border-[#2b2b3a] hover:border-cyan-500/40 transition cursor-pointer shadow-sm"
                 >
                   <div className="flex-1 pr-4">
-                    <p className="text-xs font-medium text-gray-300">{preset.name}</p>
+                    <p className="text-xs font-semibold text-gray-300">{preset.name}</p>
                     <p className="text-sm font-bold mt-1 tracking-wide truncate" style={{ color: preset.color }}>
                       {preset.text}
                     </p>
                   </div>
                   <button
                     id={`add-text-btn-${preset.id}`}
-                    onClick={() => addPresetText(preset)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addPresetText(preset);
+                    }}
                     className="p-1.5 rounded-md bg-[#2d2d38] hover:bg-cyan-500 hover:text-black transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -1583,7 +2023,37 @@ export default function MediaPanel({
                     {customAssets.map((asset) => (
                       <div
                         key={asset.id}
-                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg p-2 flex items-center gap-3 border border-gray-800 hover:border-cyan-500/40 transition shadow-sm"
+                        onClick={() => {
+                          const computedType = asset.isImage ? ClipType.IMAGE : (asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO);
+                          showAddedToast(asset.name);
+                          onAddClip({
+                            name: asset.name,
+                            type: computedType,
+                            url: asset.url,
+                            duration: asset.duration,
+                            sourceStart: 0,
+                            sourceDuration: asset.duration,
+                            playbackRate: 1.0,
+                            volume: 1.0,
+                            isImage: asset.isImage,
+                            filters: asset.type === 'video' ? {
+                              brightness: 100,
+                              contrast: 100,
+                              saturation: 100,
+                              grayscale: 0,
+                              sepia: 0,
+                              invert: 0,
+                              hueRotate: 0,
+                              chromaKey: {
+                                enabled: false,
+                                color: '#00ff00',
+                                threshold: 30,
+                                smoothness: 10
+                              }
+                            } : undefined
+                          });
+                        }}
+                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg p-2 flex items-center gap-3 border border-gray-800 hover:border-cyan-500/40 transition shadow-sm cursor-pointer"
                       >
                         {/* Thumbnail container */}
                         <div className="w-12 h-12 bg-[#101016] rounded-md overflow-hidden flex items-center justify-center shrink-0 border border-white/10 relative shadow-inner">
@@ -1637,10 +2107,13 @@ export default function MediaPanel({
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const computedType = asset.isImage ? ClipType.IMAGE : (asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO);
+                              showAddedToast(asset.name);
                               onAddClip({
                                 name: asset.name,
-                                type: asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO,
+                                type: computedType,
                                 url: asset.url,
                                 duration: asset.duration,
                                 sourceStart: 0,
@@ -1688,7 +2161,37 @@ export default function MediaPanel({
                     {customAssets.map((asset) => (
                       <div
                         key={asset.id}
-                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg overflow-hidden border border-gray-800 hover:border-cyan-500/40 transition flex flex-col relative shadow-sm"
+                        onClick={() => {
+                          const computedType = asset.isImage ? ClipType.IMAGE : (asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO);
+                          showAddedToast(asset.name);
+                          onAddClip({
+                            name: asset.name,
+                            type: computedType,
+                            url: asset.url,
+                            duration: asset.duration,
+                            sourceStart: 0,
+                            sourceDuration: asset.duration,
+                            playbackRate: 1.0,
+                            volume: 1.0,
+                            isImage: asset.isImage,
+                            filters: asset.type === 'video' ? {
+                              brightness: 100,
+                              contrast: 100,
+                              saturation: 100,
+                              grayscale: 0,
+                              sepia: 0,
+                              invert: 0,
+                              hueRotate: 0,
+                              chromaKey: {
+                                enabled: false,
+                                color: '#00ff00',
+                                threshold: 30,
+                                smoothness: 10
+                              }
+                            } : undefined
+                          });
+                        }}
+                        className="group bg-[#1b1b22] hover:bg-[#23232c] rounded-lg overflow-hidden border border-gray-800 hover:border-cyan-500/40 transition flex flex-col relative shadow-sm cursor-pointer"
                       >
                         <div className="aspect-video w-full bg-[#101016] relative overflow-hidden flex items-center justify-center">
                           {asset.thumbnailUrl ? (
@@ -1716,10 +2219,13 @@ export default function MediaPanel({
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const computedType = asset.isImage ? ClipType.IMAGE : (asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO);
+                                showAddedToast(asset.name);
                                 onAddClip({
                                   name: asset.name,
-                                  type: asset.type === 'video' ? ClipType.VIDEO : ClipType.AUDIO,
+                                  type: computedType,
                                   url: asset.url,
                                   duration: asset.duration,
                                   sourceStart: 0,
@@ -3598,24 +4104,14 @@ export default function MediaPanel({
             </div>
           </div>
         )}
-
-        {/* CAPCUT PRO ALL-IN-ONE VIDEO EFFECTS PANEL */}
-        {activeTab === 'effects' && (
-          <EffectsPanel
-            selectedClip={selectedClip || null}
-            onUpdateClip={onUpdateClip || (() => {})}
-            onAddEffectClip={(name, config) => {
-              onAddClip({
-                name: `FX: ${name}`,
-                type: ClipType.VIDEO,
-                ...config
-              });
-            }}
-            tracks={tracks}
-            width={width}
-          />
-        )}
       </div>
+      
+      {addedFeedback && (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-[#101015]/95 border border-cyan-500/50 text-cyan-200 text-[10px] font-bold tracking-wider uppercase px-4 py-2.5 rounded shadow-[0_4px_25px_rgba(6,182,212,0.35)] flex items-center gap-2 z-[999] backdrop-blur-md animate-bounce">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <span>Added "{addedFeedback}" to Timeline</span>
+        </div>
+      )}
     </div>
   );
 }

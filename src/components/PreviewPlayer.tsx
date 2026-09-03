@@ -5,7 +5,7 @@ import {
   Film, Menu, Scan, Search, ChevronDown, Activity, SlidersHorizontal
 } from 'lucide-react';
 import { Track, Clip, ClipType, WatermarkSettings } from '../types';
-import { formatTimeCode, applyPixelFilters, normalizeMediaUrl, getSafeCrossOrigin, getInterpolatedClipProperties, computeClipTransitionState, getExportResolutionDimensions } from '../utils/editorUtils';
+import { formatTimeCode, applyPixelFilters, applyColorGrading, isColorGradingActive, normalizeMediaUrl, getSafeCrossOrigin, getInterpolatedClipProperties, computeClipTransitionState, getExportResolutionDimensions } from '../utils/editorUtils';
 
 interface PreviewPlayerProps {
   tracks: Track[];
@@ -389,10 +389,31 @@ export default function PreviewPlayer({
             // Render video/image onto canvas with safe matrix transforms
             ctx.save();
             ctx.globalAlpha = Math.max(0, Math.min(1, interpolated.opacity * transState.alphaMultiplier));
+            if (clip.blendMode) {
+              ctx.globalCompositeOperation = clip.blendMode as GlobalCompositeOperation;
+            }
             
             if (transState.wipeProgress !== null) {
               ctx.beginPath();
               ctx.rect(-dimensions.width / 2, -dimensions.height / 2, dimensions.width * transState.wipeProgress, dimensions.height);
+              ctx.clip();
+            }
+
+            // CapCut Shape Mask
+            if (clip.mask && clip.mask.type && clip.mask.type !== 'none') {
+              const mSize = (clip.mask.size || 100) / 100;
+              const mw = dimensions.width * mSize;
+              const mh = dimensions.height * mSize;
+              ctx.beginPath();
+              if (clip.mask.type === 'circle') {
+                ctx.arc(dimensions.width / 2 + posX, dimensions.height / 2 + posY, Math.min(mw, mh) * 0.35, 0, Math.PI * 2);
+              } else if (clip.mask.type === 'rectangle') {
+                ctx.roundRect(dimensions.width / 2 + posX - mw * 0.35, dimensions.height / 2 + posY - mh * 0.35, mw * 0.7, mh * 0.7, clip.mask.roundness || 0);
+              } else if (clip.mask.type === 'split') {
+                ctx.rect(dimensions.width / 2 + posX - mw / 2, dimensions.height / 2 + posY - mh / 2, mw / 2, mh);
+              } else if (clip.mask.type === 'filmstrip') {
+                ctx.rect(dimensions.width / 2 + posX - mw / 2, dimensions.height / 2 + posY - mh * 0.3, mw, mh * 0.6);
+              }
               ctx.clip();
             }
 
@@ -624,9 +645,12 @@ export default function PreviewPlayer({
                 ctx.restore();
               }
 
-              // Apply pixel-level Chroma Key only when explicitly enabled
+              // Apply pixel-level Chroma Key or Color Grading (Lift, Gamma, Gain)
+              const hasColorGrading = Boolean(clip.filters?.colorGrading?.enabled && isColorGradingActive(clip.filters.colorGrading));
               if (clip.filters?.chromaKey?.enabled) {
                 applyPixelFilters(ctx, dimensions.width, dimensions.height, clip.filters);
+              } else if (hasColorGrading && clip.filters?.colorGrading) {
+                applyColorGrading(ctx, dimensions.width, dimensions.height, clip.filters.colorGrading);
               }
             } else {
               // Seamless dark background fallback while media buffers
@@ -853,6 +877,62 @@ export default function PreviewPlayer({
               charAcc += l.length;
               return l.slice(0, take);
             });
+          }
+
+          // CapCut Speech Bubble Rendering
+          if (clip.textBubble && clip.textBubble !== 'none') {
+            ctx.save();
+            const bPad = 14;
+            const bX = boxLeft - bPad;
+            const bY = boxTop - bPad;
+            const bW = blockW + (bPad * 2);
+            const bH = blockH + (bPad * 2);
+
+            if (clip.textBubble === 'bubble-chat') {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+              ctx.strokeStyle = '#06b6d4';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              ctx.roundRect(bX, bY, bW, bH, 16);
+              ctx.fill();
+              ctx.stroke();
+              // Tail
+              ctx.beginPath();
+              ctx.moveTo(bX + 30, bY + bH);
+              ctx.lineTo(bX + 20, bY + bH + 14);
+              ctx.lineTo(bX + 45, bY + bH);
+              ctx.fill();
+              ctx.stroke();
+            } else if (clip.textBubble === 'bubble-neon') {
+              ctx.fillStyle = 'rgba(10, 10, 20, 0.85)';
+              ctx.strokeStyle = '#06b6d4';
+              ctx.lineWidth = 3;
+              ctx.shadowColor = '#06b6d4';
+              ctx.shadowBlur = 12;
+              ctx.beginPath();
+              ctx.roundRect(bX, bY, bW, bH, 8);
+              ctx.fill();
+              ctx.stroke();
+            } else if (clip.textBubble === 'bubble-cloud') {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+              ctx.beginPath();
+              ctx.roundRect(bX, bY, bW, bH, 24);
+              ctx.fill();
+            } else if (clip.textBubble === 'bubble-ribbon') {
+              ctx.fillStyle = '#f59e0b';
+              ctx.beginPath();
+              ctx.rect(bX - 8, bY, bW + 16, bH);
+              ctx.fill();
+            } else if (clip.textBubble === 'bubble-retro') {
+              ctx.fillStyle = '#fef08a';
+              ctx.strokeStyle = '#854d0e';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.roundRect(bX, bY, bW, bH, 6);
+              ctx.fill();
+              ctx.stroke();
+            }
+            ctx.restore();
           }
 
           // Render background box overlay if specified

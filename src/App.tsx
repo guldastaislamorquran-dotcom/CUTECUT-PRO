@@ -15,7 +15,7 @@ import ExportModal, { ExportConfig } from './components/ExportModal';
 import LandingPortal from './components/LandingPortal';
 import { MobileCapCutLayout } from './components/MobileCapCutLayout';
 import { AdMobService } from './utils/admobService';
-import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, inspectQuranAyahAlignment, generateAutoFixQuranTextClips, getTajweedPhoneticWeight } from './utils/editorUtils';
+import { applyPixelFilters, formatTimeCode, normalizeMediaUrl, getSafeCrossOrigin, DEFAULT_INITIAL_TRACKS, alignQuranLocalClient, runVoiceAlignmentPipeline, convertToArabicDigits, analyzeVoiceActivityRMS, fitAcousticSegmentsToVerses, splitTextIntoPhrases, assignAcousticSegmentsToVerses, splitVerseAcrossBreaths, autoSegmentAudioClipsBySilence, autoSyncVideoClipsToAyahs, autoSegmentClipByRhythm, AyahSymbolStyle, AyahDigitType, AyahSymbolPosition, attachAyahSymbolToText, extractAyahNumberFromClip, formatAyahSymbol, stripAyahSymbol, getExportResolutionDimensions, fixWebmDuration, calculateTasmeeaMatchRatio, normalizeQuranicText, inspectQuranAyahAlignment, generateAutoFixQuranTextClips, getTajweedPhoneticWeight, runQuranAlignmentEngine, QuranVerseInput } from './utils/editorUtils';
 import { QURAN_TRANSLATION_OPTIONS, getTranslationOptionById, fetchSingleAyahTranslation, getTaawwuzTranslation, getTasmiyahTranslation, OFFLINE_SURAH_TRANSLATIONS } from './utils/quranTranslations';
 import { auth, googleProvider, saveUserTimelineProject, getUserTimelineProject } from './utils/firebaseConfig';
 import { getSystemSpecs, SystemSpecs } from './utils/systemPerformance';
@@ -4048,179 +4048,58 @@ export default function App() {
         allRawVerses.push(...surahVerses);
       }
 
-      // TRUE FULL-DURATION ACOUSTIC SILENCE & BREATHING GAP TIMELINE ENGINE
-      // Guarantees all segments are distributed across the FULL length of the audio up to the very last point
-      const subtitles: any[] = [];
-      const totalVerses = allRawVerses.length;
-      const startTimes: number[] = new Array(totalVerses);
-      const endTimes: number[] = new Array(totalVerses);
+      // CTC FORCED ALIGNMENT ENGINE (Strict Quran Caption Rules 1 to 5)
+      // Enforces VAD Silence Detection, Text-Anchored Verification, Dynamic Waqf,
+      // Levenshtein Zero-Drift Sequence Matching, I'adah Pointer Rewind, and ±120ms Edge Padding
+      const engineInputs: QuranVerseInput[] = allRawVerses.map(v => ({
+        verse_key: v.verse_key,
+        verse_number: v.verse_number,
+        text_uthmani: v.text_arabic || '',
+        text_arabic: v.text_arabic || '',
+        translation: v.text_english || '',
+        text_english: v.text_english || '',
+        isTaawwuz: v.isTaawwuz,
+        isTasmiyah: v.isTasmiyah
+      }));
 
-      // Compute weight for each verse segment based on Tajweed phonetics, Madd, and syllable count
-      const weights: number[] = allRawVerses.map(v => {
-        const fullAr = v.text_arabic || '';
-        const enLen = (v.text_english || '').length;
-        const words = fullAr.split(/\s+/).filter(Boolean);
-        const tajweedScore = words.reduce((acc, w) => acc + getTajweedPhoneticWeight(w), 0);
-        if (v.isTaawwuz) return 14;
-        if (v.isTasmiyah) return 12;
-        return Math.max(8, tajweedScore * 1.4 + fullAr.length * 0.4 + enLen * 0.2);
-      });
-      const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
-
-      // Determine speech onset and end target spanning the full audio duration
       const speechOnset = acousticSpeechSegments.length > 0
         ? Math.max(0.1, acousticSpeechSegments[0].start)
         : 0.2;
-      const lastAcousticEnd = acousticSpeechSegments.length > 0
-        ? acousticSpeechSegments[acousticSpeechSegments.length - 1].end
-        : totalAudioDuration;
-      const audioEndTarget = Math.max(
-        speechOnset + 3.0,
-        Math.min(totalAudioDuration - 0.1, Math.max(totalAudioDuration - 0.4, lastAcousticEnd))
-      );
-      const totalAvailableSpan = audioEndTarget - speechOnset;
 
-      if (totalVerses === 1) {
-        // Single Ayah alignment
-        const singleVerse = allRawVerses[0];
-        const segs = acousticSpeechSegments.length > 0
-          ? acousticSpeechSegments
-          : [{ start: speechOnset, end: audioEndTarget }];
+      const alignMode = effectiveBreathMode === 'split-breaths' ? 'split-breaths' : 'full-ayah';
+      const alignedEngineSegments = runQuranAlignmentEngine(engineInputs, {
+        mode: alignMode,
+        startOffset: speechOnset,
+        audioDuration: totalAudioDuration,
+        acousticSegments: acousticSpeechSegments,
+        confidenceThreshold: 85,
+        repetitionThreshold: 80,
+        minSilenceMs: 600,
+        minIntraAyahSilenceMs: 300,
+        microPauseMs: 300,
+        edgePaddingMs: 120,
+        showAyahSymbol: quranShowAyahSymbol,
+        ayahSymbolStyle: quranAyahSymbolStyle,
+        ayahDigitType: quranAyahDigitType,
+        ayahSymbolPosition: quranAyahSymbolPosition
+      });
 
-        if (effectiveBreathMode === 'split-breaths' && segs.length > 1) {
-          const multiSubs = splitVerseAcrossBreaths(
-            singleVerse,
-            segs,
-            {
-              showAyahSymbol: quranShowAyahSymbol,
-              ayahSymbolStyle: quranAyahSymbolStyle,
-              ayahDigitType: quranAyahDigitType,
-              ayahSymbolPosition: quranAyahSymbolPosition,
-            }
-          );
-          subtitles.push(...multiSubs);
-        } else {
-          const vNum = singleVerse.verse_number || (singleVerse.verse_key ? parseInt(singleVerse.verse_key.split(':')[1], 10) : 1);
-          let arText = singleVerse.text_arabic || '';
-          if (arText && !singleVerse.isTaawwuz && !singleVerse.isTasmiyah) {
-            arText = attachAyahSymbolToText(
-              arText,
-              vNum,
-              quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
-              quranAyahDigitType,
-              quranAyahSymbolPosition
-            );
-          }
-
-          const vStart = Number(segs[0].start.toFixed(2));
-          const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
-
-          subtitles.push({
-            verse_key: singleVerse.verse_key,
-            text_arabic: arText,
-            text_english: singleVerse.text_english || '',
-            start: vStart,
-            end: Math.max(vStart + 0.8, vEnd),
-            isTaawwuz: singleVerse.isTaawwuz,
-            isTasmiyah: singleVerse.isTasmiyah
-          });
-        }
-      } else {
-        // Multi-verse distribution:
-        // Calculate natural breathing silence gap between verses
-        const breathGap = totalAvailableSpan > totalVerses * 3.5
-          ? 0.45
-          : Math.max(0.15, Math.min(0.4, (totalAvailableSpan * 0.08) / (totalVerses - 1)));
-
-        const totalGaps = (totalVerses - 1) * breathGap;
-        const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
-
-        if (acousticSpeechSegments.length >= 1) {
-          const verseAssignedSegments = assignAcousticSegmentsToVerses(acousticSpeechSegments, totalVerses, weights);
-          
-          for (let i = 0; i < totalVerses; i++) {
-            const verse = allRawVerses[i];
-            const segs = verseAssignedSegments[i] || [{ start: speechOnset, end: audioEndTarget }];
-            const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : i + 1);
-
-            let arText = verse.text_arabic || '';
-            if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
-              arText = attachAyahSymbolToText(
-                arText,
-                vNum,
-                quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
-                quranAyahDigitType,
-                quranAyahSymbolPosition
-              );
-            }
-
-            if (effectiveBreathMode === 'split-breaths' && segs.length > 1) {
-              const multiSubs = splitVerseAcrossBreaths(
-                verse,
-                segs,
-                {
-                  showAyahSymbol: quranShowAyahSymbol,
-                  ayahSymbolStyle: quranAyahSymbolStyle,
-                  ayahDigitType: quranAyahDigitType,
-                  ayahSymbolPosition: quranAyahSymbolPosition,
-                }
-              );
-              subtitles.push(...multiSubs);
-            } else {
-              // Keep the complete Ayah intact across all internal breaths (Option 1 - Full Ayah Display)
-              const vStart = Number(segs[0].start.toFixed(2));
-              const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
-
-              subtitles.push({
-                verse_key: verse.verse_key,
-                text_arabic: arText,
-                text_english: verse.text_english || '',
-                start: vStart,
-                end: Math.max(vStart + 0.8, vEnd),
-                isTaawwuz: verse.isTaawwuz,
-                isTasmiyah: verse.isTasmiyah
-              });
-            }
-          }
-        } else {
-          // Fallback continuous flow: leave clean breathing silence gaps between verses
-          let currentMarker = speechOnset;
-          const breathGap = Math.max(0.6, Math.min(1.2, (totalAvailableSpan * 0.06) / totalVerses));
-          const totalGaps = (totalVerses - 1) * breathGap;
-          const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
-
-          for (let i = 0; i < totalVerses; i++) {
-            const verse = allRawVerses[i];
-            const clipDur = (weights[i] / totalWeight) * totalSpeechBudget;
-            const segStart = Number(currentMarker.toFixed(2));
-            const segEnd = Number((currentMarker + clipDur).toFixed(2));
-
-            const vNum = verse.verse_number || (verse.verse_key ? parseInt(verse.verse_key.split(':')[1], 10) : i + 1);
-            let arText = verse.text_arabic || '';
-            if (arText && !verse.isTaawwuz && !verse.isTasmiyah) {
-              arText = attachAyahSymbolToText(
-                arText,
-                vNum,
-                quranShowAyahSymbol ? quranAyahSymbolStyle : 'none',
-                quranAyahDigitType,
-                quranAyahSymbolPosition
-              );
-            }
-
-            subtitles.push({
-              verse_key: verse.verse_key,
-              text_arabic: arText,
-              text_english: verse.text_english || '',
-              start: segStart,
-              end: Math.max(segStart + 0.8, segEnd),
-              isTaawwuz: verse.isTaawwuz,
-              isTasmiyah: verse.isTasmiyah
-            });
-
-            currentMarker = Number((segEnd + breathGap).toFixed(2));
-          }
-        }
-      }
+      const subtitles: any[] = alignedEngineSegments.map(seg => ({
+        verse_key: seg.verse_key,
+        text_arabic: seg.text_arabic,
+        text_english: seg.text_english,
+        start: seg.startTime,
+        end: seg.endTime,
+        isTaawwuz: seg.verse_key === 'aux',
+        isTasmiyah: seg.verse_key === 'bis',
+        isWaqfPause: seg.isWaqfPause,
+        confidenceScore: seg.confidenceScore,
+        pauseType: seg.pauseType,
+        isRepetition: seg.isRepetition,
+        repetitionRewindWords: seg.repetitionRewindWords,
+        subPhraseIndex: seg.subPhraseIndex,
+        totalSubPhrases: seg.totalSubPhrases,
+      }));
 
       addLog(`[Quran AI] Successfully compiled Mukammal Surah (${subtitles.length} total verse segments across ${totalAudioDuration.toFixed(1)}s audio).`, 80);
 

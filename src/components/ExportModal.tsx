@@ -3,11 +3,13 @@ import {
   X, Folder, ChevronDown, ChevronRight, Edit3,
   Minimize2, RefreshCw, CheckCircle2, Terminal, Download,
   Film, Music, Clock, Square, Play, Pause, FolderOpen,
-  Sliders, Sparkles, FileVideo, RotateCcw, AlertTriangle
+  Sliders, Sparkles, FileVideo, RotateCcw, AlertTriangle,
+  Cloud, ExternalLink, Loader2
 } from 'lucide-react';
 import { formatTimeCode, getExportResolutionDimensions } from '../utils/editorUtils';
 import { Track } from '../types';
 import { AdMobService } from '../utils/admobService';
+import { GoogleDriveService } from '../services/googleDriveService';
 
 export interface ExportConfig {
   filename: string;
@@ -79,6 +81,59 @@ export default function ExportModal({
   const [coverTime, setCoverTime] = useState(0);
   const [showLogs, setShowLogs] = useState(false);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+
+  // Google Drive Upload State
+  const [driveUploadStatus, setDriveUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [driveUploadPercent, setDriveUploadPercent] = useState(0);
+  const [driveFileUrl, setDriveFileUrl] = useState<string | null>(null);
+  const [driveErrorMsg, setDriveErrorMsg] = useState<string | null>(null);
+
+  const handleUploadToGoogleDrive = async () => {
+    try {
+      setDriveUploadStatus('uploading');
+      setDriveUploadPercent(10);
+      setDriveErrorMsg(null);
+
+      const driveService = GoogleDriveService.getInstance();
+      if (!driveService.isConnected()) {
+        const connected = await driveService.connect();
+        if (!connected) {
+          throw new Error('Google Drive not connected. Please link your Google Drive.');
+        }
+      }
+
+      setDriveUploadPercent(35);
+
+      // Fetch the compiled video file as a binary Blob
+      const videoResponse = await fetch(downloadUrl);
+      if (!videoResponse.ok) {
+        throw new Error('Could not read rendered video data.');
+      }
+      const videoBlob = await videoResponse.blob();
+
+      setDriveUploadPercent(55);
+
+      const result = await driveService.uploadVideoToDrive(
+        formattedFilename,
+        videoBlob,
+        (progress) => {
+          setDriveUploadPercent(Math.min(95, 55 + progress * 0.4));
+        }
+      );
+
+      if (result.success && result.fileUrl) {
+        setDriveUploadPercent(100);
+        setDriveUploadStatus('success');
+        setDriveFileUrl(result.fileUrl);
+      } else {
+        throw new Error(result.error || 'Upload failed.');
+      }
+    } catch (err: any) {
+      console.error('[Google Drive Export Upload Error]', err);
+      setDriveUploadStatus('error');
+      setDriveErrorMsg(err.message || 'Upload failed.');
+    }
+  };
   const [liveRenderFrame, setLiveRenderFrame] = useState<string | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
 
@@ -724,11 +779,67 @@ export default function ExportModal({
                   <button
                     type="button"
                     onClick={() => onSaveToNativeStorage(downloadUrl, formattedFilename)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-bold text-xs rounded-lg transition shadow-lg shadow-cyan-500/20 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-bold text-xs rounded-lg transition shadow-lg shadow-cyan-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
                   >
                     <Download className="w-4 h-4 text-slate-950" />
                     <span>Save / Download {formattedFilename}</span>
                   </button>
+
+                  {/* Google Drive Upload Trigger */}
+                  {driveUploadStatus === 'idle' && (
+                    <button
+                      type="button"
+                      onClick={handleUploadToGoogleDrive}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#171722] hover:bg-[#20202e] border border-cyan-500/30 text-cyan-300 hover:text-cyan-200 text-xs font-bold rounded-lg transition cursor-pointer"
+                    >
+                      <Cloud className="w-4 h-4" />
+                      <span>Upload to Personal Google Drive</span>
+                    </button>
+                  )}
+
+                  {driveUploadStatus === 'uploading' && (
+                    <div className="flex items-center gap-3 px-4 py-2 bg-[#14141d] border border-[#2d2d3c] rounded-lg text-xs max-w-xs text-left">
+                      <Loader2 className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex justify-between font-medium text-gray-200 text-[11px] mb-0.5">
+                          <span>Uploading to Cloud...</span>
+                          <span>{Math.round(driveUploadPercent)}%</span>
+                        </div>
+                        <div className="h-1 w-24 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-cyan-400 rounded-full" style={{ width: `${driveUploadPercent}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {driveUploadStatus === 'success' && driveFileUrl && (
+                    <a
+                      href={driveFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-950/40 hover:bg-green-950/60 border border-green-500/50 text-green-300 hover:text-green-200 text-xs font-bold rounded-lg transition"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                      <span>View on Google Drive</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+
+                  {driveUploadStatus === 'error' && (
+                    <div className="flex flex-col items-center gap-1.5 max-w-sm">
+                      <div className="flex items-center gap-2 text-red-400 text-xs bg-red-950/20 border border-red-500/30 p-2.5 rounded-lg">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span className="text-left font-semibold text-[10.5px]">Upload Failed: {driveErrorMsg}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleUploadToGoogleDrive}
+                        className="text-xs text-cyan-400 font-bold hover:underline cursor-pointer"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
 
                   <button
                     type="button"

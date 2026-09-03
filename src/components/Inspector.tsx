@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Sliders, Volume2, Sparkles, Wand2, Type, Gauge, Palette, Play, Plus, RefreshCw, RotateCcw, FileText, Move, CircleDot, Trash2, Clock, Target, ChevronLeft, ChevronRight, Blend, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Layers, Zap, Check, Merge } from 'lucide-react';
-import { Clip, ClipType, VideoFilters, Keyframe, Track, TransitionType, ClipTransition } from '../types';
+import { Clip, ClipType, VideoFilters, Keyframe, Track, TransitionType, ClipTransition, ColorGrading } from '../types';
 import { PRESET_LUTS, ColorGradingPreset } from '../data/presetAssets';
+import { ColorGradingSection } from './ColorGradingSection';
+import { DEFAULT_COLOR_GRADING } from '../utils/editorUtils';
+import { CapCutAudioInspector } from './CapCutAudioInspector';
+import { CapCutVideoInspector } from './CapCutVideoInspector';
+import { CapCutTextInspector } from './CapCutTextInspector';
 
 interface InspectorProps {
   selectedClip: Clip | null;
@@ -30,8 +35,9 @@ export default function Inspector({
   onSeek,
   onMergeClips,
 }: InspectorProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'transform' | 'adjust' | 'speed' | 'chroma' | 'effects' | 'transitions' | 'ai' | 'keyframes'>('transform');
+  const [activeSubTab, setActiveSubTab] = useState<'capcut' | 'transform' | 'adjust' | 'speed' | 'chroma' | 'effects' | 'transitions' | 'ai' | 'keyframes'>('capcut');
   const [filterCategory, setFilterCategory] = useState<'All' | 'Cinematic' | 'Retro' | 'B&W' | 'Stylized'>('All');
+  const [filterSectionView, setFilterSectionView] = useState<'all' | 'wheels' | 'presets' | 'basic'>('all');
   const [aiTranscript, setAiTranscript] = useState('');
   const [aiCaptionStyle, setAiCaptionStyle] = useState('Dynamic');
   const [aiIsGenerating, setAiIsGenerating] = useState(false);
@@ -188,10 +194,33 @@ export default function Inspector({
       color: '#00ff00',
       threshold: 30,
       smoothness: 10
-    }
+    },
+    colorGrading: DEFAULT_COLOR_GRADING
   };
 
   const currentFilters: VideoFilters = selectedClip.filters || defaultFilters;
+
+  // Handle color grading 3-way wheels and white balance
+  const handleColorGradingChange = (grading: ColorGrading) => {
+    const base = selectedClip.filters || defaultFilters;
+    const updatedFilters: VideoFilters = {
+      ...base,
+      colorGrading: grading
+    };
+    const targetIds = selectedClipIds && selectedClipIds.length > 0
+      ? selectedClipIds
+      : [selectedClip.id];
+
+    if (onBatchUpdateClips && targetIds.length > 1) {
+      onBatchUpdateClips(targetIds.map(id => ({ id, updates: { filters: updatedFilters } })));
+    } else {
+      targetIds.forEach(id => onUpdateClip(id, { filters: updatedFilters }));
+    }
+  };
+
+  const handleResetColorGrading = () => {
+    handleColorGradingChange(DEFAULT_COLOR_GRADING);
+  };
 
   // Handle individual filter adjustments
   const handleFilterChange = (key: keyof VideoFilters, value: any) => {
@@ -217,7 +246,8 @@ export default function Inspector({
     const base = selectedClip.filters || defaultFilters;
     const reset: VideoFilters = {
       ...defaultFilters,
-      chromaKey: base.chromaKey
+      chromaKey: base.chromaKey,
+      colorGrading: DEFAULT_COLOR_GRADING
     };
     const targetIds = selectedClipIds && selectedClipIds.length > 0
       ? selectedClipIds
@@ -316,7 +346,7 @@ export default function Inspector({
       style={{ width: width !== undefined ? `${width}px` : undefined }}
     >
       {/* Header Info */}
-      <div className="p-4 border-b border-[#2a2a30] bg-[#141418]">
+      <div className="p-3.5 border-b border-[#2a2a30] bg-[#141418]">
         <div className="flex items-center justify-between gap-2">
           <input
             id="clip-title-input"
@@ -325,88 +355,132 @@ export default function Inspector({
             onChange={(e) => onUpdateClip(selectedClip.id, { name: e.target.value })}
             className="text-xs font-bold text-white bg-[#1a1a20] border border-gray-800 rounded px-2 py-1 flex-1 focus:outline-none focus:border-cyan-500 font-mono min-w-0"
           />
-          <button
-            id="btn-add-keyframe-header"
-            onClick={() => {
-              setActiveSubTab('keyframes');
-              handleAddKeyframeAtTimestamp(currentClipOffset);
-            }}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-extrabold rounded bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white shadow transition-all active:scale-95 cursor-pointer whitespace-nowrap flex-shrink-0"
-            title="Set Keyframe at current timestamp"
-          >
-            <CircleDot className="w-3 h-3 text-cyan-300 animate-pulse" />
-            <span>+ Keyframe</span>
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              id="btn-capcut-inspector"
+              onClick={() => setActiveSubTab('capcut')}
+              className={`px-2 py-1 text-[10px] font-bold rounded border transition ${
+                activeSubTab === 'capcut'
+                  ? 'border-cyan-400 bg-cyan-950/60 text-cyan-300'
+                  : 'border-gray-800 bg-[#1a1a20] text-gray-400 hover:text-white'
+              }`}
+            >
+              Inspector
+            </button>
+            <button
+              id="btn-add-keyframe-header"
+              onClick={() => {
+                setActiveSubTab(activeSubTab === 'keyframes' ? 'capcut' : 'keyframes');
+                handleAddKeyframeAtTimestamp(currentClipOffset);
+              }}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded border transition ${
+                activeSubTab === 'keyframes'
+                  ? 'border-purple-400 bg-purple-950/60 text-purple-300'
+                  : 'border-gray-800 bg-[#1a1a20] text-gray-400 hover:text-white'
+              }`}
+              title="Keyframe Controls"
+            >
+              <CircleDot className="w-3 h-3 text-purple-400" />
+              <span>Keyframes</span>
+            </button>
+            {isVideo && (
+              <button
+                onClick={() => setActiveSubTab(activeSubTab === 'transitions' ? 'capcut' : 'transitions')}
+                className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded border transition ${
+                  activeSubTab === 'transitions'
+                    ? 'border-cyan-400 bg-cyan-950/60 text-cyan-300'
+                    : 'border-gray-800 bg-[#1a1a20] text-gray-400 hover:text-white'
+                }`}
+                title="Transitions"
+              >
+                <Blend className="w-3 h-3 text-cyan-400" />
+                <span>Transitions</span>
+              </button>
+            )}
+          </div>
           <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${isVideo ? 'bg-cyan-950 text-cyan-400' : isAudio ? 'bg-teal-950 text-teal-400' : 'bg-purple-950 text-purple-400'}`}>
             {selectedClip.type}
           </span>
         </div>
       </div>
 
-      {/* Sub tabs for categories of controls */}
-      <div className="flex border-b border-[#2a2a30] text-gray-400 text-[10px] font-bold overflow-x-auto custom-scrollbar">
-        {isVideo && (
-          <>
+      {/* CapCut Native Inspector View */}
+      {activeSubTab === 'capcut' ? (
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {isAudio ? (
+            <CapCutAudioInspector clip={selectedClip} onUpdateClip={onUpdateClip} />
+          ) : isText ? (
+            <CapCutTextInspector clip={selectedClip} onUpdateClip={onUpdateClip} onGenerateTTS={onGenerateTTS} />
+          ) : (
+            <CapCutVideoInspector clip={selectedClip} onUpdateClip={onUpdateClip} />
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Sub tabs for categories of controls */}
+          <div className="flex border-b border-[#2a2a30] text-gray-400 text-[10px] font-bold overflow-x-auto custom-scrollbar">
+            {isVideo && (
+              <>
+                <button
+                  onClick={() => setActiveSubTab('transform')}
+                  className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'transform' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+                >
+                  Transform
+                </button>
+                <button
+                  id="subtab-filters"
+                  onClick={() => setActiveSubTab('adjust')}
+                  className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'adjust' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400 font-extrabold' : 'hover:text-white'}`}
+                >
+                  <Palette className="w-3 h-3 text-cyan-400" />
+                  <span>Filters</span>
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('speed')}
+                  className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'speed' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+                >
+                  Speed
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('chroma')}
+                  className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'chroma' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+                >
+                  Chroma
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('effects')}
+                  className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'effects' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+                >
+                  FX
+                </button>
+              </>
+            )}
             <button
-              onClick={() => setActiveSubTab('transform')}
-              className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'transform' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+              onClick={() => setActiveSubTab('transitions')}
+              className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'transitions' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400 font-extrabold' : 'hover:text-white'}`}
             >
-              Transform
+              <Blend className="w-3 h-3 text-cyan-400" />
+              <span>Transitions</span>
             </button>
             <button
-              id="subtab-filters"
-              onClick={() => setActiveSubTab('adjust')}
-              className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'adjust' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400 font-extrabold' : 'hover:text-white'}`}
+              onClick={() => setActiveSubTab('keyframes')}
+              className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'keyframes' ? 'text-purple-400 bg-[#202024] border-b-2 border-purple-400 font-extrabold' : 'hover:text-white'}`}
             >
-              <Palette className="w-3 h-3 text-cyan-400" />
-              <span>Filters</span>
+              <CircleDot className="w-3 h-3 text-purple-400" />
+              <span>Keyframes</span>
             </button>
-            <button
-              onClick={() => setActiveSubTab('speed')}
-              className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'speed' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
-            >
-              Speed
-            </button>
-            <button
-              onClick={() => setActiveSubTab('chroma')}
-              className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'chroma' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
-            >
-              Chroma
-            </button>
-            <button
-              onClick={() => setActiveSubTab('effects')}
-              className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'effects' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
-            >
-              FX
-            </button>
-          </>
-        )}
-        <button
-          onClick={() => setActiveSubTab('transitions')}
-          className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'transitions' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400 font-extrabold' : 'hover:text-white'}`}
-        >
-          <Blend className="w-3 h-3 text-cyan-400" />
-          <span>Transitions</span>
-        </button>
-        <button
-          onClick={() => setActiveSubTab('keyframes')}
-          className={`px-2.5 py-2 text-center transition whitespace-nowrap flex items-center gap-1 ${activeSubTab === 'keyframes' ? 'text-purple-400 bg-[#202024] border-b-2 border-purple-400 font-extrabold' : 'hover:text-white'}`}
-        >
-          <CircleDot className="w-3 h-3 text-purple-400" />
-          <span>Keyframes</span>
-        </button>
-        {isVideo && (
-          <button
-            onClick={() => setActiveSubTab('ai')}
-            className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'ai' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
-          >
-            AI Tools
-          </button>
-        )}
-      </div>
+            {isVideo && (
+              <button
+                onClick={() => setActiveSubTab('ai')}
+                className={`px-2.5 py-2 text-center transition whitespace-nowrap ${activeSubTab === 'ai' ? 'text-cyan-400 bg-[#202024] border-b-2 border-cyan-400' : 'hover:text-white'}`}
+              >
+                AI Tools
+              </button>
+            )}
+          </div>
 
-      {/* Main Controls Area (Scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+          {/* Main Controls Area (Scrollable) */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
 
         {/* ------------------ KEYFRAMES TAB FOR ALL CLIP TYPES ------------------ */}
         {activeSubTab === 'keyframes' && (
@@ -773,12 +847,70 @@ export default function Inspector({
             {/* Adjustment / Filters Tab */}
             {activeSubTab === 'adjust' && (
               <div className="space-y-4">
-                {/* PRESET COLOR GRADING & FILTERS LIBRARY */}
+                {/* Sub-view switcher for Color & Filters */}
+                <div className="flex items-center gap-1 p-1 bg-[#181820] rounded-lg border border-gray-800">
+                  <button
+                    onClick={() => setFilterSectionView('all')}
+                    className={`flex-1 py-1 text-[10px] font-bold rounded transition cursor-pointer ${
+                      filterSectionView === 'all'
+                        ? 'bg-[#252532] text-cyan-400 border border-gray-700/60 shadow-xs'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    id="filter-view-wheels-btn"
+                    onClick={() => setFilterSectionView('wheels')}
+                    className={`flex-1 py-1 text-[10px] font-bold rounded transition cursor-pointer flex items-center justify-center gap-1 ${
+                      filterSectionView === 'wheels'
+                        ? 'bg-gradient-to-r from-indigo-950/90 via-purple-950/90 to-cyan-950/90 text-cyan-300 border border-cyan-700/60 font-extrabold shadow-sm'
+                        : 'text-gray-400 hover:text-cyan-400'
+                    }`}
+                  >
+                    <CircleDot className="w-3 h-3 text-cyan-400" />
+                    <span>Color Wheels</span>
+                  </button>
+                  <button
+                    onClick={() => setFilterSectionView('presets')}
+                    className={`flex-1 py-1 text-[10px] font-bold rounded transition cursor-pointer flex items-center justify-center gap-1 ${
+                      filterSectionView === 'presets'
+                        ? 'bg-[#252532] text-amber-400 border border-gray-700/60 font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-amber-400'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>LUTs</span>
+                  </button>
+                  <button
+                    onClick={() => setFilterSectionView('basic')}
+                    className={`flex-1 py-1 text-[10px] font-bold rounded transition cursor-pointer flex items-center justify-center gap-1 ${
+                      filterSectionView === 'basic'
+                        ? 'bg-[#252532] text-gray-200 border border-gray-700/60 font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Sliders</span>
+                  </button>
+                </div>
+
+                {/* 1. PROFESSIONAL COLOR GRADING SECTION (Lift, Gamma, Gain Color Wheels & White Balance) */}
+                {(filterSectionView === 'all' || filterSectionView === 'wheels') && (
+                  <ColorGradingSection
+                    colorGrading={currentFilters.colorGrading}
+                    onChange={handleColorGradingChange}
+                    onReset={handleResetColorGrading}
+                  />
+                )}
+
+                {/* 2. PRESET COLOR GRADING & FILTERS LIBRARY */}
+                {(filterSectionView === 'all' || filterSectionView === 'presets') && (
                 <div className="space-y-3 bg-[#202026] p-3 rounded-lg border border-gray-800">
                   <div className="flex items-center justify-between">
                     <h4 className="text-[10px] font-bold text-gray-300 tracking-wider flex items-center gap-1.5 uppercase">
                       <Palette className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Color Grading & Filter Library</span>
+                      <span>Preset Look Library</span>
                     </h4>
                     <button
                       onClick={handleResetAllFilters}
@@ -872,8 +1004,10 @@ export default function Inspector({
                     </div>
                   )}
                 </div>
+                )}
 
-                {/* FINE-TUNING COLOR & LIGHT SLIDERS */}
+                {/* 3. FINE-TUNING COLOR & LIGHT SLIDERS */}
+                {(filterSectionView === 'all' || filterSectionView === 'basic') && (
                 <div className="space-y-3 bg-[#202026] p-3 rounded-lg border border-gray-800">
                   <div className="flex items-center justify-between">
                     <h4 className="text-[10px] font-bold text-gray-400 tracking-wider flex items-center gap-1.5 uppercase">
@@ -1081,6 +1215,7 @@ export default function Inspector({
                     />
                   </div>
                 </div>
+                )}
 
                 {/* Volume slider */}
                 <div className="space-y-1.5 bg-[#202026] p-3 rounded-lg border border-gray-800">
@@ -2731,6 +2866,8 @@ export default function Inspector({
         )}
 
       </div>
+        </>
+      )}
     </div>
   );
 }

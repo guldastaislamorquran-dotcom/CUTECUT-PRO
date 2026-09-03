@@ -68,6 +68,113 @@ async function startServer() {
     res.json({ status: 'ok', api_key_loaded: !!aiClient });
   });
 
+  // API Route: Google OAuth Url generation for Web fallback
+  app.get('/api/auth/google-url', (req, res) => {
+    const redirectUri = `${req.protocol}://${req.get('host')}/auth-callback`;
+    const client_id = process.env.GOOGLE_CLIENT_ID || '1069502621183-o5d9sh03f7e6f85of10u1n67n0f0u5d7.apps.googleusercontent.com';
+    const scopes = [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/drive.appdata',
+      'https://www.googleapis.com/auth/drive.file'
+    ].join(' ');
+
+    const params = new URLSearchParams({
+      client_id,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes,
+      access_type: 'offline',
+      prompt: 'consent',
+    });
+
+    res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
+  });
+
+  // API Route: Google OAuth callback for Web fallback
+  app.get(['/auth-callback', '/auth-callback/'], async (req, res) => {
+    const { code } = req.query;
+    if (!code) {
+      return res.send('No code provided');
+    }
+
+    try {
+      const redirectUri = `${req.protocol}://${req.get('host')}/auth-callback`;
+      const client_id = process.env.GOOGLE_CLIENT_ID || '1069502621183-o5d9sh03f7e6f85of10u1n67n0f0u5d7.apps.googleusercontent.com';
+      const client_secret = process.env.GOOGLE_CLIENT_SECRET || '';
+
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code: code as string,
+          client_id,
+          client_secret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code'
+        }).toString()
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error(`Token exchange failed: ${errText}`);
+      }
+
+      const tokens = await tokenRes.json();
+
+      // Get user profile info
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { 'Authorization': `Bearer ${tokens.access_token}` }
+      });
+      const userProfile = await userRes.json();
+
+      res.send(`
+        <html>
+          <body style="background-color: #14141a; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+            <div style="text-align: center; background-color: #1c1c26; padding: 32px; border-radius: 16px; border: 1px solid #2d2d3c; max-width: 420px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+              <div style="width: 56px; height: 56px; background-color: rgba(0, 229, 255, 0.15); border: 2px solid #00e5ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+                <svg style="width: 28px; height: 28px; color: #00e5ff;" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 style="color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 8px 0;">Google Drive Linked!</h3>
+              <p style="font-size: 13px; color: #a0aec0; line-height: 1.5; margin: 0 0 24px 0;">CuteCut Pro has successfully authorized your personal cloud storage. This window will now close.</p>
+              <script>
+                if (window.opener) {
+                  window.opener.postMessage({
+                    type: 'GOOGLE_DRIVE_AUTH_SUCCESS',
+                    payload: ${JSON.stringify({ tokens, userProfile })}
+                  }, '*');
+                  setTimeout(() => {
+                    window.close();
+                  }, 1000);
+                } else {
+                  localStorage.setItem('google_drive_tokens', JSON.stringify(${JSON.stringify(tokens)}));
+                  localStorage.setItem('google_drive_user', JSON.stringify(${JSON.stringify(userProfile)}));
+                  window.location.href = '/';
+                }
+              </script>
+            </div>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error('[Google OAuth Exchange Error]', err);
+      res.send(`
+        <html>
+          <body style="background-color: #14141a; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+            <div style="text-align: center; background-color: #1c1c26; padding: 24px; border-radius: 12px; border: 1px solid #ff4444; max-width: 400px; width: 100%;">
+              <h3 style="color: #ff4444; margin-top: 0;">Authentication Error</h3>
+              <p style="font-size: 14px; color: #a0aec0;">${err.message || 'An error occurred during token exchange.'}</p>
+              <p style="font-size: 12px; color: #718096;">Please close this window and try again.</p>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+  });
+
   // API Route: Google Drive Backup & Auto-Sync Endpoint
   app.post('/api/googledrive/sync', async (req, res) => {
     try {

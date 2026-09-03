@@ -1,4 +1,221 @@
-import { VideoFilters, Track, ClipType, Clip, Keyframe, ClipTransition, QuranTranslationOption } from '../types';
+import { VideoFilters, Track, ClipType, Clip, Keyframe, ClipTransition, QuranTranslationOption, ColorWheelSetting, ColorGrading } from '../types';
+import {
+  QuranAlignmentSegment,
+  QuranVerseInput,
+  QuranAlignmentEngineOptions,
+  AlignmentMode,
+  AcousticVoiceFrame,
+  detectAcousticSilenceFrames,
+  classifyAudioPause,
+  detectIadahRepetition,
+  applyEdgePadding,
+  normalizeQuranicPhonetics,
+  runQuranAlignmentEngine
+} from './quranAlignmentEngine';
+
+export type {
+  QuranAlignmentSegment,
+  QuranVerseInput,
+  QuranAlignmentEngineOptions,
+  AlignmentMode,
+  AcousticVoiceFrame,
+  ColorWheelSetting,
+  ColorGrading
+};
+
+export {
+  detectAcousticSilenceFrames,
+  classifyAudioPause,
+  detectIadahRepetition,
+  applyEdgePadding,
+  normalizeQuranicPhonetics,
+  runQuranAlignmentEngine
+};
+
+/**
+ * Default color wheel and grading settings
+ */
+export const DEFAULT_COLOR_WHEEL_SETTING: ColorWheelSetting = {
+  master: 0,
+  r: 0,
+  g: 0,
+  b: 0,
+  hue: 0,
+  saturation: 0,
+};
+
+export const DEFAULT_COLOR_GRADING: ColorGrading = {
+  enabled: true,
+  lift: { master: 0, r: 0, g: 0, b: 0, hue: 0, saturation: 0 },
+  gamma: { master: 0, r: 0, g: 0, b: 0, hue: 0, saturation: 0 },
+  gain: { master: 0, r: 0, g: 0, b: 0, hue: 0, saturation: 0 },
+  temperature: 0,
+  tint: 0,
+};
+
+/**
+ * Checks if color grading contains any active non-zero adjustments
+ */
+export function isColorGradingActive(cg?: ColorGrading): boolean {
+  if (!cg) return false;
+  if (!cg.enabled) return false;
+  const checkWheel = (w?: ColorWheelSetting) => {
+    if (!w) return false;
+    return (
+      Math.abs(w.master || 0) > 0.5 ||
+      Math.abs(w.r || 0) > 0.5 ||
+      Math.abs(w.g || 0) > 0.5 ||
+      Math.abs(w.b || 0) > 0.5 ||
+      (w.saturation || 0) > 0.5
+    );
+  };
+  return (
+    checkWheel(cg.lift) ||
+    checkWheel(cg.gamma) ||
+    checkWheel(cg.gain) ||
+    Math.abs(cg.temperature || 0) > 0.5 ||
+    Math.abs(cg.tint || 0) > 0.5
+  );
+}
+
+/**
+ * Converts polar wheel coordinates (Hue angle in deg, Saturation 0..100) to RGB offsets (-100..100)
+ */
+export function hueSatToRgbOffset(hue: number, sat: number): { r: number; g: number; b: number } {
+  if (sat <= 0) return { r: 0, g: 0, b: 0 };
+  const rad = ((hue % 360) * Math.PI) / 180;
+  // Project onto R (0 deg), G (120 deg), B (240 deg)
+  const rProj = Math.cos(rad);
+  const gProj = Math.cos(rad - (2 * Math.PI) / 3);
+  const bProj = Math.cos(rad - (4 * Math.PI) / 3);
+
+  const factor = (Math.min(100, Math.max(0, sat)) / 100) * 100;
+  return {
+    r: Math.round(Math.max(-100, Math.min(100, rProj * factor))),
+    g: Math.round(Math.max(-100, Math.min(100, gProj * factor))),
+    b: Math.round(Math.max(-100, Math.min(100, bProj * factor))),
+  };
+}
+
+/**
+ * Converts RGB offsets (-100..100) to polar wheel coordinates (Hue angle, Saturation)
+ */
+export function rgbOffsetToHueSat(r: number, g: number, b: number): { hue: number; saturation: number } {
+  const x = r - 0.5 * g - 0.5 * b;
+  const y = (Math.sqrt(3) / 2) * (g - b);
+  const dist = Math.sqrt(x * x + y * y);
+  if (dist < 1) return { hue: 0, saturation: 0 };
+
+  let rad = Math.atan2(y, x);
+  if (rad < 0) rad += 2 * Math.PI;
+  const deg = (rad * 180) / Math.PI;
+
+  return {
+    hue: Math.round(deg),
+    saturation: Math.min(100, Math.round(dist)),
+  };
+}
+
+/**
+ * Precomputes 256-value 3-Way Lift/Gamma/Gain + White Balance Look-Up Table (LUT)
+ * for ultra-fast, zero-overhead 60 FPS real-time color grading
+ */
+export function buildColorGradingLUT(cg: ColorGrading): {
+  lutR: Uint8ClampedArray;
+  lutG: Uint8ClampedArray;
+  lutB: Uint8ClampedArray;
+} {
+  const lutR = new Uint8ClampedArray(256);
+  const lutG = new Uint8ClampedArray(256);
+  const lutB = new Uint8ClampedArray(256);
+
+  // 1. White balance (Temperature & Tint)
+  const tempFactor = (cg.temperature || 0) / 100;
+  const tintFactor = (cg.tint || 0) / 100;
+
+  const rTemp = 1 + tempFactor * 0.3;
+  const bTemp = 1 - tempFactor * 0.3;
+  const gTemp = 1;
+
+  const rTint = 1 + tintFactor * 0.15;
+  const gTint = 1 - tintFactor * 0.3;
+  const bTint = 1 + tintFactor * 0.15;
+
+  const wR = Math.max(0.1, rTemp * rTint);
+  const wG = Math.max(0.1, gTemp * gTint);
+  const wB = Math.max(0.1, bTemp * bTint);
+
+  // 2. Lift (Shadows / Blacks offset)
+  const liftR = ((cg.lift?.master || 0) + (cg.lift?.r || 0)) / 250;
+  const liftG = ((cg.lift?.master || 0) + (cg.lift?.g || 0)) / 250;
+  const liftB = ((cg.lift?.master || 0) + (cg.lift?.b || 0)) / 250;
+
+  // 3. Gain (Highlights / Whites multiplier)
+  const gainR = Math.max(0, 1 + ((cg.gain?.master || 0) + (cg.gain?.r || 0)) / 100);
+  const gainG = Math.max(0, 1 + ((cg.gain?.master || 0) + (cg.gain?.g || 0)) / 100);
+  const gainB = Math.max(0, 1 + ((cg.gain?.master || 0) + (cg.gain?.b || 0)) / 100);
+
+  // 4. Gamma (Midtones power curve exponent)
+  const calcGamma = (master: number = 0, channel: number = 0) => {
+    const val = master + channel;
+    return Math.pow(2, -val / 80);
+  };
+  const gammaR = calcGamma(cg.gamma?.master, cg.gamma?.r);
+  const gammaG = calcGamma(cg.gamma?.master, cg.gamma?.g);
+  const gammaB = calcGamma(cg.gamma?.master, cg.gamma?.b);
+
+  const processChannel = (val: number, lift: number, gain: number, gamma: number, w: number) => {
+    // White balanced normalized level
+    let x = (val / 255) * w;
+    // Lift: predominantly raises or crushes shadows
+    x = x + lift * (1 - Math.min(1, Math.max(0, x)));
+    // Gain: predominantly expands or scales highlights
+    x = x * gain;
+    // Gamma: shapes the midtone curve
+    if (x > 0) {
+      x = Math.pow(x, gamma);
+    } else {
+      x = 0;
+    }
+    return Math.round(Math.min(255, Math.max(0, x * 255)));
+  };
+
+  for (let i = 0; i < 256; i++) {
+    lutR[i] = processChannel(i, liftR, gainR, gammaR, wR);
+    lutG[i] = processChannel(i, liftG, gainG, gammaG, wG);
+    lutB[i] = processChannel(i, liftB, gainB, gammaB, wB);
+  }
+
+  return { lutR, lutG, lutB };
+}
+
+/**
+ * Dedicated real-time Color Grading canvas pixel transformer
+ */
+export function applyColorGrading(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  colorGrading: ColorGrading
+) {
+  if (!isColorGradingActive(colorGrading)) return;
+  try {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const len = data.length;
+    const { lutR, lutG, lutB } = buildColorGradingLUT(colorGrading);
+
+    for (let i = 0; i < len; i += 4) {
+      if (data[i + 3] === 0) continue;
+      data[i] = lutR[data[i]];
+      data[i + 1] = lutG[data[i + 1]];
+      data[i + 2] = lutB[data[i + 2]];
+    }
+    ctx.putImageData(imageData, 0, 0);
+  } catch (err) {
+    console.warn('Color grading pixel canvas bypass:', err);
+  }
+}
 
 /**
  * Clean default initial track slots structure
@@ -23,6 +240,8 @@ export function applyPixelFilters(
   height: number,
   filters: VideoFilters
 ) {
+  const hasGrading = Boolean(filters.colorGrading?.enabled && isColorGradingActive(filters.colorGrading));
+
   if (
     filters.brightness === 100 &&
     filters.contrast === 100 &&
@@ -31,7 +250,8 @@ export function applyPixelFilters(
     filters.sepia === 0 &&
     filters.invert === 0 &&
     filters.hueRotate === 0 &&
-    !filters.chromaKey.enabled
+    !filters.chromaKey.enabled &&
+    !hasGrading
   ) {
     return; // No filters to apply, bypass for speed
   }
@@ -40,6 +260,11 @@ export function applyPixelFilters(
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
     const len = data.length;
+
+    // Optional precomputed Color Grading LUT
+    const { lutR, lutG, lutB } = hasGrading && filters.colorGrading
+      ? buildColorGradingLUT(filters.colorGrading)
+      : { lutR: null, lutG: null, lutB: null };
 
     // 1. First apply Chroma Key if active
     if (filters.chromaKey.enabled) {
@@ -148,6 +373,16 @@ export function applyPixelFilters(
         r = hr;
         g = hg;
         b = hb;
+      }
+
+      // Color Grading (Lift, Gamma, Gain, White Balance)
+      if (hasGrading && lutR && lutG && lutB) {
+        const ir = Math.max(0, Math.min(255, Math.round(r)));
+        const ig = Math.max(0, Math.min(255, Math.round(g)));
+        const ib = Math.max(0, Math.min(255, Math.round(b)));
+        r = lutR[ir];
+        g = lutG[ig];
+        b = lutB[ib];
       }
 
       // Boundary Checks
@@ -445,6 +680,17 @@ export interface AlignedSubtitleSegment {
   verse_key: string;
   text_arabic: string;
   text_english: string;
+  ayahIndex?: number;
+  wordIndex?: number;
+  startTime?: number;
+  endTime?: number;
+  isWaqfPause?: boolean;
+  confidenceScore?: number;
+  pauseType?: 'ayah-boundary' | 'intra-ayah-waqf' | 'micro-pause' | 'none';
+  isRepetition?: boolean;
+  repetitionRewindWords?: number;
+  subPhraseIndex?: number;
+  totalSubPhrases?: number;
 }
 
 export function runVoiceAlignmentPipeline(
@@ -459,11 +705,18 @@ export function runVoiceAlignmentPipeline(
     ayahDigitType?: AyahDigitType;
     ayahSymbolPosition?: AyahSymbolPosition;
     showAyahSymbol?: boolean;
+    mode?: AlignmentMode; // 'full-ayah' | 'split-breaths' | 'cut-ayah'
+    confidenceThreshold?: number;
+    repetitionThreshold?: number;
+    minSilenceMs?: number;
+    minIntraAyahSilenceMs?: number;
+    microPauseMs?: number;
+    edgePaddingMs?: number;
+    pcmData?: Float32Array;
+    sampleRate?: number;
   }
 ): AlignedSubtitleSegment[] {
-  const subtitles: AlignedSubtitleSegment[] = [];
   const startOffset = options?.startOffset ?? 0.2;
-
   const allVerses: QuranVerseItem[] = [];
 
   const introMode = options?.introMode || (options?.hasIntro ? 'both' : 'none');
@@ -499,8 +752,8 @@ export function runVoiceAlignmentPipeline(
   const digitType = options?.ayahDigitType || 'arabic';
   const symPos = options?.ayahSymbolPosition || 'end';
 
-  // Format texts with symbols and prepare metrics
-  const processedItems = allVerses.map((v, idx) => {
+  // Format texts with symbols and prepare inputs for QuranAlignmentEngine
+  const engineInputs: QuranVerseInput[] = allVerses.map((v, idx) => {
     let arabicText = v.text_uthmani || v.text_arabic || '';
     if (v.verse_key !== 'aux' && v.verse_key !== 'bis') {
       const parts = (v.verse_key || '').split(':');
@@ -508,86 +761,57 @@ export function runVoiceAlignmentPipeline(
       arabicText = attachAyahSymbolToText(arabicText, verseNum, symStyle, digitType, symPos);
     }
     const englishText = v.translation || v.text_english || '';
-    const words = (arabicText || '').split(/\s+/).filter(Boolean);
-    const tajweedWeight = words.reduce((acc, w) => acc + getTajweedPhoneticWeight(w), 0);
-    const weight = v.verse_key === 'aux' ? 14 : v.verse_key === 'bis' ? 12 : Math.max(6, tajweedWeight * 1.35 + englishText.length * 0.15);
 
     return {
       verse_key: v.verse_key,
+      verse_number: v.verse_number,
+      text_uthmani: arabicText,
       text_arabic: arabicText,
+      translation: englishText,
       text_english: englishText,
-      weight
+      isTaawwuz: v.verse_key === 'aux',
+      isTasmiyah: v.verse_key === 'bis',
     };
   });
 
-  const totalVerses = processedItems.length;
-  const totalWeight = processedItems.reduce((sum, item) => sum + item.weight, 0) || 1;
-
-  // Compute total available duration
-  const rawAudioDuration = options?.audioDuration && options.audioDuration > 0 ? options.audioDuration : (totalVerses * 4.2);
-  const audioEndTarget = Math.max(startOffset + 3.0, rawAudioDuration - 0.2);
-  const totalAvailableSpan = audioEndTarget - startOffset;
-
-  if (totalVerses === 1) {
-    // Single Ayah spans the full duration
-    subtitles.push({
-      start: Number(startOffset.toFixed(2)),
-      end: Number(audioEndTarget.toFixed(2)),
-      verse_key: processedItems[0].verse_key,
-      text_arabic: processedItems[0].text_arabic,
-      text_english: processedItems[0].text_english
-    });
-    return subtitles;
-  }
-
-  // If acoustic segments are available from RMS voice analysis, map them (including internal Waqf breathing pauses)
-  if (options?.acousticSegments && options.acousticSegments.length > 0) {
-    const verseSegments = assignAcousticSegmentsToVerses(
-      options.acousticSegments,
-      totalVerses,
-      processedItems.map(i => i.weight)
-    );
-
-    processedItems.forEach((item, idx) => {
-      const segs = verseSegments[idx] || [{ start: startOffset, end: audioEndTarget }];
-      const vStart = Number(segs[0].start.toFixed(2));
-      const vEnd = Number(segs[segs.length - 1].end.toFixed(2));
-      subtitles.push({
-        start: vStart,
-        end: Math.max(vStart + 0.8, vEnd),
-        verse_key: item.verse_key,
-        text_arabic: item.text_arabic,
-        text_english: item.text_english
-      });
-    });
-    return subtitles;
-  }
-
-  // Multi-verse pacing with natural breathing silence gaps
-  const breathGap = Math.max(0.6, Math.min(1.2, (totalAvailableSpan * 0.06) / totalVerses));
-  const totalGaps = (totalVerses - 1) * breathGap;
-  const totalSpeechBudget = Math.max(totalVerses * 1.5, totalAvailableSpan - totalGaps);
-
-  let currentTimelineMarker = startOffset;
-
-  processedItems.forEach((item) => {
-    const clipDur = (item.weight / totalWeight) * totalSpeechBudget;
-
-    const segStart = Number(currentTimelineMarker.toFixed(2));
-    const segEnd = Number((currentTimelineMarker + clipDur).toFixed(2));
-
-    subtitles.push({
-      start: segStart,
-      end: Math.max(segStart + 0.8, segEnd),
-      verse_key: item.verse_key,
-      text_arabic: item.text_arabic,
-      text_english: item.text_english
-    });
-
-    currentTimelineMarker = Number((segEnd + breathGap).toFixed(2));
+  // Execute CTC Forced Alignment Engine with all 5 Quran Caption Rules
+  const rawSegments = runQuranAlignmentEngine(engineInputs, {
+    mode: options?.mode || 'full-ayah',
+    startOffset,
+    audioDuration: options?.audioDuration,
+    acousticSegments: options?.acousticSegments,
+    confidenceThreshold: options?.confidenceThreshold || 85,
+    repetitionThreshold: options?.repetitionThreshold || 80,
+    minSilenceMs: options?.minSilenceMs || 600,
+    minIntraAyahSilenceMs: options?.minIntraAyahSilenceMs || 300,
+    microPauseMs: options?.microPauseMs || 300,
+    edgePaddingMs: options?.edgePaddingMs !== undefined ? options.edgePaddingMs : 120,
+    pcmData: options?.pcmData,
+    sampleRate: options?.sampleRate,
+    showAyahSymbol: options?.showAyahSymbol,
+    ayahSymbolStyle: options?.ayahSymbolStyle,
+    ayahDigitType: options?.ayahDigitType,
+    ayahSymbolPosition: options?.ayahSymbolPosition,
   });
 
-  return subtitles;
+  return rawSegments.map(seg => ({
+    start: seg.startTime,
+    end: seg.endTime,
+    startTime: seg.startTime,
+    endTime: seg.endTime,
+    verse_key: seg.verse_key || '',
+    text_arabic: seg.text_arabic || '',
+    text_english: seg.text_english || '',
+    ayahIndex: seg.ayahIndex,
+    wordIndex: seg.wordIndex,
+    isWaqfPause: seg.isWaqfPause,
+    confidenceScore: seg.confidenceScore,
+    pauseType: seg.pauseType,
+    isRepetition: seg.isRepetition,
+    repetitionRewindWords: seg.repetitionRewindWords,
+    subPhraseIndex: seg.subPhraseIndex,
+    totalSubPhrases: seg.totalSubPhrases,
+  }));
 }
 
 export const QURAN_CHAPTER_AYAH_COUNTS: Record<number, number> = {
@@ -774,6 +998,7 @@ export async function alignQuranLocalClient(params: {
   }
 
   const hasIntro = startAyahNum === 1 && surahNum !== 9;
+  const alignMode: AlignmentMode = (params.mode === 'split-breaths' || params.mode === 'cut-ayah') ? 'split-breaths' : 'full-ayah';
 
   return runVoiceAlignmentPipeline(versesContext, {
     startOffset: 0.2,
@@ -783,6 +1008,7 @@ export async function alignQuranLocalClient(params: {
     ayahDigitType: params.ayahDigitType,
     ayahSymbolPosition: params.ayahSymbolPosition,
     showAyahSymbol: params.showAyahSymbol,
+    mode: alignMode,
   });
 }
 
@@ -1595,12 +1821,7 @@ export function splitVerseAcrossBreaths(
     ayahDigitType?: AyahDigitType;
     ayahSymbolPosition?: AyahSymbolPosition;
   }
-): Array<{
-  verse_key: string;
-  text_arabic: string;
-  text_english: string;
-  start: number;
-  end: number;
+): Array<AlignedSubtitleSegment & {
   isTaawwuz?: boolean;
   isTasmiyah?: boolean;
 }> {
@@ -1617,14 +1838,23 @@ export function splitVerseAcrossBreaths(
     if (arText && !verse.isTaawwuz && !verse.isTasmiyah && showSymbol) {
       arText = attachAyahSymbolToText(arText, vNum, symStyle, symDigit, symPos);
     }
+    const sStart = Number(segs[0].start.toFixed(2));
+    const sEnd = Number(Math.max(segs[0].start + 0.8, segs[0].end).toFixed(2));
     return [{
       verse_key: verse.verse_key,
       text_arabic: arText,
       text_english: verse.text_english || '',
-      start: Number(segs[0].start.toFixed(2)),
-      end: Number(Math.max(segs[0].start + 0.8, segs[0].end).toFixed(2)),
+      start: sStart,
+      end: sEnd,
+      startTime: sStart,
+      endTime: sEnd,
       isTaawwuz: verse.isTaawwuz,
       isTasmiyah: verse.isTasmiyah,
+      isWaqfPause: false,
+      confidenceScore: 95,
+      pauseType: 'ayah-boundary',
+      subPhraseIndex: 1,
+      totalSubPhrases: 1
     }];
   }
 
@@ -1636,12 +1866,7 @@ export function splitVerseAcrossBreaths(
   // Split translation into semantically coherent clauses matching the Arabic breath phrases
   const enPhrases = splitTranslationByClauses(verse.text_english || '', segDurations);
 
-  const result: Array<{
-    verse_key: string;
-    text_arabic: string;
-    text_english: string;
-    start: number;
-    end: number;
+  const result: Array<AlignedSubtitleSegment & {
     isTaawwuz?: boolean;
     isTasmiyah?: boolean;
   }> = [];
@@ -1660,14 +1885,24 @@ export function splitVerseAcrossBreaths(
       ? `${verse.verse_key} [${sIdx + 1}/${segs.length}]`
       : verse.verse_key;
 
+    const sStart = Number(segs[sIdx].start.toFixed(2));
+    const sEnd = Number(Math.max(segs[sIdx].start + 0.8, segs[sIdx].end).toFixed(2));
+
     result.push({
       verse_key: subKey,
       text_arabic: chunkArabic,
       text_english: chunkEnglish,
-      start: Number(segs[sIdx].start.toFixed(2)),
-      end: Number(Math.max(segs[sIdx].start + 0.8, segs[sIdx].end).toFixed(2)),
+      start: sStart,
+      end: sEnd,
+      startTime: sStart,
+      endTime: sEnd,
       isTaawwuz: verse.isTaawwuz,
       isTasmiyah: verse.isTasmiyah,
+      isWaqfPause: !isLast,
+      confidenceScore: 92,
+      pauseType: isLast ? 'ayah-boundary' : 'intra-ayah-waqf',
+      subPhraseIndex: sIdx + 1,
+      totalSubPhrases: segs.length
     });
   }
 
@@ -1785,30 +2020,44 @@ export function autoSegmentAudioClipsBySilence(
 
   // Ensure speech segments are sorted
   const sortedSegments = [...speechSegments].sort((a, b) => a.start - b.start);
+  const edgePadSec = (options.paddingMs !== undefined ? options.paddingMs : 120) / 1000;
 
   let currentPos = 0;
   let breathCount = 1;
 
   sortedSegments.forEach((seg, idx) => {
     const isLast = idx === sortedSegments.length - 1;
-    let segStart = seg.start;
-    let segEnd = seg.end;
+    const prevEnd = idx > 0 ? sortedSegments[idx - 1].end : 0;
+    const nextStart = !isLast ? sortedSegments[idx + 1].start : (sourceClip.duration || seg.end + 1);
+
+    // Rule 5: Edge Padding (±120ms safety margin)
+    let segStart = Math.max(0, Math.max(prevEnd, seg.start - edgePadSec));
+    let segEnd = Math.min(nextStart, seg.end + edgePadSec);
 
     // 1. Identify and label any preceding pause segment as a 'Waqf Pause'
-    if (includePauses && segStart > currentPos + 0.1) {
+    if (includePauses && segStart > currentPos + 0.08) {
       const pauseDuration = segStart - currentPos;
       const pauseClipStart = sourceClip.start + currentPos;
       const pauseSourceStart = (sourceClip.sourceStart || 0) + (currentPos * (sourceClip.playbackRate || 1.0));
 
+      // Rule 2: Dynamic Waqf Classification
+      const isAyahBoundary = pauseDuration >= 0.6;
+      const isIntraWaqf = pauseDuration >= 0.3 && pauseDuration < 0.6;
+      const pauseLabel = isAyahBoundary
+        ? `🛑 Ayah Boundary [Pause ${breathCount++}] (${pauseDuration.toFixed(2)}s)`
+        : isIntraWaqf
+        ? `⏸️ Waqf Breath [Pause ${breathCount++}] (${pauseDuration.toFixed(2)}s)`
+        : `⚡ Micro-pause (${pauseDuration.toFixed(2)}s)`;
+
       newClips.push({
         ...sourceClip,
         id: `clip-audio-pause-${Date.now()}-${idx}-pre-${Math.random().toString(36).substring(2, 7)}`,
-        name: `⏸️ Waqf Pause [Breath ${breathCount++}] (${pauseDuration.toFixed(1)}s)`,
+        name: pauseLabel,
         start: Number(pauseClipStart.toFixed(2)),
         duration: Number(pauseDuration.toFixed(2)),
         sourceStart: Number(pauseSourceStart.toFixed(2)),
         sourceDuration: Number((pauseDuration * (sourceClip.playbackRate || 1.0)).toFixed(2)),
-        color: '#475569', // Distinct slate color for Waqf pauses
+        color: isAyahBoundary ? '#334155' : isIntraWaqf ? '#475569' : '#64748b',
       });
     }
 
