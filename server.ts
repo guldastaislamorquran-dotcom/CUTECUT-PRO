@@ -7,8 +7,16 @@ import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 dotenv.config();
 
 // Initialize the Gemini SDK if the API key is present
-function getAiClient(): GoogleGenAI | null {
-  const currentKey = process.env.GEMINI_API_KEY;
+function getAiClient(req?: express.Request): GoogleGenAI | null {
+  // Extract custom user-provided API key from headers (case-insensitive checking)
+  let customKey = req?.headers?.['x-user-gemini-key'] as string || req?.headers?.['X-User-Gemini-Key'] as string;
+  if (customKey) {
+    customKey = customKey.trim();
+  }
+
+  // Fallback to system key if custom key is not present or too short
+  const currentKey = (customKey && customKey.length >= 10) ? customKey : process.env.GEMINI_API_KEY;
+
   if (!currentKey || currentKey === 'MY_GEMINI_API_KEY' || currentKey.trim().length < 10) {
     return null;
   }
@@ -64,7 +72,7 @@ async function startServer() {
 
   // API Route: Health Check
   app.get('/api/health', (req, res) => {
-    const aiClient = getAiClient();
+    const aiClient = getAiClient(req);
     res.json({ status: 'ok', api_key_loaded: !!aiClient });
   });
 
@@ -246,7 +254,7 @@ async function startServer() {
   // API Route: AI Auto-Captions Generator
   app.post('/api/ai/captions', async (req, res) => {
     const { transcript, style, language } = req.body;
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     if (!ai) {
       // Mock timing generator for sandbox environment if API key is missing
@@ -445,7 +453,7 @@ async function startServer() {
     });
 
     // Step 2: Use Gemini if available, audioData is provided, and verses limit is friendly (<= 30) to ensure high accuracy
-    const ai = getAiClient();
+    const ai = getAiClient(req);
     if (ai && audioData && versesContext.length > 0 && versesContext.length <= 30) {
       try {
         console.log('[Quran Align API] Calling Gemini for audio voice alignment...');
@@ -691,7 +699,7 @@ async function startServer() {
     };
 
     const fallbackKeywords = ['dawn', 'night', 'mountains', 'ocean', 'rain', 'gardens', 'desert', 'light', 'cosmos', 'clouds'];
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     const getSemanticTheme = (v: any, index: number): string => {
       const vKey = (v.verse_key || '').toLowerCase();
@@ -839,7 +847,7 @@ Rules:
   app.post('/api/ai/tts', async (req, res) => {
     const { text, voice } = req.body;
     const selectedVoice = voice || 'Kore'; // Prebuilt voices: Puck, Charon, Kore, Fenrir, Zephyr
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     if (!ai) {
       console.log('Using mock AI TTS voiceover (API Key missing)');
@@ -888,10 +896,276 @@ Rules:
     }
   });
 
+  // API Route: AI Multi-Language Subtitle Translation
+  app.post('/api/ai/translate-subtitles', async (req, res) => {
+    const { subtitles, targetLanguage } = req.body;
+    const ai = getAiClient(req);
+
+    if (!subtitles || !Array.isArray(subtitles)) {
+      return res.status(400).json({ error: 'Subtitles array is required' });
+    }
+
+    const languageNames: Record<string, string> = {
+      'ur': 'Urdu (اردو)',
+      'en': 'English',
+      'ar': 'Arabic (العربية)',
+      'tr': 'Turkish (Türkçe)',
+      'fr': 'French (Français)',
+      'id': 'Indonesian (Bahasa Indonesia)',
+    };
+
+    const targetLangName = languageNames[targetLanguage] || targetLanguage || 'English';
+
+    if (!ai) {
+      // Offline/No-key Mock Translator: Provides real-time Urdu-English-Arabic translations of common Islamic words/phrases
+      const translated = subtitles.map(sub => {
+        const text = sub.text || '';
+        let translatedText = text;
+
+        if (targetLanguage === 'ur') {
+          if (text.toLowerCase().includes('praise') || text.toLowerCase().includes('alhamdulillah')) translatedText = 'تمام تعریفیں اللہ ہی کے لیے ہیں۔';
+          else if (text.toLowerCase().includes('allah') && text.toLowerCase().includes('merciful')) translatedText = 'اللہ بڑا مہربان اور نہایت رحم کرنے والا ہے۔';
+          else translatedText = `[اردو ترجمہ]: ${text}`;
+        } else if (targetLanguage === 'en') {
+          if (text.includes('الْحَمْدُ لِلَّهِ')) translatedText = 'All praise is due to Allah, Lord of the worlds.';
+          else if (text.includes('الرَّحْمَنِ الرَّحِيمِ')) translatedText = 'The Most Gracious, the Most Merciful.';
+          else translatedText = `[English Translation]: ${text}`;
+        } else if (targetLanguage === 'ar') {
+          if (text.toLowerCase().includes('praise be to allah')) translatedText = 'الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ';
+          else translatedText = `[ترجمہ]: ${text}`;
+        } else {
+          translatedText = `[${targetLangName}]: ${text}`;
+        }
+
+        return {
+          id: sub.id,
+          originalText: text,
+          translatedText: translatedText
+        };
+      });
+
+      return res.json({ success: true, translated, isMock: true });
+    }
+
+    try {
+      const itemsToTranslate = subtitles.map((sub, i) => `${i}:: ${sub.text}`).join('\n');
+      const promptText = `
+        You are an expert translator specializing in Islamic terminology, Quranic scriptures, and video subtitle editing.
+        Translate the following subtitle lines into ${targetLangName}. Preserve any verse numbers or holy attributes perfectly.
+        Keep the translations elegant, clear, and perfectly fitting for lower-third video subtitles.
+        
+        Strict format rule: Respond ONLY with translated lines corresponding to the index key, using the delimiter '::'.
+        Example format:
+        0:: Translated text here
+        1:: Another translated line
+        
+        Lines to translate:
+        ${itemsToTranslate}
+      `;
+
+      const response = await safeGenerateContent(ai, {
+        model: 'gemini-3.7-flash',
+        contents: promptText,
+        config: {},
+      });
+
+      const rawText = response.text || '';
+      const lines = rawText.split('\n');
+      const translationMap: Record<number, string> = {};
+
+      lines.forEach(line => {
+        const parts = line.split('::');
+        if (parts.length >= 2) {
+          const idx = parseInt(parts[0].trim(), 10);
+          const trans = parts.slice(1).join('::').trim();
+          if (!isNaN(idx)) {
+            translationMap[idx] = trans;
+          }
+        }
+      });
+
+      const translated = subtitles.map((sub, i) => {
+        return {
+          id: sub.id,
+          originalText: sub.text,
+          translatedText: translationMap[i] || sub.text
+        };
+      });
+
+      res.json({ success: true, translated });
+    } catch (error: any) {
+      console.error('Error in AI subtitle translator:', error);
+      res.status(500).json({ error: 'Failed to translate subtitles' });
+    }
+  });
+
+  // API Route: Islamic Short-Video Script Generator (TikTok/Reels/Shorts Maker)
+  app.post('/api/ai/islamic-script', async (req, res) => {
+    const { topic, duration = 30, language = 'en' } = req.body;
+    const ai = getAiClient(req);
+
+    if (!topic || topic.trim().length === 0) {
+      return res.status(400).json({ error: 'Topic is required' });
+    }
+
+    if (!ai) {
+      // Mock Creator
+      return res.json({
+        success: true,
+        topic,
+        isMock: true,
+        hook: language === 'ur' 
+          ? `🔥 کیا آپ جانتے ہیں کہ اللہ پاک صبر کرنے والوں سے کتنا پیار کرتا ہے؟`
+          : `🔥 Did you know how much Allah loves those who practice Sabr (Patience)?`,
+        bodyPoints: [
+          {
+            text: language === 'ur'
+              ? `صبر ایمان کا آدھا حصہ ہے اور آزمائش میں مومن کا ہتھیار ہے۔`
+              : `Sabr is half of faith, serving as a shield in difficult times.`,
+            visualSuggestion: `Cinematic macro shot of dew on green leaves during sunrise`
+          },
+          {
+            text: language === 'ur'
+              ? `قرآن میں اللہ نے فرمایا: "بے شک اللہ صبر کرنے والوں کے ساتھ ہے۔"`
+              : `In the Quran, Allah promises: "Indeed, Allah is with the patient."`,
+            visualSuggestion: `Ornate Arabic calligraphy of "Innalaha ma'as sabireen" in gold glowing rays`
+          },
+          {
+            text: language === 'ur'
+              ? `صبر کا بدلہ ہمیشہ خوبصورت اور بڑا ہوتا ہے۔`
+              : `The reward for patience is always beautiful and beyond measure.`,
+            visualSuggestion: `Vast ocean horizon at twilight with serene calm water`
+          }
+        ],
+        callToAction: language === 'ur'
+          ? `👉 کمنٹ میں "الحمد اللہ" لکھیں اور اس کلپ کو شیئر کریں!`
+          : `👉 Type "Alhamdulillah" in comments and share this reflection!`
+      });
+    }
+
+    try {
+      const promptText = `
+        You are a highly viral Islamic Content Creator and Scriptwriter.
+        Generate a highly engaging, emotionally resonant video script (duration: ${duration} seconds) for TikTok/Reels about: "${topic}".
+        Language of the script: ${language === 'ur' ? 'Urdu / Roman Urdu' : 'English with correct transliterations of Arabic terms'}.
+        
+        Provide your response as a valid JSON object with the following keys:
+        - "hook": A powerful 1-line opening hook (1-4s)
+        - "bodyPoints": An array of exactly 3 objects. Each object must have "text" (the spoken subtitle sentence) and "visualSuggestion" (a cinematic stock footage description)
+        - "callToAction": A warm 1-line call to action prompting likes, comments, and reflections.
+        
+        Make sure the visualSuggestions represent cinematic elements like dawn, cosmos, oceans, mountains, gardens, or light rays.
+        Do NOT write any markdown blocks (like \`\`\`json) or conversational text. Output ONLY raw JSON.
+      `;
+
+      const response = await safeGenerateContent(ai, {
+        model: 'gemini-3.7-flash',
+        contents: promptText,
+        config: {
+          responseMimeType: 'application/json'
+        },
+      });
+
+      const rawJson = (response.text || '').trim();
+      const parsed = JSON.parse(rawJson);
+
+      res.json({
+        success: true,
+        topic,
+        ...parsed
+      });
+    } catch (error: any) {
+      console.error('Error generating Islamic script:', error);
+      res.json({
+        success: true,
+        topic,
+        isMock: true,
+        hook: `🔥 Let's reflect on: "${topic}"`,
+        bodyPoints: [
+          { text: `Every hardship is a stepping stone for spiritual elevation.`, visualSuggestion: `Mountain peak breaking through clouds` },
+          { text: `Gratitude opens doors of blessings that reasoning cannot fathom.`, visualSuggestion: `Golden sun rays breaking through lush garden tree leaves` },
+          { text: `Seek refuge in prayer and remembrance of the Creator.`, visualSuggestion: `Warm glowing interior of a peaceful grand mosque library` }
+        ],
+        callToAction: `👉 Subcribe for more daily reflections!`
+      });
+    }
+  });
+
+  // API Route: AI Calligraphy & Decorative Graphic Prompt Generator
+  app.post('/api/ai/calligraphy-art', async (req, res) => {
+    const { phrase, artStyle = 'gold-calligraphy' } = req.body;
+    const ai = getAiClient(req);
+
+    const stylePrompts: Record<string, string> = {
+      'gold-calligraphy': 'Symmetrical divine gold Arabic calligraphy on textured dark royal indigo parchment paper, detailed filigree, volumetric light',
+      'ornate-mosaic': 'Sacred Islamic geometric mosaic tilework patterns in vibrant turquoise, azure, and lapis lazuli colors, highly symmetrical',
+      'woodcarving': 'Detailed ornate Islamic floral arabesque relief carved in premium warm cedar wood, soft shadows and dramatic depth',
+      'nebula-cosmic': 'Glowing translucent arabic letters floating in stellar deep cosmos nebula, stars, galaxies, spiritual energy',
+    };
+
+    const styleBase = stylePrompts[artStyle] || stylePrompts['gold-calligraphy'];
+
+    if (!phrase) {
+      return res.status(400).json({ error: 'Phrase is required' });
+    }
+
+    if (!ai) {
+      return res.json({
+        success: true,
+        phrase,
+        artStyle,
+        prompt: `Cinematic 8K macro photo of "${phrase}" written in ${styleBase}, high dynamic range, stunning spiritual contrast`,
+        imageUrl: artStyle === 'gold-calligraphy' 
+          ? 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1200&auto=format&fit=crop&q=85'
+          : 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=1200&auto=format&fit=crop&q=85'
+      });
+    }
+
+    try {
+      const promptText = `
+        You are an elite Islamic Artist and Calligrapher specializing in digital Islamic art.
+        Write a highly detailed, cinematic, jaw-dropping prompt for an AI Image Generator.
+        The calligraphy text or core theme is: "${phrase}".
+        The visual artistic style is: "${artStyle}" (${styleBase}).
+        
+        Write a single prompt of 50-70 words specifying:
+        - Exact composition (centered, beautiful borders, symmetric)
+        - Color palette, lighting (volumetric, raytraced, gold metallic)
+        - Background and texture details (dark marble, royal indigo paper)
+        Output ONLY the raw prompt string. No conversational remarks.
+      `;
+
+      const response = await safeGenerateContent(ai, {
+        model: 'gemini-3.7-flash',
+        contents: promptText,
+        config: {},
+      });
+
+      const finalPrompt = (response.text || '').trim();
+
+      // Trigger actual image generator if possible to return a real image url
+      res.json({
+        success: true,
+        phrase,
+        artStyle,
+        prompt: finalPrompt,
+        // The client will call /api/ai/generate-image with this prompt for premium high-resolution rendering
+      });
+    } catch (error: any) {
+      console.error('Error generating calligraphy art:', error);
+      res.json({
+        success: true,
+        phrase,
+        artStyle,
+        prompt: `Beautiful "${phrase}" written in golden calligraphic style, ornate framing, 8k cinematic`,
+      });
+    }
+  });
+
   // API Route: High Thinking AI Assistant (Deep Reasoning with gemini-3.7-flash)
   app.post('/api/ai/deep-think', async (req, res) => {
     const { prompt, context } = req.body;
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     if (!ai) {
       return res.json({
@@ -938,7 +1212,7 @@ Rules:
   // API Route: Live Voice Conversation with Gemini 3.1 Flash Live Preview
   app.post('/api/ai/voice-chat', async (req, res) => {
     const { message, audioData, mimeType, history } = req.body || {};
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     if (!ai) {
       // Mock fallback voice chat if no API key
@@ -1068,7 +1342,7 @@ Return JSON with format:
   // API Route: High Quality Image Generation (gemini-3-pro-image-preview)
   app.post('/api/ai/generate-image', async (req, res) => {
     const { prompt, imageSize = '1K', aspectRatio = '16:9' } = req.body;
-    const ai = getAiClient();
+    const ai = getAiClient(req);
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });

@@ -15,6 +15,7 @@ import {
   Wand2,
   Eye,
   RefreshCw,
+  Globe,
   Plus
 } from 'lucide-react';
 import { Track, Clip, ClipType } from '../types';
@@ -43,6 +44,7 @@ interface QuranVisualsPanelProps {
   tracks: Track[];
   onAddClip: (clipData: Partial<Clip>) => void;
   onReplaceVideoTrackClips?: (clips: Partial<Clip>[]) => void;
+  onUpdateClip?: (clipId: string, updates: Partial<Clip>) => void;
   quranTranslation?: string;
   currentTime?: number;
 }
@@ -145,6 +147,7 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   tracks,
   onAddClip,
   onReplaceVideoTrackClips,
+  onUpdateClip,
   quranTranslation = 'ur-jalandhry',
   currentTime = 0,
 }) => {
@@ -161,6 +164,57 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
   const [generatedVisuals, setGeneratedVisuals] = useState<AyahVisualItem[]>([]);
   const [activePreview, setActivePreview] = useState<AyahVisualItem | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const [targetLang, setTargetLang] = useState<string>('ur');
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+
+  const handleTranslateTimelineSubtitles = async () => {
+    // 1. Gather all text clips on the timeline
+    const textTracks = tracks.filter(t => t.type === 'text');
+    const allTextClips: any[] = [];
+    textTracks.forEach(t => {
+      t.clips.forEach(c => {
+        if (c.type === 'text' || c.text) {
+          allTextClips.push(c);
+        }
+      });
+    });
+
+    if (allTextClips.length === 0) {
+      setToastMessage('❌ No text subtitles found on the timeline!');
+      setTimeout(() => setToastMessage(null), 3000);
+      return;
+    }
+
+    setIsTranslating(true);
+    try {
+      const res = await fetch('/api/ai/translate-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subtitles: allTextClips.map(c => ({ id: c.id, text: c.text || c.name })),
+          targetLanguage: targetLang
+        })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.translated) && onUpdateClip) {
+        data.translated.forEach((item: any) => {
+          onUpdateClip(item.id, {
+            text: item.translatedText,
+            name: item.translatedText.substring(0, 30)
+          });
+        });
+        setToastMessage(`✅ Successfully translated ${data.translated.length} subtitles!`);
+      } else {
+        setToastMessage('❌ Translation failed or onUpdateClip is not bound.');
+      }
+    } catch (e) {
+      setToastMessage('❌ Error occurred while translating subtitles.');
+    } finally {
+      setIsTranslating(false);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
 
   // Extract Quran Ayahs from both text tracks AND segmented audio tracks currently present on timeline
   const getTimelineAyahs = (): Array<{
@@ -851,6 +905,46 @@ export const QuranVisualsPanel: React.FC<QuranVisualsPanelProps> = ({
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* AI Subtitle Translation Tool */}
+      <div className="bg-[#121216] border border-[#2b2b36]/60 rounded-xl p-4.5 space-y-3 shadow-md">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-xs font-bold text-teal-300">
+            <Globe className="w-4 h-4 text-teal-400" />
+            AI Multi-Language Translator
+          </span>
+          <span className="text-[10px] text-gray-400">Translate Subtitles</span>
+        </div>
+        <p className="text-[11px] text-gray-400 leading-normal">
+          Select any language to translate all timeline text/lyrics subtitles using Gemini's high-fidelity Islamic linguistic translator.
+        </p>
+        <div className="flex items-center gap-2">
+          <select
+            value={targetLang}
+            onChange={(e) => setTargetLang(e.target.value)}
+            className="flex-1 bg-[#1a1a24] border border-[#2e2e3a] text-xs text-gray-200 rounded-lg px-3 py-2 outline-none focus:border-teal-500"
+          >
+            <option value="ur">Urdu (اردو)</option>
+            <option value="en">English (English)</option>
+            <option value="ar">Arabic (العربية)</option>
+            <option value="tr">Turkish (Türkçe)</option>
+            <option value="fr">French (Français)</option>
+            <option value="id">Indonesian (Bahasa Indonesia)</option>
+          </select>
+          <button
+            onClick={handleTranslateTimelineSubtitles}
+            disabled={isTranslating}
+            className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-black text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            {isTranslating ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            <span>Translate</span>
+          </button>
         </div>
       </div>
 

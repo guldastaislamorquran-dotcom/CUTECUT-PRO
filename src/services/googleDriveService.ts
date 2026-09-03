@@ -15,7 +15,7 @@ export interface GoogleDriveTokens {
   created_at: number;
 }
 
-const CLIENT_ID = '1069502621183-o5d9sh03f7e6f85of10u1n67n0f0u5d7.apps.googleusercontent.com';
+const CLIENT_ID = '447393315446-u9m01qo1inee3vbkgtdi19t7fic2aun6.apps.googleusercontent.com';
 
 export class GoogleDriveService {
   private static instance: GoogleDriveService;

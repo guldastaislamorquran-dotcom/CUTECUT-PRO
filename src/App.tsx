@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, Scissors, Trash2, Download, RefreshCw, Film, Volume2, Music, Type, Code, Terminal, Save, User, Crown, FolderOpen, Brain, Mic, Heart, Cloud, CloudUpload, CheckCircle2, Minimize2, Maximize2, X, LogOut, Check, ChevronDown, Loader2, Keyboard, Cpu, Zap, Wifi, WifiOff, Settings } from 'lucide-react';
+import { Sparkles, Scissors, Trash2, Download, RefreshCw, Film, Volume2, Music, Type, Code, Terminal, Save, User, Crown, FolderOpen, Brain, Mic, Heart, Cloud, CloudUpload, CheckCircle2, Minimize2, Maximize2, X, LogOut, Check, ChevronDown, Loader2, Keyboard, Cpu, Zap, Wifi, WifiOff, Settings, Bell } from 'lucide-react';
 import { Clip, ClipType, Track, TimelineState, WatermarkSettings, VisualStylePreset } from './types';
 import MediaPanel from './components/MediaPanel';
 import PreviewPlayer from './components/PreviewPlayer';
@@ -10,6 +10,7 @@ import ProjectSaveModal, { SavedProjectSession } from './components/ProjectSaveM
 import UpdateCheckerModal from './components/UpdateCheckerModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
 import { GeminiAIIntelligenceModal } from './components/GeminiAIIntelligenceModal';
+import { GitHubInboxModal } from './components/GitHubInboxModal';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import ExportModal, { ExportConfig } from './components/ExportModal';
 import LandingPortal from './components/LandingPortal';
@@ -313,6 +314,8 @@ export default function App() {
   const [showGeminiIntelligenceModal, setShowGeminiIntelligenceModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showAISegmentationModal, setShowAISegmentationModal] = useState(false);
+  const [showGitHubInboxModal, setShowGitHubInboxModal] = useState(false);
+  const [githubUnreadCount, setGithubUnreadCount] = useState(3);
 
   // Apply AI Segmentation results to timeline tracks (Infinite batch layout compliant)
   const handleApplyAISegmentation = (result: { generatedClips?: any[] }) => {
@@ -5372,6 +5375,22 @@ export default function App() {
             <span className="bg-purple-500/20 text-purple-300 text-[9px] px-1 py-0.5 rounded font-mono font-bold border border-purple-500/30">PRO</span>
           </button>
 
+          {/* GitHub Push Inbox Button */}
+          <button
+            id="btn-github-push-inbox"
+            onClick={() => setShowGitHubInboxModal(true)}
+            className="relative flex items-center gap-1.5 px-3 h-9 bg-[#111625] hover:bg-[#1a2035] border border-purple-500/20 hover:border-purple-400 text-purple-300 text-xs font-semibold rounded-lg transition shadow-sm active:scale-95 cursor-pointer"
+            title="Open GitHub Push Inbox & Message Feed"
+          >
+            <Bell className={`w-3.5 h-3.5 text-purple-400 ${githubUnreadCount > 0 ? 'animate-bounce' : ''}`} />
+            <span>GitHub Inbox</span>
+            {githubUnreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 bg-purple-600 text-white text-[9px] font-extrabold flex items-center justify-center rounded-full shadow-lg border border-[#111625]">
+                {githubUnreadCount}
+              </span>
+            )}
+          </button>
+
           {/* Save Project Button */}
           <button
             id="btn-save-project"
@@ -5896,6 +5915,13 @@ export default function App() {
       <KeyboardShortcutsModal
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
+      />
+
+      {/* GitHub Push Inbox & Notifications Feed Modal */}
+      <GitHubInboxModal
+        isOpen={showGitHubInboxModal}
+        onClose={() => setShowGitHubInboxModal(false)}
+        onNewNotificationCountChange={(count) => setGithubUnreadCount(count)}
       />
 
     </div>

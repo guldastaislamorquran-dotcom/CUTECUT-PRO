@@ -50,7 +50,7 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
 
   // --- Script & Captions State ---
   const [scriptTopic, setScriptTopic] = useState('');
-  const [scriptFormat, setScriptFormat] = useState<'shorts' | 'reels' | 'youtube' | 'educational'>('shorts');
+  const [scriptFormat, setScriptFormat] = useState<string>('shorts');
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [generatedScript, setGeneratedScript] = useState<{
     hook: string;
@@ -69,6 +69,8 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
   // --- Image Generator State ---
   const [imagePrompt, setImagePrompt] = useState('Cinematic dramatic mountain landscape at golden sunset with misty clouds, 8k resolution');
   const [imageRatio, setImageRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
+  const [imageMode, setImageMode] = useState<'scenic' | 'calligraphy'>('scenic');
+  const [calligraphyStyle, setCalligraphyStyle] = useState<'gold-calligraphy' | 'ornate-mosaic' | 'woodcarving' | 'nebula-cosmic'>('gold-calligraphy');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
 
@@ -118,6 +120,29 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
     if (!scriptTopic.trim()) return;
     setIsGeneratingScript(true);
     try {
+      if (scriptFormat === 'islamic-ur' || scriptFormat === 'islamic-en') {
+        const lang = scriptFormat === 'islamic-ur' ? 'ur' : 'en';
+        const res = await fetch('/api/ai/islamic-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: scriptTopic,
+            language: lang,
+            duration: 30
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setGeneratedScript({
+            hook: data.hook,
+            body: data.bodyPoints.map((b: any) => `${b.text} (Visual: ${b.visualSuggestion})`),
+            callToAction: data.callToAction,
+            suggestedDuration: 30
+          });
+          return;
+        }
+      }
+
       const res = await fetch('/api/ai/deep-think', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,11 +216,28 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
     if (!imagePrompt.trim()) return;
     setIsGeneratingImage(true);
     try {
+      let finalPrompt = imagePrompt;
+
+      if (imageMode === 'calligraphy') {
+        const calRes = await fetch('/api/ai/calligraphy-art', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phrase: imagePrompt,
+            artStyle: calligraphyStyle
+          })
+        });
+        const calData = await calRes.json();
+        if (calData.success && calData.prompt) {
+          finalPrompt = calData.prompt;
+        }
+      }
+
       const res = await fetch('/api/ai/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: imagePrompt,
+          prompt: finalPrompt,
           aspectRatio: imageRatio,
           size: '1K'
         })
@@ -205,10 +247,16 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
         setGeneratedImageUrl(data.imageUrl);
       } else {
         // High quality fallback landscape
-        setGeneratedImageUrl('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80');
+        setGeneratedImageUrl(imageMode === 'calligraphy' 
+          ? 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1200&auto=format&fit=crop&q=85'
+          : 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80'
+        );
       }
     } catch {
-      setGeneratedImageUrl('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80');
+      setGeneratedImageUrl(imageMode === 'calligraphy'
+        ? 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=1200&auto=format&fit=crop&q=85'
+        : 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80'
+      );
     } finally {
       setIsGeneratingImage(false);
     }
@@ -500,7 +548,9 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
                     <option value="shorts">YouTube Shorts (9:16)</option>
                     <option value="reels">Instagram Reels (9:16)</option>
                     <option value="youtube">YouTube Video (16:9)</option>
-                    <option value="educational">Educational & Islamic</option>
+                    <option value="educational">Educational Videos</option>
+                    <option value="islamic-ur">🕋 Urdu Islamic Short (اردو)</option>
+                    <option value="islamic-en">🕋 English Islamic Short</option>
                   </select>
                 </div>
               </div>
@@ -624,13 +674,61 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
           {/* TAB 4: 4K Scene Image Generator */}
           {activeTab === 'image-gen' && (
             <div className="space-y-5">
+              {/* Image Type Toggle */}
+              <div className="flex bg-[#120f1a] p-1.5 rounded-lg border border-purple-500/20">
+                <button
+                  onClick={() => {
+                    setImageMode('scenic');
+                    setImagePrompt('Cinematic dramatic mountain landscape at golden sunset with misty clouds, 8k resolution');
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                    imageMode === 'scenic'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  🌄 Scenic Background
+                </button>
+                <button
+                  onClick={() => {
+                    setImageMode('calligraphy');
+                    setImagePrompt('Alhamdulillah');
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                    imageMode === 'calligraphy'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  ✒️ Calligraphy Sticker Maker
+                </button>
+              </div>
+
+              {imageMode === 'calligraphy' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-purple-300">Art Style & Theme</label>
+                  <select
+                    value={calligraphyStyle}
+                    onChange={(e: any) => setCalligraphyStyle(e.target.value)}
+                    className="w-full bg-[#181524] border border-purple-500/30 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-purple-400"
+                  >
+                    <option value="gold-calligraphy">Symmetrical Divine Gold Arabic Calligraphy</option>
+                    <option value="ornate-mosaic">Sacred Islamic Geometric Mosaic Tilework</option>
+                    <option value="woodcarving">Ornate Wood-carving Arabesque Relief</option>
+                    <option value="nebula-cosmic">Glowing Translucent Cosmic Arabic Letters</option>
+                  </select>
+                </div>
+              )}
+
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-purple-300">Scene Visual Prompt</label>
+                <label className="text-xs font-semibold text-purple-300">
+                  {imageMode === 'calligraphy' ? 'Calligraphy Text / Divine Attribute' : 'Scene Visual Prompt'}
+                </label>
                 <textarea
                   rows={2}
                   value={imagePrompt}
                   onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="Describe your scene (e.g. 8K cinematic golden hour desert dunes with calm wind, photorealistic)..."
+                  placeholder={imageMode === 'calligraphy' ? "Enter phrase or holy text (e.g. SubhanAllah, Ayat-al-Kursi, Allahu Akbar)" : "Describe your scene (e.g. 8K cinematic golden hour desert dunes, photorealistic)..."}
                   className="w-full bg-[#181524] border border-purple-500/30 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-purple-400 resize-none"
                 />
               </div>
@@ -659,7 +757,7 @@ export const GeminiAIIntelligenceModal: React.FC<GeminiAIIntelligenceModalProps>
                   className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition flex items-center gap-2 shadow-lg cursor-pointer"
                 >
                   {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  <span>Generate Visual</span>
+                  <span>{imageMode === 'calligraphy' ? 'Generate Calligraphy' : 'Generate Visual'}</span>
                 </button>
               </div>
 

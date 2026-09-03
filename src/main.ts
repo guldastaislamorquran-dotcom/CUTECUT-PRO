@@ -140,7 +140,7 @@ async function handleDeepLink(urlStr: string) {
     }
 
     const codeVerifier = oauthSession?.codeVerifier || '';
-    const client_id = process.env.GOOGLE_CLIENT_ID || '1069502621183-o5d9sh03f7e6f85of10u1n67n0f0u5d7.apps.googleusercontent.com';
+    const client_id = process.env.GOOGLE_CLIENT_ID || '447393315446-u9m01qo1inee3vbkgtdi19t7fic2aun6.apps.googleusercontent.com';
     const client_secret = process.env.GOOGLE_CLIENT_SECRET || '';
 
     console.log('[Electron DeepLink] Commencing PKCE Google Token Exchange...');
@@ -323,7 +323,7 @@ ipcMain.handle('auth:google-login', async () => {
 
   oauthSession = { codeVerifier, state };
 
-  const client_id = process.env.GOOGLE_CLIENT_ID || '1069502621183-o5d9sh03f7e6f85of10u1n67n0f0u5d7.apps.googleusercontent.com';
+  const client_id = process.env.GOOGLE_CLIENT_ID || '447393315446-u9m01qo1inee3vbkgtdi19t7fic2aun6.apps.googleusercontent.com';
   const redirect_uri = 'cutecutpro://auth-callback';
   const scopes = [
     'openid',

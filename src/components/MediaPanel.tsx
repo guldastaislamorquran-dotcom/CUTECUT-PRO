@@ -2285,6 +2285,7 @@ export default function MediaPanel({
             tracks={tracks}
             onAddClip={onAddClip}
             onReplaceVideoTrackClips={onReplaceVideoTrackClips}
+            onUpdateClip={onUpdateClip}
             quranTranslation={quranTranslation}
             currentTime={currentTime}
           />
